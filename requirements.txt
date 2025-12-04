@@ -1,0 +1,15 @@
+numpy<2.0.0
+metagpt
+langchain
+langchain-openai
+langchain-community
+langchain-chroma
+chromadb
+sentence-transformers
+pandas
+scikit-learn
+scipy
+networkx
+python-dotenv
+pyyaml
+tqdm
