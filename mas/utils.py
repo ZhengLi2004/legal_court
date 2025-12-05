@@ -4,8 +4,25 @@ import json
 import random
 import math
 import numpy as np
+import contextlib
+import os
+import time
 from dataclasses import dataclass
 from typing import Union, Any, List
+# 锁
+@contextlib.contextmanager
+def simple_file_lock(lock_path: str, timeout: int = 5):
+    start_time = time.time()
+    
+    while os.path.exists(lock_path):
+        if time.time() - start_time > timeout: raise TimeoutError(f"Could not acquire lock: {lock_path}")
+        time.sleep(0.1)
+
+    with open(lock_path, 'w') as f: f.write('LOCKED')
+    try: yield
+    
+    finally:
+        if os.path.exists(lock_path): os.remove(lock_path)
 # 配置加载
 def load_config(config_path: str = "configs/configs.yaml"):
     if not os.path.exists(config_path): return {}

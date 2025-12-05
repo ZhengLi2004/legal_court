@@ -4,6 +4,8 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass, field
 from .llm import GPTChat, Message
 from .common import ShadowGraph
+from .semantic_matcher import SemanticMatcher
+from .utils import simple_file_lock
 
 @dataclass
 class Insight:
@@ -12,9 +14,10 @@ class Insight:
     source_case_id: str = ""
 # 法理策略 -> Insight Graph
 class InsightsManager:
-    def __init__(self, working_dir: str, llm: GPTChat):
+    def __init__(self, working_dir: str, llm: GPTChat, matcher: SemanticMatcher):
         self.working_dir = working_dir
         self.llm = llm
+        self.matcher = matcher
         self.file_path = os.path.join(working_dir, "legal_insights.json")
         self.insights: List[Insight] = self._load_insights()
 
@@ -27,8 +30,11 @@ class InsightsManager:
         return []
     
     def _save_insights(self):
-        data = [inst.__dict__ for inst in self.insights]
-        with open(self.file_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2, ensure_ascii=False)
+        lock_file = self.file_path + ".lock"
+        
+        with simple_file_lock(lock_file):
+            data = [inst.__dict__ for inst in self.insights]
+            with open(self.file_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2, ensure_ascii=False)
     # 通过对比同一案件的胜诉/败诉途径，提取策略
     def extract_adversarial_insights(self, 
                                      case_id: str,
@@ -56,15 +62,20 @@ class InsightsManager:
 
         if "STRATEGY:" in response:
             content = response.split("STRATEGY:")[1].strip()
-            
-            for inst in self.insights:
-                if content == inst.content:
-                    inst.score += 1.0
-                    self._save_insights()
-                    return
+            candidates = [(str(i), inst.content) for i, inst in enumerate(self.insights)]
+            match_idx_str = self.matcher.find_match(content, candidates)
                 
-            new_insight = Insight(content=content, source_case_id=case_id)
-            self.insights.append(new_insight)
+            if match_idx_str:
+                idx = int(match_idx_str)
+                self.insights[idx].score += 1.0
+                print(f"[Insights] Merged similar strategy: '{content}' -> '{self.insights[idx].content}'")
+            
+            else:
+
+                new_insight = Insight(content=content, source_case_id=case_id)
+                self.insights.append(new_insight)
+                print(f"[Insights] Added new strategy: '{content}'")
+            
             self._save_insights()
 
     def get_relevant_insights(self, top_k: int = 3) -> List[str]:

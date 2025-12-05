@@ -29,8 +29,14 @@ class GraphProjector:
             src_id = self.matcher.find_match(tgt_content, source_candidates)
             if src_id: matched_pairs.append((src_id, tgt_id))
 
+        MAX_NEIGHBORS_PER_ANCHOR = 3
+
         for src_id, tgt_id in matched_pairs:
-            for neighbor_id in source_graph.graph.successors(src_id):
+            neighbor_count = 0
+            successors = list(source_graph.graph.successors(src_id))
+
+            for neighbor_id in successors:
+                if neighbor_count >= MAX_NEIGHBORS_PER_ANCHOR: break
                 neighbor_data = source_graph.graph.nodes[neighbor_id]
                 edge_data = source_graph.graph.get_edge_data(src_id, neighbor_id)
                 
@@ -44,4 +50,6 @@ class GraphProjector:
                     matcher=self.matcher   # 确保语义去重
                 )
 
-                if not target_graph.graph.has_edge(tgt_id, new_node_id): target_graph.add_edge(tgt_id, new_node_id, edge_type=edge_data['type'])
+                if not target_graph.graph.has_edge(tgt_id, new_node_id):
+                    target_graph.add_edge(tgt_id, new_node_id, edge_type=edge_data['type'])
+                    neighbor_count += 1

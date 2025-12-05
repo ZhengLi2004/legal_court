@@ -16,7 +16,7 @@ class LegalSystem:
         self.ef = EmbeddingFunc(model_path="./bge-m3")
         self.matcher = SemanticMatcher(self.ef, threshold=0.90)
         self.memory = LegalGMemory(persist_dir=persist_dir)
-        self.insights = InsightsManager(persist_dir, self.llm)
+        self.insights = InsightsManager(persist_dir, self.llm, self.matcher)
         self.judge = LLMJudge(self.llm)
         self.projector = GraphProjector(self.matcher)
 

@@ -91,7 +91,6 @@ class ShadowGraph:
         return new_sg
 
     def _find_semantically_identical_node(self, content: str, node_type: NodeType) -> Optional[str]:
-        # TODO: ShouldMerge 的简化版，后续接入 Embedding 相似度
         for nid, data in self.graph.nodes(data=True):
             if data.get('type') == node_type and data.get('content', '').strip() == content.strip(): return nid
         

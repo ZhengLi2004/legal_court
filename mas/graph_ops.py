@@ -10,8 +10,8 @@ class GraphExecutor:
     # 执行单条指令并执行
     def apply_instruction(self, instruction: str, agent_id: str) -> str:
         instruction = instruction.strip()
-        add_pattern = r'ADD_(FACT|LAW|CLAIM)\(["\'](.*?)["\']\)'
-        add_match = re.match(add_pattern, instruction)
+        add_pattern = r'ADD_(FACT|LAW|CLAIM)\(\s*["\'](.*?)["\']\s*\)'
+        add_match = re.match(add_pattern, instruction, re.DOTALL)
         
         if add_match:
             node_type_str, content = add_match.groups()
@@ -33,7 +33,7 @@ class GraphExecutor:
                 traceback.print_exc()
                 return f"Error adding node: {e}"
         
-        link_pattern = r'LINK\((.*?),\s*(.*?),\s*(.*?)\)'
+        link_pattern = r'LINK\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z_]+)\s*\)'
         link_match = re.match(link_pattern, instruction)
 
         if link_match:
@@ -47,7 +47,7 @@ class GraphExecutor:
             except KeyError: return f"Error: Invalid Edge Type {type_str}"
             except ValueError as e: return f"Error: {str(e)}"
 
-        challenge_pattern = r'CHALLENGE\((.*?),\s*(.*?)\)'
+        challenge_pattern = r'CHALLENGE\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)'
         challenge_match = re.match(challenge_pattern, instruction)
 
         if challenge_match:
@@ -67,13 +67,13 @@ class GraphExecutor:
 
         for line in lines:
             clean_line = line.strip()
+            clean_line = re.sub(r'^[\d\-\*\.]+\s*', '', clean_line)
 
             if any(cmd in clean_line for cmd in ["ADD_", "LINK(", "CHALLENGE("]):
-                match = re.search(r'(ADD_|LINK\(|CHALLENGE\().*', clean_line)
+                match = re.search(r'(ADD_|LINK\(|CHALLENGE\().*', clean_line, re.DOTALL)
                 if match:
                     cmd = match.group(0)
-                    if cmd.endswith('.'): cmd = cmd[:-1]
-                    if cmd.endswith(';'): cmd = cmd[:-1]                   
+                    cmd = re.sub(r'[.;]+$', '', cmd)                 
                     log = self.apply_instruction(cmd, agent_id)
                     logs.append(log)
         return logs
