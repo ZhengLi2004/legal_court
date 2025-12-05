@@ -33,34 +33,13 @@ class TaskLayer:
                 self.graph.add_edge(new_case_id, neighbor_id, weight=score)
 
         self._save_graph()
-    # 添加案件节点
-    def add_case_node(self, case_context: str, case_id: str) -> None:
-        if case_id in self.graph: return
-        # TODO: 实际生产中要配合 ChromaDB 查询，避免存两份。这里复刻逻辑，先存内存
-        embedding = self.embedding_func.embed_query(case_context)
-        self.graph.add_node(case_id, content=case_context, embedding=embedding)
-        # TODO: 先做全量对比，后续优化
-        for existing_id, data in self.graph.nodes(data=True):
-            if existing_id == case_id: continue
-            sim = cosine_similarity(embedding, data['embedding'])
-            if sim >= self.similarity_threshold: self.graph.add_edge(case_id, existing_id, weight=sim)
 
-        self._save_graph()
-    # K-Hop 检索逻辑
-    def retrieve_related_cases(self, query_context: str, top_k: int = 3, hop: int = 1) -> List[str]:
-        query_emb = self.embedding_func.embed_query(query_context)
-        scores = []
+    def get_k_hop_neighbors(self, anchor_ids: List[str], hop: int = 1) -> List[str]:
+        result_set = set(anchor_ids)
         
-        for nid, data in self.graph.nodes(data=True):
-            sim = cosine_similarity(query_emb, data['embedding'])
-            scores.append((nid, sim))
-
-        scores.sort(key=lambda x: x[1], reverse=True)
-        anchors = [nid for nid, _ in scores[:top_k]]
-        result_set: Set[str] = set(anchors)
-
-        for anchor in anchors:
-            neighbors = nx.single_source_shortest_path_length(self.graph, anchor, cutoff=hop).keys()
-            result_set.update(neighbors)
-
+        for anchor in anchor_ids:
+            if anchor in self.graph:
+                neighbors = nx.single_source_shortest_path_length(self.graph, anchor, cutoff=hop).keys()
+                result_set.update(neighbors)
+        
         return list(result_set)
