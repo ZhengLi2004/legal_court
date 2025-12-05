@@ -36,9 +36,23 @@ class ShadowGraph:
         if not hasattr(self.graph, "graph"): self.graph.graph = {}
         if "id_counter" not in self.graph.graph: self.graph.graph["id_counter"] = 0
     
-    def add_node(self, content: str, node_type: NodeType, agent_id: str, metadata: dict = None) -> str:
-        existing_id = self._find_semantically_identical_node(content, node_type)
-        if existing_id: return existing_id
+    def add_node(self, content: str, node_type: NodeType, agent_id: str, 
+                matcher: Any = None,
+                metadata: dict = None) -> str:
+        if matcher:
+            candidates = [
+                (n, d['content']) 
+                for n, d in self.graph.nodes(data=True) 
+                if d['type'] == node_type
+            ]
+
+            existing_id = matcher.find_match(content, candidates)
+            if existing_id: return existing_id
+        
+        else:
+            existing_id = self._find_semantically_identical_node(content, node_type)
+            if existing_id: return existing_id
+        
         node_id = self._generate_id(node_type)
         
         node = ShadowNode(
