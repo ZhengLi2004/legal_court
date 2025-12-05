@@ -4,3 +4,4 @@ config
 logs
 metagpt
 workspace
+__pycache__
