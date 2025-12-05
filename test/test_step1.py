@@ -17,7 +17,7 @@ def test_embedding_utils():
     sim = cosine_similarity(vec1, vec2)
     print(f"Similarity ('盗窃罪' vs '偷窃'): {sim:.4f}")
     assert sim > 0.5
-
+# Step 1: 基本工具构建
 if __name__ == "__main__":
     try:
         test_llm_call()
