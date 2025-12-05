@@ -22,6 +22,6 @@ if __name__ == "__main__":
     try:
         test_llm_call()
         test_embedding_utils()
-        print("\n✅ Step 2 Completed Successfully!")
+        print("\n✅ Step 1 Completed Successfully!")
     
     except Exception as e: print(f"\n❌ Step 2 Failed: {e}")

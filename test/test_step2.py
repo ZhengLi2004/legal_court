@@ -25,6 +25,6 @@ def test_shadow_graph_ops():
 if __name__ == "__main__":
     try:
         test_shadow_graph_ops()
-        print("\n✅ Step 3 Completed Successfully!")
+        print("\n✅ Step 2 Completed Successfully!")
     
-    except Exception as e: print(f"\n❌ Step 3 Failed: {e}")
+    except Exception as e: print(f"\n❌ Step 2 Failed: {e}")
