@@ -34,12 +34,14 @@ class GraphProjector:
                 neighbor_data = source_graph.graph.nodes[neighbor_id]
                 edge_data = source_graph.graph.get_edge_data(src_id, neighbor_id)
                 
-                if neighbor_data['type'] in [NodeType.LAW, NodeType.CLAIM]:
-                    new_node_id = target_graph.add_node(
-                        content=neighbor_data['content'],
-                        node_type=neighbor_data['type'],
-                        agent_id="projection", # 标记来源
-                        matcher=self.matcher   # 确保语义去重
-                    )
+                if neighbor_data['type'] not in [NodeType.LAW, NodeType.CLAIM]: continue
+                if edge_data['type'] != EdgeType.SUPPORT: continue
 
-                    if not target_graph.graph.has_edge(tgt_id, new_node_id): target_graph.add_edge(tgt_id, new_node_id, edge_type=edge_data['type'])
+                new_node_id = target_graph.add_node(
+                    content=neighbor_data['content'],
+                    node_type=neighbor_data['type'],
+                    agent_id="projection", # 标记来源
+                    matcher=self.matcher   # 确保语义去重
+                )
+
+                if not target_graph.graph.has_edge(tgt_id, new_node_id): target_graph.add_edge(tgt_id, new_node_id, edge_type=edge_data['type'])

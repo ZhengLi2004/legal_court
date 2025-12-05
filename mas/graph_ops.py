@@ -1,21 +1,37 @@
 import re
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any
 from .common import ShadowGraph, NodeType, EdgeType
+from .semantic_matcher import SemanticMatcher
 # 解析 LLM 输出指令，执行图操作
 class GraphExecutor:
-    def __init__(self, graph: ShadowGraph): self.graph = graph
+    def __init__(self, graph: ShadowGraph, matcher: SemanticMatcher = None):
+        self.graph = graph
+        self.matcher = matcher
     # 执行单条指令并执行
-    def apply_instruction(self, instruction: str) -> str:
+    def apply_instruction(self, instruction: str, agent_id: str) -> str:
         instruction = instruction.strip()
         add_pattern = r'ADD_(FACT|LAW|CLAIM)\(["\'](.*?)["\']\)'
         add_match = re.match(add_pattern, instruction)
         
         if add_match:
             node_type_str, content = add_match.groups()
-            node_type = NodeType[node_type_str]
-            # TODO: 这里的 agent_id 暂时 hardcode，后续应从上下文传入
-            node_id = self.graph.add_node(content, node_type, agent_id="commander")
-            return f"Node Added: {node_id}"
+            
+            try:
+                node_type = NodeType[node_type_str]
+
+                node_id = self.graph.add_node(
+                    content=content, 
+                    node_type=node_type, 
+                    agent_id=agent_id,
+                    matcher=self.matcher 
+                )
+
+                return f"Node Added/Merged: {node_id}"
+            
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return f"Error adding node: {e}"
         
         link_pattern = r'LINK\((.*?),\s*(.*?),\s*(.*?)\)'
         link_match = re.match(link_pattern, instruction)
@@ -31,21 +47,33 @@ class GraphExecutor:
             except KeyError: return f"Error: Invalid Edge Type {type_str}"
             except ValueError as e: return f"Error: {str(e)}"
 
+        challenge_pattern = r'CHALLENGE\((.*?),\s*(.*?)\)'
+        challenge_match = re.match(challenge_pattern, instruction)
+
+        if challenge_match:
+            src, tgt = challenge_match.groups()
+
+            try:
+                self.graph.add_edge(src.strip(), tgt.strip(), EdgeType.CONFLICT)
+                return f"Challenge Added: {src}-|{tgt}"
+            
+            except Exception as e: return f"Error challenging: {e}"
+
         return "Error: Unknown Instruction"
     # 从一段 LLM 回复中提取多条指令、批量执行
-    def execute_batch(self, llm_response: str) -> List[str]:
+    def execute_batch(self, llm_response: str, agent_id: str) -> List[str]:
         logs = []
         lines = llm_response.split('\n')
 
         for line in lines:
-            if "ADD_" in line or "LINK(" in line:
-                clean_line = line.strip()
-                match = re.search(r'(ADD_|LINK\().*', clean_line)
+            clean_line = line.strip()
 
+            if any(cmd in clean_line for cmd in ["ADD_", "LINK(", "CHALLENGE("]):
+                match = re.search(r'(ADD_|LINK\(|CHALLENGE\().*', clean_line)
                 if match:
                     cmd = match.group(0)
                     if cmd.endswith('.'): cmd = cmd[:-1]
-                    log = self.apply_instruction(cmd)
+                    if cmd.endswith(';'): cmd = cmd[:-1]                   
+                    log = self.apply_instruction(cmd, agent_id)
                     logs.append(log)
-
         return logs

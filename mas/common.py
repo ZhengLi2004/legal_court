@@ -27,6 +27,16 @@ class ShadowNode:
     agent_id: str   # 提出节点的 Agent
     status: NodeStatus = NodeStatus.HYPOTHETICAL
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+def ensure_node_type(val: Any) -> NodeType:
+    if isinstance(val, NodeType): return val
+    if isinstance(val, str): return NodeType[val.upper()]
+    raise ValueError(f"Invalid NodeType: {val}")
+
+def ensure_edge_type(val: Any) -> EdgeType:
+    if isinstance(val, EdgeType): return val
+    if isinstance(val, str): return EdgeType[val.upper()]
+    raise ValueError(f"Invalid EdgeType: {val}")
 # 法律论辩过程中的语义图结构（G_t）
 @dataclass
 class ShadowGraph:
@@ -39,6 +49,8 @@ class ShadowGraph:
     def add_node(self, content: str, node_type: NodeType, agent_id: str, 
                 matcher: Any = None,
                 metadata: dict = None) -> str:
+        node_type = ensure_node_type(node_type)
+
         if matcher:
             candidates = [
                 (n, d['content']) 
@@ -68,6 +80,7 @@ class ShadowGraph:
 
     def add_edge(self, source_id: str, target_id: str, edge_type: EdgeType) -> None:
         if not self.graph.has_node(source_id) or not self.graph.has_node(target_id): raise ValueError(f"Source {source_id} or Target {target_id} does not exist.")
+        edge_type = ensure_edge_type(edge_type)
         self.graph.add_edge(source_id, target_id, type=edge_type)
 
     def get_subgraph(self, node_ids: List[str]) -> "ShadowGraph":
