@@ -41,9 +41,9 @@ def ensure_edge_type(val: Any) -> EdgeType:
 @dataclass
 class ShadowGraph:
     graph: nx.DiGraph = field(default_factory=nx.DiGraph)
-    id_alias: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
+        self.id_alias: Dict[str, str] = {}
         if not hasattr(self.graph, "graph"): self.graph.graph = {}
         if "id_counter" not in self.graph.graph: self.graph.graph["id_counter"] = 0
     

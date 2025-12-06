@@ -17,8 +17,9 @@ class GraphExecutor:
             
             try:
                 node_type = NodeType[node_type_str]
+                
                 node_id = self.graph.add_node(
-                    content=content, node_type=node_type, agent_id=agent_id, matcher=self.matcher
+                    content=content, node_type=node_type, agent_id=agent_id, matcher=None
                 )
                 
                 return node_id

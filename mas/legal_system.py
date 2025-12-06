@@ -1,4 +1,5 @@
 from typing import Tuple, List, Any
+import re
 from .llm import GPTChat
 from .utils import EmbeddingFunc
 from .common import ShadowGraph, LegalMessage, NodeStatus
@@ -14,7 +15,7 @@ class LegalSystem:
     def __init__(self, persist_dir: str = "./storage", recorder: Any = None):
         self.llm = GPTChat()
         self.ef = EmbeddingFunc(model_path="./bge-m3")
-        self.matcher = SemanticMatcher(self.ef, threshold=0.75)
+        self.matcher = SemanticMatcher(self.ef, threshold=0.5)
         self.memory = LegalGMemory(persist_dir=persist_dir)
         self.insights = InsightsManager(persist_dir, self.llm, self.matcher)
         self.judge = LLMJudge(self.llm)
@@ -24,14 +25,14 @@ class LegalSystem:
 
     def new_case(self, context: str) -> ShadowGraph:
         sg = ShadowGraph()
-        sg.add_node(context, "FACT", "system", matcher=self.matcher)
+        sg.add_node(context, "FACT", "system", matcher=None)
         relevant_strategies = self.insights.get_relevant_insights(context, top_k=3)
         
         if self.recorder:
             self.recorder.log_event(
                 step_name="New Case Initialization",
                 shadow_graph=sg,
-                message=""
+                message="Context: {context[:30]}..."
             )
         
         return sg, relevant_strategies
@@ -47,27 +48,39 @@ class LegalSystem:
                 message=f"Agent added nodes. Preparing for projection."
             )
 
-        projected_count = 0
-        try:
-            context_node = [n for n, d in graph.graph.nodes(data=True) if d.get('agent_id') == 'system'][0]
-            context = graph.graph.nodes[context_node]['content']
-            msgs, _ = self.memory.retrieve_memory(context, top_k=2)
-            history_graphs = [m.shadow_graph for m in msgs]
-            nodes_before = graph.graph.number_of_nodes()
-            self.projector.project(graph, history_graphs)
-            nodes_after = graph.graph.number_of_nodes()
-            projected_count = nodes_after - nodes_before
-            if projected_count > 0: logs.append(f"Projection triggered: {projected_count} nodes imported.")
+        if "ADD_" in action_text.upper():
+            projected_count = 0
+            
+            try:
+                context_node_candidates = [n for n, d in graph.graph.nodes(data=True) if d.get('agent_id') == 'system']
+                
+                if not context_node_candidates:
+                    all_facts = [d['content'] for n, d in graph.graph.nodes(data=True) if str(d.get('type')) == 'FACT']
+                    context = " ".join(all_facts)
 
-        except IndexError: pass
+                else:
+                    context_node = context_node_candidates[0]
+                    context = graph.graph.nodes[context_node]['content']
 
-        if self.recorder and projected_count > 0:
-            self.recorder.log_event(
-                step_name=f"Projection on Action",
-                shadow_graph=graph,
-                message=f"{projected_count} nodes were projected into the graph."
-            )
+                msgs, _ = self.memory.retrieve_memory(context, top_k=2)
+                history_graphs = [m.shadow_graph for m in msgs]
+                nodes_before = graph.graph.number_of_nodes()
+                self.projector.project(graph, history_graphs)
+                nodes_after = graph.graph.number_of_nodes()
+                projected_count = nodes_after - nodes_before
 
+                if projected_count > 0:
+                    logs.append(f"Projection triggered: {projected_count} nodes imported.")
+
+                    if self.recorder:
+                        self.recorder.log_event(
+                            step_name=f"Projection on ADD Action",
+                            shadow_graph=graph,
+                            message=f"{projected_count} nodes were projected into the graph."
+                        )
+                    
+            except Exception as e: logs.append(f"Error during projection: {e}")
+    
         return logs
 
     def adjudicate(self, context: str, graph: ShadowGraph) -> Tuple[bool, str]: return self.judge.evaluate(context, graph)

@@ -28,23 +28,24 @@ class GraphProjector:
             if src_id: matched_pairs.append((src_id, tgt_id))
 
         if not matched_pairs: return
-        id_map: Dict[str, str] = {}
-        for src_id, tgt_id in matched_pairs: id_map[src_id] = tgt_id
-        nodes_to_copy: Dict[str, Dict] = {}
+        id_map: Dict[str, str] = {src_id: tgt_id for src_id, tgt_id in matched_pairs}
+        nodes_to_project_ids: Set[str] = set(id_map.keys())
 
         for src_id, _ in matched_pairs:
             neighbors_to_process = set(source_graph.graph.successors(src_id)) | \
                                    set(source_graph.graph.predecessors(src_id))
 
             for neighbor_id in neighbors_to_process:
-                if neighbor_id in id_map: continue  # 锚点本身，不复制
                 neighbor_data = source_graph.graph.nodes[neighbor_id]
                 node_type_val = neighbor_data.get('type')
                 if hasattr(node_type_val, 'value'): node_type_val = node_type_val.value
                 if str(node_type_val) == NodeType.FACT.value: continue
-                nodes_to_copy[neighbor_id] = neighbor_data
+                nodes_to_project_ids.add(neighbor_id)
 
-        for nid, data in nodes_to_copy.items():
+        for nid in nodes_to_project_ids:
+            if nid in id_map: continue
+            data = source_graph.graph.nodes[nid]
+
             new_id = target_graph.add_node(
                 content=data['content'],
                 node_type=data['type'],
@@ -54,21 +55,12 @@ class GraphProjector:
 
             id_map[nid] = new_id
 
-        for src_id, _ in matched_pairs:
-            for successor_id in source_graph.graph.successors(src_id):
-                if src_id in id_map and successor_id in id_map:
-                    new_u, new_v = id_map[src_id], id_map[successor_id]
-                    
-                    if not target_graph.graph.has_edge(new_u, new_v):
-                        edge_data = source_graph.graph.get_edge_data(src_id, successor_id)
-                        edge_type_val = edge_data.get('type')
-                        target_graph.add_edge(new_u, new_v, edge_type=edge_type_val)
+        for u, v, data in source_graph.graph.edges(data=True):
+            if u in nodes_to_project_ids and v in nodes_to_project_ids:
+                new_u = id_map.get(u)
+                new_v = id_map.get(v)
+                if new_u == new_v: continue
 
-            for predecessor_id in source_graph.graph.predecessors(src_id):
-                if predecessor_id in id_map and src_id in id_map:
-                    new_u, new_v = id_map[predecessor_id], id_map[src_id]
-                    
-                    if not target_graph.graph.has_edge(new_u, new_v):
-                        edge_data = source_graph.graph.get_edge_data(predecessor_id, src_id)
-                        edge_type_val = edge_data.get('type')
-                        target_graph.add_edge(new_u, new_v, edge_type=edge_type_val)
+                if new_u and new_v and not target_graph.graph.has_edge(new_u, new_v):
+                    edge_type_val = data.get('type')
+                    target_graph.add_edge(new_u, new_v, edge_type=edge_type_val)
