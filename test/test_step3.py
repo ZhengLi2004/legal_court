@@ -1,4 +1,4 @@
-from mas.common import ShadowGraph, NodeType
+from mas.common import ShadowGraph
 from mas.graph_ops import GraphExecutor
 
 def test_executor():

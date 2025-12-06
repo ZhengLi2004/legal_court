@@ -1,5 +1,4 @@
-from typing import Set
-from .common import ShadowGraph, NodeType, NodeStatus, EdgeType
+from .common import ShadowGraph, NodeStatus
 # 根据判决结果标记属性
 class BackPropagator:
     def propagate(self, graph: ShadowGraph, winner_role: str) -> ShadowGraph:

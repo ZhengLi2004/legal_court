@@ -1,7 +1,7 @@
 import os
 import json
-from typing import List, Dict, Optional
-from dataclasses import dataclass, field
+from typing import List
+from dataclasses import dataclass
 from .llm import GPTChat, Message
 from .common import ShadowGraph
 from .semantic_matcher import SemanticMatcher

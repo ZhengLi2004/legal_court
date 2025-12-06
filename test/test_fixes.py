@@ -2,12 +2,10 @@ import shutil
 import os
 from mas.insights_manager import InsightsManager
 from mas.graph_ops import GraphExecutor
-from mas.llm import GPTChat
 from mas.common import ShadowGraph, NodeType, EdgeType
 from mas.semantic_matcher import SemanticMatcher
 from mas.utils import EmbeddingFunc
 from mas.projection import GraphProjector
-from mas.task_layer import TaskLayer
 from mas.utils import simple_file_lock
 import threading
 import time
@@ -20,6 +18,7 @@ def test_critical_fixes():
     test_dir = "./test_fix_insights"
     if os.path.exists(test_dir): shutil.rmtree(test_dir)
     os.makedirs(test_dir)
+    
     class MockLLM:
         def __call__(self, msgs): return "STRATEGY: 核心证据链必须闭环"
     
@@ -38,13 +37,6 @@ def test_critical_fixes():
     print("\n[2] Testing Regex Robustness...")
     sg = ShadowGraph()
     executor = GraphExecutor(sg, matcher)
-    
-    dirty_output = """
-    好的，我建议：
-    1. ADD_FACT("被告人说：'我没有偷'")  <-- 含单引号
-    - ADD_FACT("受害人丢失了
-    钱包") <-- 含换行 (测试 DOTALL)
-    """
     
     dirty_output_cleaner = """
     1. ADD_FACT("被告人说'没有'")

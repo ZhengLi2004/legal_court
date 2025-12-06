@@ -5,3 +5,6 @@ logs
 metagpt
 workspace
 __pycache__
+*.json
+*.gif
+evolution_demo

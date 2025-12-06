@@ -1,5 +1,5 @@
 import re
-from typing import List, Tuple, Optional, Any
+from typing import List
 from .common import ShadowGraph, NodeType, EdgeType
 from .semantic_matcher import SemanticMatcher
 # 解析 LLM 输出指令，执行图操作

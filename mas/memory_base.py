@@ -1,8 +1,8 @@
 import os
 import shutil
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Tuple, List, Dict
+from dataclasses import dataclass
+from typing import Tuple, List
 from .utils import EmbeddingFunc
 from .common import LegalMessage
 

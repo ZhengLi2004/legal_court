@@ -2,7 +2,7 @@ import os
 import pickle
 import networkx as nx
 from dataclasses import dataclass
-from typing import List, Set, Tuple
+from typing import List, Tuple
 from .utils import simple_file_lock
 
 @dataclass

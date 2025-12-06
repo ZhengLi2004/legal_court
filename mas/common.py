@@ -1,7 +1,7 @@
 import networkx as nx
 import json
 from dataclasses import dataclass, field, asdict
-from typing import Any, Optional, Iterator, Dict, List
+from typing import Any, Optional, Dict, List
 from enum import Enum
 from networkx.readwrite import json_graph
 # 枚举定义
