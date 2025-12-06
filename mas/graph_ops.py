@@ -8,9 +8,8 @@ class GraphExecutor:
         self.graph = graph
         self.matcher = matcher
     # 执行单条指令并执行
-    def apply_instruction(self, instruction: str, agent_id: str) -> str:
-        instruction = instruction.strip()
-        add_pattern = r'ADD_(FACT|LAW|CLAIM)\(\s*["\'](.*?)["\']\s*\)'
+    def apply_add(self, instruction: str, agent_id: str) -> str:
+        add_pattern = r'ADD_(FACT|LAW|CLAIM)\(["\'](.*?)["\']\)'
         add_match = re.match(add_pattern, instruction, re.DOTALL)
         
         if add_match:
@@ -18,62 +17,74 @@ class GraphExecutor:
             
             try:
                 node_type = NodeType[node_type_str]
-
                 node_id = self.graph.add_node(
-                    content=content, 
-                    node_type=node_type, 
-                    agent_id=agent_id,
-                    matcher=self.matcher 
+                    content=content, node_type=node_type, agent_id=agent_id, matcher=self.matcher
                 )
-
-                return f"Node Added/Merged: {node_id}"
+                
+                return node_id
             
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                return f"Error adding node: {e}"
+            except Exception as e: return f"Error: {e}"
         
-        link_pattern = r'LINK\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z_]+)\s*\)'
-        link_match = re.match(link_pattern, instruction)
+        return "Error: Unknown ADD format"
 
-        if link_match:
-            src, tgt, type_str = link_match.groups()
+    def apply_link(self, src_id: str, tgt_id: str, type_str: str) -> str:
+        if not self.graph.graph.has_node(src_id): return f"Error: Source node '{src_id}' not found in graph."
+        if not self.graph.graph.has_node(tgt_id): return f"Error: Target node '{tgt_id}' not found in graph."
             
-            try:
-                edge_type = EdgeType[type_str.upper()]
-                self.graph.add_edge(src.strip(), tgt.strip(), edge_type)
-                return f"Edge Added: {src}->{tgt}"
-            
-            except KeyError: return f"Error: Invalid Edge Type {type_str}"
-            except ValueError as e: return f"Error: {str(e)}"
-
-        challenge_pattern = r'CHALLENGE\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)'
-        challenge_match = re.match(challenge_pattern, instruction)
-
-        if challenge_match:
-            src, tgt = challenge_match.groups()
-
-            try:
-                self.graph.add_edge(src.strip(), tgt.strip(), EdgeType.CONFLICT)
-                return f"Challenge Added: {src}-|{tgt}"
-            
-            except Exception as e: return f"Error challenging: {e}"
-
-        return "Error: Unknown Instruction"
+        try:
+            edge_type = EdgeType[type_str.upper()]
+            self.graph.add_edge(src_id, tgt_id, edge_type=edge_type)
+            return f"Edge Added: {src_id} -> {tgt_id}"
+        
+        except Exception as e: return f"Error linking nodes: {e}"
     # 从一段 LLM 回复中提取多条指令、批量执行
     def execute_batch(self, llm_response: str, agent_id: str) -> List[str]:
         logs = []
-        lines = llm_response.split('\n')
+        instructions = []
+        raw_lines = llm_response.split('\n')
+        for line in raw_lines: instructions.extend([part.strip() for part in line.split(';') if part.strip()])
 
-        for line in lines:
-            clean_line = line.strip()
-            clean_line = re.sub(r'^[\d\-\*\.]+\s*', '', clean_line)
+        for cmd_text in instructions:
+            clean_cmd = re.sub(r'^[\d\-\*\.]+\s*', '', cmd_text).strip()
+            if not clean_cmd: continue
+            add_pattern = r'ADD_(FACT|LAW|CLAIM)\(["\'](.*?)["\']\)'
+            add_match = re.match(add_pattern, clean_cmd, re.DOTALL)
+            
+            if add_match:
+                node_type_str = add_match.group(1)
+                count = len([k for k in self.graph.id_alias if k.startswith(node_type_str)]) + 1
+                local_key = f"{node_type_str}_{count}"
+                real_id = self.apply_add(clean_cmd, agent_id)
+                
+                if not real_id.startswith("Error"):
+                    self.graph.id_alias[local_key] = real_id
+                    logs.append(f"Aliased {local_key} -> {real_id}")
+                
+                else: logs.append(real_id)
+                continue
 
-            if any(cmd in clean_line for cmd in ["ADD_", "LINK(", "CHALLENGE("]):
-                match = re.search(r'(ADD_|LINK\(|CHALLENGE\().*', clean_line, re.DOTALL)
-                if match:
-                    cmd = match.group(0)
-                    cmd = re.sub(r'[.;]+$', '', cmd)                 
-                    log = self.apply_instruction(cmd, agent_id)
-                    logs.append(log)
+            link_pattern = r'LINK\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z_]+)\s*\)'
+            link_match = re.match(link_pattern, clean_cmd)
+            
+            if link_match:
+                src_alias, tgt_alias, type_str = link_match.groups()
+                real_src = self.graph.id_alias.get(src_alias, src_alias)
+                real_tgt = self.graph.id_alias.get(tgt_alias, tgt_alias)
+                log = self.apply_link(real_src, real_tgt, type_str)
+                logs.append(log)
+                continue
+
+            challenge_pattern = r'CHALLENGE\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)'
+            challenge_match = re.match(challenge_pattern, clean_cmd)
+            
+            if challenge_match:
+                src_alias, tgt_alias = challenge_match.groups()
+                real_src = self.graph.id_alias.get(src_alias, src_alias)
+                real_tgt = self.graph.id_alias.get(tgt_alias, tgt_alias)
+                log = self.apply_link(real_src, real_tgt, "CONFLICT")
+                logs.append(log)
+                continue
+            
+            logs.append(f"Error: Unknown instruction '{clean_cmd}'")
+            
         return logs

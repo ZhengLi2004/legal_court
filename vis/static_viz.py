@@ -1,15 +1,19 @@
 import networkx as nx
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import os
 from mas.common import ShadowGraph, NodeStatus
 from mas.task_layer import TaskLayer
 from mas.insights_manager import InsightsManager
+font_path = '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
 
 class GMemoryVisualizer:
     def __init__(self, output_dir: str = "./viz_output"):
         self.output_dir = output_dir
         if not os.path.exists(output_dir): os.makedirs(output_dir)
-        # plt.rcParams['font.sans-serif'] = ['SimHei', 'WenQuanYi Micro Hei', 'Microsoft YaHei']
+        fm.fontManager.addfont(font_path)
+        font_name = fm.FontProperties(fname=font_path).get_name()
+        plt.rcParams['font.sans-serif'] = [font_name]
         plt.rcParams['axes.unicode_minus'] = False
     # 1. Interaction (Shadow) Graph
     def draw_shadow_graph(self, shadow_graph: ShadowGraph, filename: str = "shadow_graph.png", title: str = ""):

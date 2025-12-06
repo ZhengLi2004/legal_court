@@ -14,7 +14,7 @@ class LegalSystem:
     def __init__(self, persist_dir: str = "./storage", recorder: Any = None):
         self.llm = GPTChat()
         self.ef = EmbeddingFunc(model_path="./bge-m3")
-        self.matcher = SemanticMatcher(self.ef, threshold=0.80)
+        self.matcher = SemanticMatcher(self.ef, threshold=0.75)
         self.memory = LegalGMemory(persist_dir=persist_dir)
         self.insights = InsightsManager(persist_dir, self.llm, self.matcher)
         self.judge = LLMJudge(self.llm)
@@ -25,16 +25,13 @@ class LegalSystem:
     def new_case(self, context: str) -> ShadowGraph:
         sg = ShadowGraph()
         sg.add_node(context, "FACT", "system", matcher=self.matcher)
-        msgs, _ = self.memory.retrieve_memory(context, top_k=2)
-        history_graphs = [m.shadow_graph for m in msgs]
-        self.projector.project(sg, history_graphs)
         relevant_strategies = self.insights.get_relevant_insights(context, top_k=3)
         
         if self.recorder:
             self.recorder.log_event(
                 step_name="New Case Initialization",
                 shadow_graph=sg,
-                message=f"Context: {context[:30]}...\nProjected {len(history_graphs)} historical cases."
+                message=""
             )
         
         return sg, relevant_strategies
@@ -45,9 +42,30 @@ class LegalSystem:
 
         if self.recorder:
             self.recorder.log_event(
-                step_name=f"Action: {agent_id}",
+                step_name=f"Action: {agent_id} (Executed)",
                 shadow_graph=graph,
-                message=f"Executed: {action_text[:50]}..."
+                message=f"Agent added nodes. Preparing for projection."
+            )
+
+        projected_count = 0
+        try:
+            context_node = [n for n, d in graph.graph.nodes(data=True) if d.get('agent_id') == 'system'][0]
+            context = graph.graph.nodes[context_node]['content']
+            msgs, _ = self.memory.retrieve_memory(context, top_k=2)
+            history_graphs = [m.shadow_graph for m in msgs]
+            nodes_before = graph.graph.number_of_nodes()
+            self.projector.project(graph, history_graphs)
+            nodes_after = graph.graph.number_of_nodes()
+            projected_count = nodes_after - nodes_before
+            if projected_count > 0: logs.append(f"Projection triggered: {projected_count} nodes imported.")
+
+        except IndexError: pass
+
+        if self.recorder and projected_count > 0:
+            self.recorder.log_event(
+                step_name=f"Projection on Action",
+                shadow_graph=graph,
+                message=f"{projected_count} nodes were projected into the graph."
             )
 
         return logs

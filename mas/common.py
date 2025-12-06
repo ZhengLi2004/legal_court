@@ -41,6 +41,7 @@ def ensure_edge_type(val: Any) -> EdgeType:
 @dataclass
 class ShadowGraph:
     graph: nx.DiGraph = field(default_factory=nx.DiGraph)
+    id_alias: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         if not hasattr(self.graph, "graph"): self.graph.graph = {}
@@ -102,14 +103,17 @@ class ShadowGraph:
         return f"{node_type.value}_{self.graph.graph['id_counter']}"
     # 序列化方法
     @staticmethod
-    def to_dict(sg: "ShadowGraph") -> dict: return json_graph.node_link_data(sg.graph)
+    def to_dict(sg: "ShadowGraph") -> dict:
+        graph_data = json_graph.node_link_data(sg.graph)
+        return {"graph_data": graph_data, "id_alias": sg.id_alias}
 
     @staticmethod
     def from_dict(data: dict) -> "ShadowGraph":
         sg = ShadowGraph()
-        loaded_graph = json_graph.node_link_graph(data)
-        sg.graph = loaded_graph
-        if "id_counter" not in sg.graph.graph: sg.graph.graph["id_counter"] = loaded_graph.number_of_nodes()
+        sg.graph = json_graph.node_link_graph(data["graph_data"])
+        sg.id_alias = data.get("id_alias", {})
+        graph_dict_data = data.get("graph_data", data)
+        sg.graph.graph["id_counter"] = graph_dict_data["graph"]["id_counter"]
         return sg
 
     def to_json(self) -> str: return json.dumps(self.to_dict(self), ensure_ascii=False)

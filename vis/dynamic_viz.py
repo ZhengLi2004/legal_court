@@ -23,7 +23,9 @@ def generate_dynamic_gif(trace_path: str, output_gif: str = "evolution.gif", dur
             try:
                 sg_data = step['shadow_graph']
                 sg = ShadowGraph()
-                sg.graph = json_graph.node_link_graph(sg_data)
+                graph_dict = sg_data["graph_data"]
+                sg.id_alias = sg_data.get("id_alias", {})
+                sg.graph = json_graph.node_link_graph(graph_dict)
                 filename = f"frame_{i:03d}.png"
                 title = f"Step {i}: {step['step']}\n{step['message']}"
                 viz.draw_shadow_graph(sg, filename=filename, title=title)
@@ -34,6 +36,7 @@ def generate_dynamic_gif(trace_path: str, output_gif: str = "evolution.gif", dur
                         img_resized = img.resize(target_size, Image.Resampling.LANCZOS)
                         images.append(np.array(img_resized))
             
+            except KeyError as e: print(f"KeyError processing frame {i}: {e}. Data: {sg_data}")
             except Exception as e: print(f"Error processing frame {i}: {e}")
             
     if images:

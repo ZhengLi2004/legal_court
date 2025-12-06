@@ -24,7 +24,5 @@ class SemanticMatcher:
                 best_score = score
                 best_id = cid
         
-        if best_score > 0.7:
-            print(f"[Matcher] Best score: {best_score:.4f} for '{query[:10]}...'")
         if best_score >= self.threshold: return best_id
         return None

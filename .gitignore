@@ -7,4 +7,5 @@ workspace
 __pycache__
 *.json
 *.gif
-evolution_demo
+demo
+temp_*

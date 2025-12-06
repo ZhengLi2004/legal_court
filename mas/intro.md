@@ -1,125 +1,125 @@
-# G-Memory (Legal Adapter) Architecture & Implementation Guide
+# G-Memory (法律适配版) 架构与实现指南
 
-This document outlines the architecture of the **Legal Adapter for G-Memory**, mapping the theoretical concepts from the **Adversarial Spiral Protocol (ASP)** methodology to their concrete Python implementations within the `mas/` package.
+本文档阐述了 **G-Memory (法律适配版)** 的系统架构，旨在将 **对抗性螺旋协议 (Adversarial Spiral Protocol, ASP)** 方法论中的理论概念，映射到 `mas/` 包中的具体 Python 实现。
 
 ---
 
-## 1. Core Data Structure: Shadow Graph ($\mathcal{G}_t$)
+## 1. 核心数据结构: 影图 ($\mathcal{G}_t$, Shadow Graph)
 
-**Methodology**:
-The **Shadow Graph** is a structured, semantic representation of the legal dispute. Unlike raw dialogue logs, it tracks the logical dependencies between:
-*   **Facts ($F$)**: Evidence or events.
-*   **Laws ($L$)**: Legal statutes.
-*   **Claims ($C$)**: Arguments derived from Facts/Laws.
-*   **Edges ($E$)**: Support ($\rightarrow$) or Conflict ($\dashv$) relations.
+**方法论**:
+**影图**是法律论辩过程的结构化、语义化表示。与原始对话日志不同，它追踪以下要素间的逻辑依赖关系：
+*   **事实 ($F$)**: 证据或事件。
+*   **法条 ($L$)**: 法律法规。
+*   **观点 ($C$)**: 基于事实或法条的论点。
+*   **边 ($E$)**: 支持 ($\rightarrow$) 或 冲突 ($\dashv$) 关系。
 
-Each node has a status: $S \in \{\text{Hypothetical}, \text{Validated}, \text{Defeated}\}$.
+每个节点都拥有一个状态: $S \in \{\text{假设的}, \text{已验证的}, \text{已驳斥的}\}$。
 
-**Implementation** (`mas/common.py`):
+**代码实现** (`mas/common.py`):
 ```python
 @dataclass
 class ShadowGraph:
     """
-    Maintains the directed graph of the legal argument.
-    Supports semantic deduplication and serialization.
+    维护法律论证的有向图。
+    支持语义去重和序列化。
     """
     graph: nx.DiGraph
     
     def add_node(self, content, node_type, agent_id, matcher=None):
-        # Adds node with semantic checking (Eq 3: ShouldMerge)
+        # 通过语义检查添加节点 (对应公式3: ShouldMerge)
         ...
 ```
 
 ---
 
-## 2. Memory Architecture (G-Memory 3-Tier)
+## 2. 记忆架构 (G-Memory 三层结构)
 
-The system adapts the G-Memory three-tier hierarchy for legal reasoning.
+本系统为法律推理场景适配了 G-Memory 的三层记忆架构。
 
-### A. Interaction Graph (The Case History)
-**Methodology**: Concrete historical cases used for **Associative Projection**.
-**Implementation** (`mas/legal_memory.py`):
-*   Stored as JSON metadata in **ChromaDB**.
-*   Retrieved via `retrieve_memory` and deserialized into `ShadowGraph` objects.
+### A. 交互图 (Interaction Graph - 案例历史)
+**方法论**: 具体的历史案例，用于 **关联投影 (Associative Projection)**。
+**代码实现** (`mas/legal_memory.py`):
+*   以 JSON 字符串的形式，作为元数据存储在 **ChromaDB** 中。
+*   通过 `retrieve_memory` 接口检索，并反序列化为 `ShadowGraph` 对象。
 
-### B. Query Graph (The Case Topology)
-**Methodology**: A navigation layer to find semantically similar cases (K-Hop).
-**Implementation** (`mas/task_layer.py`):
-*   **In-Memory**: Uses `networkx` to store case connectivity (Topology).
-*   **Storage**: Persisted as `case_graph.pkl`.
-*   **Logic**: Updates topology based on ChromaDB ANN results.
+### B. 查询图 (Query Graph - 案例拓扑)
+**方法论**: 一个导航层，用于发现语义相似的案件 (K-Hop 检索)。
+**代码实现** (`mas/task_layer.py`):
+*   **内存中**: 使用 `networkx` 存储案件之间的连通性（拓扑）。
+*   **磁盘上**: 持久化为 `case_graph.pkl` 文件。
+*   **逻辑**: 基于 ChromaDB 的 ANN (近似最近邻) 检索结果动态更新拓扑。
 
-### C. Insight Graph (Legal Strategies)
-**Methodology**: Abstract legal strategies extracted from winning/losing patterns.
-**Implementation** (`mas/insights_manager.py`):
-*   **In-Memory**: Vector index of strategies.
-*   **Storage**: `legal_insights.json`.
-*   **Logic**: `extract_adversarial_insights` compares winning vs. losing subgraphs.
+### C. 洞察图 (Insight Graph - 法律策略)
+**方法论**: 从历史案件的胜负模式中抽象出的法律策略。
+**代码实现** (`mas/insights_manager.py`):
+*   **内存中**: 维护一个策略的向量索引。
+*   **磁盘上**: 持久化为 `legal_insights.json` 文件。
+*   **逻辑**: `extract_adversarial_insights` 方法通过对比胜诉与败诉的子图来提炼新策略。
 
 ---
 
-## 3. Workflow & Algorithms
+## 3. 工作流与算法
 
-### Algorithm 1: Execute ($\text{Execute}(a_t, \mathcal{G}_t)$)
-**Methodology**: Agents output actions (ADD/LINK) to modify the graph.
-**Implementation** (`mas/graph_ops.py`):
-*   **Component**: `GraphExecutor`
-*   **Logic**: Parses LLM output (Regex-based) into atomic graph operations.
+### 算法 1: 执行 ($\text{Execute}(a_t, \mathcal{G}_t)$)
+**方法论**: 智能体输出 `ADD/LINK` 等动作来修改图谱。
+**代码实现** (`mas/graph_ops.py`):
+*   **组件**: `GraphExecutor`
+*   **逻辑**: 基于正则表达式解析 LLM 的输出，将其转化为原子的图操作指令。
     *   `ADD_FACT("...")` $\rightarrow$ `graph.add_node(...)`
     *   `LINK(A, B, SUPPORT)` $\rightarrow$ `graph.add_edge(...)`
 
-### Algorithm 3: Associative Projection ($\mathcal{P}(\mathcal{G}_0, \mathcal{M})$)
-**Methodology**: Initializing the graph by projecting relevant subgraphs from history.
-**Implementation** (`mas/projection.py`):
-*   **Component**: `GraphProjector`
-*   **Logic**:
-    1.  Match current facts with historical facts using `SemanticMatcher`.
-    2.  Project connected **Laws** and **Claims** from history.
-    3.  **Filter**: Only projects `SUPPORT` edges to minimize noise.
+### 算法 3: 关联投影 ($\mathcal{P}(\mathcal{G}_0, \mathcal{M})$)
+**方法论**: 通过从历史库中投影相关的子图来初始化当前案件的图谱。
+**代码实现** (`mas/projection.py`):
+*   **组件**: `GraphProjector`
+*   **逻辑**:
+    1.  使用 `SemanticMatcher` 匹配当前节点与历史节点。
+    2.  将被匹配节点的 **1-Hop 邻居子图** (包括上游和下游) 复制到当前图中。
+    3.  **过滤器**: 投影时会忽略历史案件中的 `FACT` 节点，以避免污染当前案情。
 
-### Algorithm 4: Verdict Back-Propagation
-**Methodology**: Updating the graph status based on the Judge's verdict.
-**Implementation** (`mas/backprop.py`):
-*   **Component**: `BackPropagator`
-*   **Logic**:
-    1.  Mark Winner's nodes as `VALIDATED`.
-    2.  Mark Loser's nodes (if challenged) as `DEFEATED`.
+### 算法 4: 判决反向传播
+**方法论**: 根据法官的判决结果，更新图中节点的状态。
+**代码实现** (`mas/backprop.py`):
+*   **组件**: `BackPropagator`
+*   **逻辑**:
+    1.  将胜诉方提出的节点标记为 `VALIDATED`。
+    2.  将被反驳的败诉方节点标记为 `DEFEATED`。
 
 ---
 
-## 4. System Interface (The Facade)
+## 4. 系统接口 (The Facade)
 
-**Implementation** (`mas/legal_system.py`):
-The `LegalSystem` class orchestrates all components, serving as the "Brain" for MetaGPT agents.
+**代码实现** (`mas/legal_system.py`):
+`LegalSystem` 类封装并调度了所有组件，作为 MetaGPT 智能体的“大脑”。
 
-| Methodology Step | API Method | Description |
+| 方法论步骤 | API 接口 | 描述 |
 | :--- | :--- | :--- |
-| **Initialize** | `new_case(context)` | Performs **Downward** (Projection) & **Upward** (Insight Retrieval) traversals. |
-| **Action** | `execute_action(graph, agent, text)` | Parses agent text into graph updates. |
-| **Judge** | `adjudicate(context, graph)` | Calls the Judge (LLM/Model) for a verdict. |
-| **Learn** | `learn(context, graph, winner)` | Executes **BackProp**, stores case, and extracts new insights. |
+| **初始化** | `new_case(context)` | 执行 **向下** (投影) 和 **向上** (策略检索) 的双向遍历。 |
+| **行动** | `execute_action(graph, agent, text)` | 解析智能体的文本输出，并更新图谱。 |
+| **判决** | `adjudicate(context, graph)` | 调用法官 (LLM/模型) 获取判决。 |
+| **学习** | `learn(context, graph, winner)` | 执行**反向传播**，存储案例，并提取新策略。 |
 
 ---
 
-## 5. Usage Example
+## 5. 使用示例
 
 ```python
 from mas.legal_system import LegalSystem
 
-# 1. Initialize
+# 1. 初始化系统
 sys = LegalSystem("./storage")
 
-# 2. Start Case (Trigger Projection & Insight Retrieval)
-context = "Defendant stole a wallet but claims it was borrowed."
+# 2. 开启新案件 (触发投影和策略检索)
+context = "被告人偷了钱包，但辩称是借用。"
 graph, strategies = sys.new_case(context)
 
-# 3. Agent Action (Plaintiff)
-sys.execute_action(graph, "plaintiff", 'ADD_CLAIM("Intent to deprive")')
+# 3. 智能体行动 (原告)
+sys.execute_action(graph, "plaintiff", 'ADD_CLAIM("具有非法占有目的")')
 
-# 4. Agent Action (Defendant)
-sys.execute_action(graph, "defendant", 'CHALLENGE(CLAIM_1, "Borrowing is not theft")')
+# 4. 智能体行动 (被告)
+sys.execute_action(graph, "defendant", 'CHALLENGE(CLAIM_1, "借用不等于盗窃")')
 
-# 5. Verdict & Learning
+# 5. 判决与学习
 settled, winner = sys.adjudicate(context, graph)
 if settled:
     sys.learn(context, graph, winner, "case_001")
@@ -127,14 +127,14 @@ if settled:
 
 ---
 
-## 6. Limitations & Methodology Alignment
+## 6. 局限性与方法论对齐
 
-#### **A. Saturation vs. Semantic Verdict (The $\Delta \Phi$ Approximation)**
-*   **Methodology Theory**: The paper proposes terminating the adversarial spiral based on **Information Gain Saturation ($\Delta \Phi \approx 0$)**—a structural metric indicating that further debate yields no new valid graph nodes.
-*   **Current Implementation**: The system currently relies on the **Judge's Semantic Verdict** (`LLMJudge.evaluate`) to determine termination.
-*   **Deviation Note**: The theoretical "Information Saturation" is approximated by the LLM's subjective assessment of case clarity ("Is the evidence sufficient?"). The explicit calculation of graph entropy or node saturation rate is **not yet implemented** in the `Judge` module.
+#### **A. 饱和度 vs 语义判决 ($\Delta \Phi$ 的近似)**
+*   **理论**: 论文提出基于**信息增益饱和度 ($\Delta \Phi \approx 0$)** 来终止对抗螺旋，这是一个衡量新信息不再产生的结构化指标。
+*   **现状**: 系统目前依赖**法官的语义判决** (`LLMJudge.evaluate`) 来决定终止。
+*   **偏差说明**: 理论上的“信息饱和”被 LLM 对案件清晰度的主观评估（“证据是否充分？”）所近似替代。`Judge` 模块中尚未实现对图熵或节点饱和率的显式计算。
 
-#### **B. The Missing Driver (Algorithm 2)**
-*   **Methodology Theory**: **Algorithm 2 (ASP)** defines the turn-based orchestration: `Plaintiff` $\rightarrow$ `Defendant` $\rightarrow$ `Check Saturation`.
-*   **Current Implementation**: The `mas` package serves as the **Memory & Reasoning Engine**, providing atomic capabilities (`execute`, `project`, `learn`). It **does not** contain the debate loop itself.
-*   **Integration Plan**: The **ASP Loop (Algorithm 2)** will be implemented as a **MetaGPT Standard Operating Procedure (SOP)**, where MetaGPT Roles (`Plaintiff`, `Defendant`) call the `LegalSystem` API in turns. The `mas` package is the *Library*, MetaGPT is the *Application*.
+#### **B. 缺失的驱动器 (算法 2)**
+*   **理论**: **算法 2 (ASP)** 定义了回合制的编排流程: `原告` $\rightarrow$ `被告` $\rightarrow$ `检查饱和度`。
+*   **现状**: `mas` 包作为**记忆与推理引擎**，提供了所有原子能力 (`execute`, `project`, `learn`)，但**不包含**辩论循环本身。
+*   **集成计划**: **ASP 循环 (算法 2)** 将被实现为一个 **MetaGPT 标准操作流程 (SOP)**。届时，MetaGPT 的角色 (`Plaintiff`, `Defendant`) 将轮流调用 `LegalSystem` 的 API。`mas` 包是*库*，MetaGPT 是*应用程序*。
