@@ -21,7 +21,8 @@ class LegalGMemory(MASMemoryBase):
 
         self.collection = self.chroma_client.get_or_create_collection(
             name=self.collection_name,
-            embedding_function=self.chroma_ef
+            embedding_function=self.chroma_ef,
+            metadata={"hnsw:space": "cosine"}
         )
 
         self.task_layer = TaskLayer(working_dir=self.persist_dir)
@@ -44,7 +45,7 @@ class LegalGMemory(MASMemoryBase):
 
         for rid, dist in zip(retrieved_ids, retrieved_distances):
             if rid == message.case_id: continue
-            sim = 1.0 - dist 
+            sim = max(0.0, 1.0 - dist)
             neighbors.append((rid, sim))
 
         self.task_layer.update_topology(message.case_id, neighbors)

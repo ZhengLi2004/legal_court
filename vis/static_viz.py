@@ -9,7 +9,7 @@ class GMemoryVisualizer:
     def __init__(self, output_dir: str = "./viz_output"):
         self.output_dir = output_dir
         if not os.path.exists(output_dir): os.makedirs(output_dir)
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans', 'sans-serif']
+        # plt.rcParams['font.sans-serif'] = ['SimHei', 'WenQuanYi Micro Hei', 'Microsoft YaHei']
         plt.rcParams['axes.unicode_minus'] = False
     # 1. Interaction (Shadow) Graph
     def draw_shadow_graph(self, shadow_graph: ShadowGraph, filename: str = "shadow_graph.png", title: str = ""):
