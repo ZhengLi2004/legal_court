@@ -83,32 +83,58 @@ def test_p3_memory_and_projection(cleanup):
     print("✅ TaskLayer is being populated.")
 # Phase 4: Full System & Visualization Demo
 def test_p4_full_demo(cleanup):
-    print("\n--- Testing Phase 4: Full Demo & Visualization ---")
+    print("\n--- Testing Phase 4: Full Demo & Visualization (Enhanced Trilogy)...")
     root_dir = TEST_DIR
     storage_dir = os.path.join(root_dir, "storage")
     trace_file = os.path.join(root_dir, "trace.json")
     gif_file = os.path.join(root_dir, "demo.gif")
     recorder = SystemRecorder(trace_file)
     system = LegalSystem(persist_dir=storage_dir, recorder=recorder)
-    seed_context = "被告人李四注册空壳公司，伪造购销合同..."
-    seed_sg = ShadowGraph()
+    print("\n--- Running Seed Case 1: Contract Fraud ---")
+    seed_context_1 = "被告人李四伪造公司资质，与原告签订大额采购合同，收款后失联。"
+    seed_sg_1 = ShadowGraph()
+    
+    system.execute_action(seed_sg_1, "plaintiff", """
+        ADD_FACT("伪造公司资质签订合同")
+        ADD_LAW("刑法224条 合同诈骗罪")
+        ADD_CLAIM("具有非法占有目的")
+        LINK(FACT_1, LAW_1, SUPPORT)
+        LINK(FACT_1, CLAIM_1, SUPPORT)
+    """)
+    
+    system.learn(seed_context_1, seed_sg_1, "plaintiff", "case_seed_01")
+    print("\n--- Running Reinforcement Case 2: Supply Fraud ---")
+    seed_context_2 = "被告人赵五虚构货源，与原告签订供货协议，收取定金后无法交货。"
+    seed_sg_2 = ShadowGraph()
 
-    system.execute_action(seed_sg, "plaintiff", """
-        ADD_FACT("伪造合同")
-        ADD_LAW("合同诈骗罪")
+    system.execute_action(seed_sg_2, "plaintiff", """
+        ADD_FACT("虚构货源签订协议")
+        ADD_LAW("刑法224条 合同诈骗罪")
         LINK(FACT_1, LAW_1, SUPPORT)
     """)
 
-    system.learn(seed_context, seed_sg, "plaintiff", "case_seed_fraud")
-    context = "被告人王五编造元宇宙项目..."
+    system.learn(seed_context_2, seed_sg_2, "plaintiff", "case_seed_02")
+    print("\n--- Running Ultimate Test Case 3: Fundraising Fraud ---")
+    context = "被告人王五编造元宇宙养猪项目，向公众非法集资后挥霍。"
     sg_live, _ = system.new_case(context)
-    system.execute_action(sg_live, "plaintiff", 'ADD_FACT("编造虚假项目")')
+    print("  > Turn 1: Plaintiff acts...")
+    p_action_1 = 'ADD_FACT("编造虚假项目骗取款项")'
+    system.execute_action(sg_live, "plaintiff", p_action_1)
+    print("  > Turn 2: Defendant acts...")
+    d_action_1 = 'ADD_CLAIM("这是正常的商业投资失败")'
+    system.execute_action(sg_live, "defendant", d_action_1)
+    print("  > Turn 3: Plaintiff acts...")
+    p_action_2 = 'ADD_FACT("被告人将资金用于个人奢侈品消费")'
+    system.execute_action(sg_live, "plaintiff", p_action_2)
+    print("  > Turn 4: Plaintiff links projected nodes...")
+    p_action_3 = 'LINK(FACT_1, LAW_2, SUPPORT)' 
+    system.execute_action(sg_live, "plaintiff", p_action_3)
     system.learn(context, sg_live, "plaintiff", "case_test_hybrid")
     recorder.save()
     generate_dynamic_gif(trace_file, gif_file, duration=2.0)
-    snapshot_global_state(system, 1, output_dir=os.path.join(root_dir, "viz_output"))
+    snapshot_global_state(system, 3, output_dir=os.path.join(root_dir, "viz_output"))
     assert os.path.exists(gif_file), "GIF generation failed"
-    print("✅ Full Demo with Visualization works.")
+    print(f"\n✅ Trilogy Demo with Visualization Completed. See {gif_file}")
 
 def run_all_tests():
     test_p1_infrastructure(cleanup())

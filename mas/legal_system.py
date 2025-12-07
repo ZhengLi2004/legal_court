@@ -15,11 +15,12 @@ class LegalSystem:
     def __init__(self, persist_dir: str = "./storage", recorder: Any = None):
         self.llm = GPTChat()
         self.ef = EmbeddingFunc(model_path="./bge-m3")
-        self.matcher = SemanticMatcher(self.ef, threshold=0.75)
+        self.projection_matcher = SemanticMatcher(self.ef, threshold=0.60)
+        self.insight_matcher = SemanticMatcher(self.ef, threshold=0.70)
         self.memory = LegalGMemory(persist_dir=persist_dir)
-        self.insights = InsightsManager(persist_dir, self.llm, self.matcher)
+        self.insights = InsightsManager(persist_dir, self.llm, self.insight_matcher)
         self.judge = LLMJudge(self.llm)
-        self.projector = GraphProjector(self.matcher)
+        self.projector = GraphProjector(self.projection_matcher)
         self.backprop = BackPropagator()
         self.recorder = recorder
 
