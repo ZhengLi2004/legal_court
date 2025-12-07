@@ -117,6 +117,65 @@ class ShadowGraph:
         return sg
 
     def to_json(self) -> str: return json.dumps(self.to_dict(self), ensure_ascii=False)
+    # 图谱序列化
+    def to_recursive_text(self) -> str:
+        roots = [n for n in self.graph.nodes() if self.graph.out_degree(n) == 0]
+        if not roots and self.graph.number_of_nodes() > 0: roots = list(self.graph.nodes())
+        visited = set()
+        text_blocks = []
+        roots.sort()
+
+        for root_id in roots:
+            block = self._serialize_node(root_id, visited)
+            if block: text_blocks.append(block)
+        
+        if not text_blocks: return "无辩论记录."
+        return "\n\n".join(text_blocks)
+
+    def _serialize_node(self, node_id: str, visited: set) -> str:
+        if node_id in visited: return ""
+        visited.add(node_id)
+        data = self.graph.nodes[node_id]
+
+        status_map = {
+            NodeStatus.HYPOTHETICAL: "",
+            NodeStatus.VALIDATED: "【已采信】",
+            NodeStatus.DEFEATED: "【已驳回】"
+        }
+
+        status_str = status_map.get(data.get('status'), "")
+
+        type_map = {
+            NodeType.FACT: "事实",
+            NodeType.LAW: "法条",
+            NodeType.CLAIM: "观点"
+        }
+
+        type_cn = type_map.get(data['type'], data['type'].value)
+        content = f"[{type_cn}] {data['content']}{status_str}"
+        preds = sorted(list(self.graph.predecessors(node_id)))
+        supporting_texts = []
+        conflicting_texts = []
+        
+        for pred_id in preds:
+            edge_data = self.graph.get_edge_data(pred_id, node_id)
+            edge_type = edge_data.get('type')
+            sub_text = self._serialize_node(pred_id, visited)
+            if not sub_text: continue
+            if edge_type == EdgeType.SUPPORT: supporting_texts.append(sub_text)
+            elif edge_type == EdgeType.CONFLICT: conflicting_texts.append(sub_text)
+        
+        result = content
+
+        if supporting_texts:
+            indented = [s.replace("\n", "\n  ") for s in supporting_texts]
+            result += "\n  支持依据:\n    - " + "\n    - ".join(indented)
+
+        if conflicting_texts:
+            indented = [s.replace("\n", "\n  ") for s in conflicting_texts]
+            result += "\n  受到反驳:\n    - " + "\n    - ".join(indented)
+
+        return result
 # 传输法律案件上下文
 @dataclass
 class LegalMessage:

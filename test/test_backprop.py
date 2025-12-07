@@ -75,3 +75,46 @@ def test_bpp2_complex_topology():
     assert nodes[id_a]['status'] == NodeStatus.VALIDATED
     assert nodes[id_f]['status'] == NodeStatus.VALIDATED, "Fact F should be Validated via Support"
     assert nodes[id_b]['status'] == NodeStatus.DEFEATED, "Claim B should be Defeated via Conflict"
+
+def test_bpp3_basic_serialization():
+    sg = ShadowGraph()
+    sg.add_node("被告违约", NodeType.CLAIM, "P")
+    text = sg.to_recursive_text()
+    assert "[观点] 被告违约" in text
+
+def test_bpp3_hierarchy():
+    sg = ShadowGraph()
+    id_f = sg.add_node("银行转账记录", NodeType.FACT, "P")
+    id_c = sg.add_node("借贷关系成立", NodeType.CLAIM, "P")
+    sg.add_edge(id_f, id_c, EdgeType.SUPPORT)
+    text = sg.to_recursive_text()
+    print(f"\n生成文本:\n{text}")
+    assert "借贷关系成立" in text
+    assert "支持依据" in text
+    assert "银行转账记录" in text
+    assert text.index("借贷关系成立") < text.index("银行转账记录")
+
+def test_bpp3_conflict_branch():
+    sg = ShadowGraph()
+    id_a = sg.add_node("被告应赔偿", NodeType.CLAIM, "P")
+    id_f = sg.add_node("损害鉴定书", NodeType.FACT, "P")
+    id_b = sg.add_node("原告亦有过错", NodeType.CLAIM, "D")
+    sg.add_edge(id_f, id_a, EdgeType.SUPPORT)
+    sg.add_edge(id_b, id_a, EdgeType.CONFLICT)
+    text = sg.to_recursive_text()
+    print(f"\n生成文本:\n{text}")
+    assert "支持依据" in text
+    assert "损害鉴定书" in text
+    assert "受到反驳" in text
+    assert "原告亦有过错" in text
+
+def test_bpp3_status_display():
+    sg = ShadowGraph()
+    id_win = sg.add_node("赢了的点", NodeType.CLAIM, "P")
+    id_lose = sg.add_node("输了的点", NodeType.CLAIM, "D")
+    sg.graph.nodes[id_win]['status'] = NodeStatus.VALIDATED
+    sg.graph.nodes[id_lose]['status'] = NodeStatus.DEFEATED
+    text = sg.to_recursive_text()
+    assert "【已采信】" in text
+    assert "【已驳回】" in text
+    assert "赢了的点" in text
