@@ -1,7 +1,19 @@
 import pytest
 import networkx as nx
+from typing import List, Tuple
 from mas.common import ShadowGraph, NodeType, EdgeType, NodeStatus
 from mas.backprop import BackPropagator
+
+class MockMatcher:
+    def __init__(self, threshold=0.8): self.threshold = threshold
+
+    def find_match(self, query: str, candidates: List[Tuple[str, str]]) -> str:
+        query_key = query[:2]
+
+        for cid, content in candidates:
+            if content.startswith(query_key): return cid
+        
+        return None
 
 @pytest.fixture
 def basic_graph():
@@ -118,3 +130,27 @@ def test_bpp3_status_display():
     assert "【已采信】" in text
     assert "【已驳回】" in text
     assert "赢了的点" in text
+
+def test_bpp4_law_exact_match():
+    sg = ShadowGraph()
+    matcher = MockMatcher()
+    id1 = sg.add_node("民法典第100条", NodeType.LAW, "P", matcher=matcher)
+    id2 = sg.add_node("  民法典第100条 ", NodeType.LAW, "D", matcher=matcher)
+    assert id1 == id2, "相同的法条应该被合并 ID"
+    id3 = sg.add_node("民法典第101条", NodeType.LAW, "D", matcher=matcher)
+    assert id1 != id3, "不同的法条(100 vs 101) 不应该合并，应忽略 Matcher"
+
+def test_bpp4_fact_semantic_match():
+    sg = ShadowGraph()
+    matcher = MockMatcher()
+    id1 = sg.add_node("张三打了李四", NodeType.FACT, "P", matcher=matcher)
+    id2 = sg.add_node("张三殴打了李四", NodeType.FACT, "D", matcher=matcher)
+    assert id1 == id2, "语义相似的事实应该被合并 (基于 Matcher)"
+
+def test_bpp4_fallback_logic():
+    sg = ShadowGraph()
+    id1 = sg.add_node("事实A", NodeType.FACT, "P")
+    id2 = sg.add_node("事实A", NodeType.FACT, "D")
+    id3 = sg.add_node("事实B", NodeType.FACT, "D")
+    assert id1 == id2
+    assert id1 != id3

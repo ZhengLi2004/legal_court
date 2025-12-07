@@ -51,21 +51,22 @@ class ShadowGraph:
                 matcher: Any = None,
                 metadata: dict = None) -> str:
         node_type = ensure_node_type(node_type)
-
-        if matcher:
-            candidates = [
-                (n, d['content']) 
-                for n, d in self.graph.nodes(data=True) 
-                if d['type'] == node_type
-            ]
-
-            existing_id = matcher.find_match(content, candidates)
-            if existing_id: return existing_id
+        existing_id = None
+        if node_type == NodeType.LAW: existing_id = self._find_exact_match_node(content, node_type)
         
         else:
-            existing_id = self._find_semantically_identical_node(content, node_type)
-            if existing_id: return existing_id
+            if matcher:
+                candidates = [
+                    (n, d['content']) 
+                    for n, d in self.graph.nodes(data=True) 
+                    if d['type'] == node_type
+                ]
+
+                existing_id = matcher.find_match(content, candidates)
         
+            else: existing_id = self._find_exact_match_node(content, node_type)
+        
+        if existing_id: return existing_id
         node_id = self._generate_id(node_type)
         
         node = ShadowNode(
@@ -78,6 +79,19 @@ class ShadowGraph:
         
         self.graph.add_node(node_id, **asdict(node))
         return node_id
+    # 查找内容完全一致的节点
+    def _find_exact_match_node(self, content: str, node_type: NodeType) -> Optional[str]:
+        norm_content = content.strip().lower()
+
+        for nid, data in self.graph.nodes(data=True):
+            current_type = data.get('type')
+            if hasattr(current_type, 'value'): current_type = current_type.value
+            target_type = node_type.value if hasattr(node_type, 'value') else node_type
+            
+            if current_type == target_type:
+                if data.get('content', '').strip().lower() == norm_content: return nid
+            
+        return None
 
     def add_edge(self, source_id: str, target_id: str, edge_type: EdgeType) -> None:
         if not self.graph.has_node(source_id) or not self.graph.has_node(target_id): raise ValueError(f"Source {source_id} or Target {target_id} does not exist.")
