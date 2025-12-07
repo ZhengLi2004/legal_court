@@ -1,17 +1,19 @@
 import os
 import json
-from typing import List
-from dataclasses import dataclass
+from typing import List, Any
+from dataclasses import dataclass, field
 from .llm import GPTChat, Message
 from .common import ShadowGraph
 from .semantic_matcher import SemanticMatcher
 from .utils import simple_file_lock, cosine_similarity
+from .config import SystemConfig
 
 @dataclass
 class Insight:
     content: str
     score: float = 1.0
-    source_case_id: str = ""
+    positive_cases: List[str] = field(default_factory=list)
+    negative_cases: List[str] = field(default_factory=list)
 # 法理策略 -> Insight Graph
 class InsightsManager:
     def __init__(self, working_dir: str, llm: GPTChat, matcher: SemanticMatcher):
@@ -24,19 +26,31 @@ class InsightsManager:
         self._rebuild_index()
 
     def _load_insights(self) -> List[Insight]:
-        if os.path.exists(self.file_path):
-            with open(self.file_path, 'r', encoding='utf-8') as f:
+        if not os.path.exists(self.file_path): return []
+
+        with open(self.file_path, 'r', encoding='utf-8') as f:
+            try:
                 data = json.load(f)
-                return [Insight(**item) for item in data]
-        
-        return []
+
+                return [
+                    Insight(
+                        content=item['content'],
+                        score=item.get('score', 1.0),
+                        positive_cases=list(set(item.get('positive_cases', []))),
+                        negative_cases=list(set(item.get('negative_cases', [])))
+                    ) for item in data
+                ]
+            
+            except (json.JSONDecodeError, TypeError): return []
     
     def _save_insights(self):
         lock_file = self.file_path + ".lock"
         
         with simple_file_lock(lock_file):
+            self.insights = [inst for inst in self.insights if inst.score > 0]
             data = [inst.__dict__ for inst in self.insights]
             with open(self.file_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2, ensure_ascii=False)
+            self._rebuild_index()
     
     def _rebuild_index(self):
         self._insight_index = []
@@ -76,27 +90,65 @@ class InsightsManager:
                 
             if match_idx_str:
                 idx = int(match_idx_str)
-                self.insights[idx].score += 1.0
-                print(f"[Insights] Merged similar strategy: '{content}' -> '{self.insights[idx].content}'")
+                self.insights[idx].score += 0.5
+                if case_id not in self.insights[idx].positive_cases: self.insights[idx].positive_cases.append(case_id)
             
             else:
 
-                new_insight = Insight(content=content, source_case_id=case_id)
+                new_insight = Insight(content=content, positive_cases=[case_id])
                 self.insights.append(new_insight)
-                print(f"[Insights] Added new strategy: '{content}'")
             
             self._save_insights()
-            self._rebuild_index()
 
+    def update_scores_from_verdict(self, case_id: str, used_insights: List[str], was_successful: bool):
+        for content in used_insights:
+            for inst in self.insights:
+                if inst.content == content:
+                    if was_successful:
+                        inst.score += 1.0
+                        if case_id not in inst.positive_cases: inst.positive_cases.append(case_id)
+                        if case_id in inst.negative_cases: inst.negative_cases.remove(case_id)
+
+                    else:
+                        inst.score -= 0.5   # 惩罚不宜过重，可能是用法错误
+                        if case_id not in inst.negative_cases: inst.negative_cases.append(case_id)
+
+        self._save_insights()
+    
     def get_relevant_insights(self, context: str, top_k: int = 3) -> List[str]:
         if not self._insight_index: return []
         query_emb = self.matcher.embedding_func.embed_query(context)
         candidates = []
-
+        cfg = SystemConfig().insight
+        
         for emb, inst in self._insight_index:
             sim = cosine_similarity(query_emb, emb)
-            final_score = sim * (1.0 + 0.05 * inst.score)
+            final_score = sim * (1.0 + cfg.score_weight * inst.score)
             candidates.append((final_score, inst))
         
         candidates.sort(key=lambda x: x[0], reverse=True)
         return [c[1].content for c in candidates[:top_k]]
+    # 根据策略反向查找成功应用策略的案件
+    def find_cases_by_insight(self, insight_content: str, memory_retriever: Any = None, top_k: int = 5) -> List[str]:
+        target_insight = None
+
+        for inst in self.insights:
+            if inst.content == insight_content:
+                target_insight = inst
+                break
+        
+        if not target_insight:
+            query_emb = self.matcher.embedding_func.embed_query(insight_content)
+            best_score = -1
+
+            for emb, inst in self._insight_index:
+                sim = cosine_similarity(query_emb, emb)
+
+                if sim > best_score:
+                    best_score = sim
+                    target_insight = inst
+
+            if best_score < 0.7: return []
+
+        if target_insight: return target_insight.positive_cases[-top_k:]
+        return []

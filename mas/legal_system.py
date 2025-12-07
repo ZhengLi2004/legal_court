@@ -1,5 +1,4 @@
 from typing import Tuple, List, Any
-import re
 from .llm import GPTChat
 from .utils import EmbeddingFunc
 from .common import ShadowGraph, LegalMessage, NodeStatus
@@ -10,25 +9,53 @@ from .graph_ops import GraphExecutor
 from .semantic_matcher import SemanticMatcher
 from .projection import GraphProjector
 from .backprop import BackPropagator
+from .config import SystemConfig
 # Legal-G-Memory 的统一入口
 class LegalSystem:
-    def __init__(self, persist_dir: str = "./storage", recorder: Any = None):
-        self.llm = GPTChat()
+    def __init__(self, persist_dir: str = "./storage", recorder: Any = None, config: SystemConfig = None):
+        self.cfg = config or SystemConfig()
+        self.llm = GPTChat(model_name=self.cfg.llm.model_name)
         self.ef = EmbeddingFunc(model_path="./bge-m3")
-        self.projection_matcher = SemanticMatcher(self.ef, threshold=0.60)
-        self.insight_matcher = SemanticMatcher(self.ef, threshold=0.70)
-        self.memory = LegalGMemory(persist_dir=persist_dir)
+        self.projection_matcher = SemanticMatcher(self.ef, threshold=self.cfg.matcher.projection_threshold)
+        self.insight_matcher = SemanticMatcher(self.ef, threshold=self.cfg.matcher.insight_threshold)
+        self.dedup_matcher = SemanticMatcher(self.ef)
+        self.memory = LegalGMemory(persist_dir=persist_dir, config=self.cfg)
         self.insights = InsightsManager(persist_dir, self.llm, self.insight_matcher)
         self.judge = LLMJudge(self.llm)
         self.projector = GraphProjector(self.projection_matcher)
         self.backprop = BackPropagator()
         self.recorder = recorder
+        self._current_case_insights: List[str] = []
 
     def new_case(self, context: str) -> ShadowGraph:
         sg = ShadowGraph()
-        sg.add_node(context, "FACT", "system", matcher=None)
-        relevant_strategies = self.insights.get_relevant_insights(context, top_k=3)
-        
+        sg.id_alias["FACT_1"] = sg.add_node(context, "FACT", "system", matcher=None)
+        relevant_strategies = self.insights.get_relevant_insights(context, top_k=self.cfg.retrieval.insight_top_k)
+        self._current_case_insights = relevant_strategies
+        initial_msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)
+        corrective_msgs = []
+
+        if relevant_strategies:
+            top_insight = relevant_strategies[0]
+            case_ids = self.insights.find_cases_by_insight(top_insight, top_k=self.cfg.retrieval.corrective_top_k)
+
+            if case_ids:
+                raw_data = self.memory.collection.get(ids=case_ids, include=["metadatas", "documents"])
+
+                if raw_data['ids']:
+                    for i in range(len(raw_data['ids'])):
+                        msg = LegalMessage.from_dict({
+                            "case_id": raw_data['ids'][i],
+                            "case_context": raw_data['documents'][i],
+                            "graph_json": raw_data['metadatas'][i]['graph_json']
+                        })
+                        
+                        corrective_msgs.append(msg)
+
+        all_msgs = {m.case_id: m for m in initial_msgs + corrective_msgs}.values()
+        history_graphs = [m.shadow_graph for m in all_msgs]
+        self.projector.project(sg, history_graphs)
+
         if self.recorder:
             self.recorder.log_event(
                 step_name="New Case Initialization",
@@ -39,7 +66,7 @@ class LegalSystem:
         return sg, relevant_strategies
     
     def execute_action(self, graph: ShadowGraph, agent_id: str, action_text: str) -> List[str]:
-        executor = GraphExecutor(graph, self.matcher)
+        executor = GraphExecutor(graph, matcher=self.dedup_matcher)
         logs = executor.execute_batch(action_text, agent_id)
 
         if self.recorder:
@@ -63,7 +90,7 @@ class LegalSystem:
                     context_node = context_node_candidates[0]
                     context = graph.graph.nodes[context_node]['content']
 
-                msgs, _ = self.memory.retrieve_memory(context, top_k=2)
+                msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)
                 history_graphs = [m.shadow_graph for m in msgs]
                 nodes_before = graph.graph.number_of_nodes()
                 self.projector.project(graph, history_graphs)
@@ -87,6 +114,14 @@ class LegalSystem:
     def adjudicate(self, context: str, graph: ShadowGraph) -> Tuple[bool, str]: return self.judge.evaluate(context, graph)
     # 学习: BackProp -> Store -> Extract Insights
     def learn(self, context: str, current_graph: ShadowGraph, winner: str, case_id: str):
+        was_successful = (winner == "plaintiff")
+        
+        self.insights.update_scores_from_verdict(
+            case_id=case_id,
+            used_insights=self._current_case_insights,
+            was_successful=was_successful
+        )
+
         final_graph = self.backprop.propagate(current_graph, winner)
 
         if self.recorder:

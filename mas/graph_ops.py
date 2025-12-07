@@ -2,6 +2,7 @@ import re
 from typing import List
 from .common import ShadowGraph, NodeType, EdgeType
 from .semantic_matcher import SemanticMatcher
+from .config import SystemConfig
 # 解析 LLM 输出指令，执行图操作
 class GraphExecutor:
     def __init__(self, graph: ShadowGraph, matcher: SemanticMatcher = None):
@@ -18,8 +19,13 @@ class GraphExecutor:
             try:
                 node_type = NodeType[node_type_str]
                 
+                if self.matcher:
+                    cfg = SystemConfig().dedup
+                    if node_type == NodeType.FACT: self.matcher.threshold = cfg.fact_threshold
+                    else: self.matcher.threshold = cfg.other_threshold
+
                 node_id = self.graph.add_node(
-                    content=content, node_type=node_type, agent_id=agent_id, matcher=None
+                    content=content, node_type=node_type, agent_id=agent_id, matcher=self.matcher
                 )
                 
                 return node_id

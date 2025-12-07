@@ -3,16 +3,12 @@ import shutil
 import threading
 import time
 import pytest
+from mas.insights_manager import Insight
 from mas.llm import GPTChat, Message
-from mas.utils import EmbeddingFunc, cosine_similarity, simple_file_lock
-from mas.common import ShadowGraph, NodeType, EdgeType, NodeStatus, LegalMessage
+from mas.utils import EmbeddingFunc, cosine_similarity
+from mas.common import ShadowGraph, NodeType
 from mas.graph_ops import GraphExecutor
-from mas.task_layer import TaskLayer
-from mas.legal_memory import LegalGMemory
 from mas.semantic_matcher import SemanticMatcher
-from mas.projection import GraphProjector
-from mas.insights_manager import InsightsManager
-from mas.judge import LLMJudge
 from mas.legal_system import LegalSystem
 from vis.recorder import SystemRecorder
 from vis.dynamic_viz import generate_dynamic_gif
@@ -136,10 +132,42 @@ def test_p4_full_demo(cleanup):
     assert os.path.exists(gif_file), "GIF generation failed"
     print(f"\n✅ Trilogy Demo with Visualization Completed. See {gif_file}")
 
+def test_p5_insight_engine(cleanup):
+    print("\n--- Testing Phase 5: Insight Engine ---")
+    system = LegalSystem(persist_dir=TEST_DIR)
+
+    system.insights.extract_adversarial_insights(
+        case_id="case_001",
+        case_context="Theft case",
+        winning_graph=ShadowGraph(),
+        losing_graph=ShadowGraph()
+    )
+
+    assert len(system.insights.insights) > 0
+    assert "case_001" in system.insights.insights[0].positive_cases
+    print("✅ Insight Linking works.")
+    test_insight = "Strategy X"
+    system.insights.insights.append(Insight(content=test_insight, score=1.0))
+    system.insights._rebuild_index()
+    system._current_case_insights = [test_insight]
+    system.learn("Win Case", ShadowGraph(), "plaintiff", "case_win")
+    inst = next(i for i in system.insights.insights if i.content == test_insight)
+    assert inst.score == 2.0
+    assert "case_win" in inst.positive_cases
+    system.learn("Lose Case", ShadowGraph(), "defendant", "case_lose")
+    inst = next(i for i in system.insights.insights if i.content == test_insight)
+    assert inst.score == 1.5
+    assert "case_lose" in inst.negative_cases
+    print("✅ Insight Score Update works.")
+    ids = system.insights.find_cases_by_insight(test_insight, top_k=5)
+    assert "case_win" in ids
+    print("✅ Reverse Lookup works.")
+
 def run_all_tests():
     test_p1_infrastructure(cleanup())
     test_p2_core_components(cleanup())
     test_p3_memory_and_projection(cleanup())
     test_p4_full_demo(cleanup())
+    test_p5_insight_engine(cleanup())
 
 if __name__ == "__main__": run_all_tests()
