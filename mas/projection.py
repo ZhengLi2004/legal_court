@@ -1,9 +1,12 @@
 from typing import List, Dict, Set
 from .common import ShadowGraph, NodeType
 from .semantic_matcher import SemanticMatcher
+from .config import SystemConfig
 
 class GraphProjector:
-    def __init__(self, matcher: SemanticMatcher): self.matcher = matcher
+    def __init__(self, matcher: SemanticMatcher, config: SystemConfig = None):
+        self.matcher = matcher
+        self.cfg = config or SystemConfig()
 
     def project(self, current_graph: ShadowGraph, history_graphs: List[ShadowGraph]) -> ShadowGraph:
         anchors = [
@@ -30,17 +33,22 @@ class GraphProjector:
         if not matched_pairs: return
         id_map: Dict[str, str] = {src_id: tgt_id for src_id, tgt_id in matched_pairs}
         nodes_to_project_ids: Set[str] = set(id_map.keys())
+        limit = self.cfg.retrieval.max_neighbors_per_anchor
 
         for src_id, _ in matched_pairs:
             neighbors_to_process = set(source_graph.graph.successors(src_id)) | \
                                    set(source_graph.graph.predecessors(src_id))
 
+            count = 0
+
             for neighbor_id in neighbors_to_process:
+                if count >= limit: break
                 neighbor_data = source_graph.graph.nodes[neighbor_id]
                 node_type_val = neighbor_data.get('type')
                 if hasattr(node_type_val, 'value'): node_type_val = node_type_val.value
                 if str(node_type_val) == NodeType.FACT.value: continue
                 nodes_to_project_ids.add(neighbor_id)
+                count += 1
 
         for nid in nodes_to_project_ids:
             if nid in id_map: continue
@@ -49,7 +57,7 @@ class GraphProjector:
             new_id = target_graph.add_node(
                 content=data['content'],
                 node_type=data['type'],
-                agent_id="projection",
+                agent_id=self.cfg.agent.projection_id,
                 matcher=self.matcher
             )
 

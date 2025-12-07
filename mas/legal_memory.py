@@ -16,7 +16,8 @@ class LegalGMemory(MASMemoryBase):
 
     def __post_init__(self):
         super().__post_init__()
-        self.chroma_client = chromadb.PersistentClient(path=os.path.join(self.persist_dir, "chroma_db"))
+        chroma_path = os.path.join(self.persist_dir, self.config.path.storage_subdir_chroma)
+        self.chroma_client = chromadb.PersistentClient(path=chroma_path)
 
         self.chroma_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=self.embedding_model_path

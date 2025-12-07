@@ -9,6 +9,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Union, Any, List
+from .config import SystemConfig
 # 锁
 @contextlib.contextmanager
 def simple_file_lock(lock_path: str, timeout: int = 5):
@@ -55,9 +56,10 @@ _EMBEDDING_MODEL_CACHE = {}
 
 @dataclass
 class EmbeddingFunc:
-    model_path: str = "./bge-m3"
+    model_path: str = None
     # 延迟导入
     def __post_init__(self):
+        if self.model_path is None: self.model_path = SystemConfig().path.embedding_model_path
         from chromadb.utils import embedding_functions
 
         if self.model_path not in _EMBEDDING_MODEL_CACHE:

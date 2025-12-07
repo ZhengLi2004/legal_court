@@ -5,13 +5,15 @@ from dataclasses import dataclass
 from typing import List, Tuple
 from .utils import simple_file_lock
 
+
 @dataclass
 class TaskLayer:
     working_dir: str
     similarity_threshold: float = 0.5
+    filename: str = "case_graph.pkl"
 
     def __post_init__(self):
-        self._graph_path = os.path.join(self.working_dir, "case_graph.pkl")
+        self._graph_path = os.path.join(self.working_dir, self.filename)
         self._load_graph()
     # 图的存取
     def _load_graph(self):

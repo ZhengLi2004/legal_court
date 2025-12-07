@@ -20,16 +20,16 @@ class LegalSystem:
         self.insight_matcher = SemanticMatcher(self.ef, threshold=self.cfg.matcher.insight_threshold)
         self.dedup_matcher = SemanticMatcher(self.ef)
         self.memory = LegalGMemory(persist_dir=persist_dir, config=self.cfg)
-        self.insights = InsightsManager(persist_dir, self.llm, self.insight_matcher)
+        self.insights = InsightsManager(persist_dir, self.llm, self.insight_matcher, self.cfg)
         self.judge = LLMJudge(self.llm)
-        self.projector = GraphProjector(self.projection_matcher)
+        self.projector = GraphProjector(self.projection_matcher, config=self.cfg)
         self.backprop = BackPropagator()
         self.recorder = recorder
         self._current_case_insights: List[str] = []
 
     def new_case(self, context: str) -> ShadowGraph:
         sg = ShadowGraph()
-        sg.id_alias["FACT_1"] = sg.add_node(context, "FACT", "system", matcher=None)
+        sg.id_alias["FACT_1"] = sg.add_node(context, "FACT", self.cfg.agent.system_id, matcher=None)
         relevant_strategies = self.insights.get_relevant_insights(context, top_k=self.cfg.retrieval.insight_top_k)
         self._current_case_insights = relevant_strategies
         initial_msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)
@@ -80,7 +80,7 @@ class LegalSystem:
             projected_count = 0
             
             try:
-                context_node_candidates = [n for n, d in graph.graph.nodes(data=True) if d.get('agent_id') == 'system']
+                context_node_candidates = [n for n, d in graph.graph.nodes(data=True) if d.get('agent_id') == self.cfg.agent.system_id]
                 
                 if not context_node_candidates:
                     all_facts = [d['content'] for n, d in graph.graph.nodes(data=True) if str(d.get('type')) == 'FACT']

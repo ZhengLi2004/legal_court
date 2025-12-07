@@ -16,11 +16,12 @@ class Insight:
     negative_cases: List[str] = field(default_factory=list)
 # 法理策略 -> Insight Graph
 class InsightsManager:
-    def __init__(self, working_dir: str, llm: GPTChat, matcher: SemanticMatcher):
+    def __init__(self, working_dir: str, llm: GPTChat, matcher: SemanticMatcher, config: SystemConfig = None):
         self.working_dir = working_dir
         self.llm = llm
         self.matcher = matcher
-        self.file_path = os.path.join(working_dir, "legal_insights.json")
+        self.cfg = config or SystemConfig()
+        self.file_path = os.path.join(working_dir, self.cfg.path.file_insight_graph)
         self.insights: List[Insight] = self._load_insights()
         self._insight_index = []
         self._rebuild_index()
@@ -90,7 +91,7 @@ class InsightsManager:
                 
             if match_idx_str:
                 idx = int(match_idx_str)
-                self.insights[idx].score += 0.5
+                self.insights[idx].score += self.cfg.insight.reward_merge
                 if case_id not in self.insights[idx].positive_cases: self.insights[idx].positive_cases.append(case_id)
             
             else:
@@ -105,12 +106,12 @@ class InsightsManager:
             for inst in self.insights:
                 if inst.content == content:
                     if was_successful:
-                        inst.score += 1.0
+                        inst.score += self.cfg.insight.reward_win
                         if case_id not in inst.positive_cases: inst.positive_cases.append(case_id)
                         if case_id in inst.negative_cases: inst.negative_cases.remove(case_id)
 
                     else:
-                        inst.score -= 0.5   # 惩罚不宜过重，可能是用法错误
+                        inst.score -= self.cfg.insight.penalty_lose # 惩罚不宜过重，可能是用法错误
                         if case_id not in inst.negative_cases: inst.negative_cases.append(case_id)
 
         self._save_insights()
