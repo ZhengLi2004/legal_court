@@ -170,18 +170,66 @@ class ShadowGraph:
     def to_json(self) -> str: return json.dumps(self.to_dict(self), ensure_ascii=False)
     # 图谱序列化
     def to_recursive_text(self) -> str:
-        roots = [n for n in self.graph.nodes() if self.graph.out_degree(n) == 0]
-        if not roots and self.graph.number_of_nodes() > 0: roots = list(self.graph.nodes())
-        visited = set()
-        text_blocks = []
-        roots.sort()
+        if self.graph.number_of_nodes() == 0: return "无辩论记录。"
 
-        for root_id in roots:
-            block = self._serialize_node(root_id, visited)
-            if block: text_blocks.append(block)
-        
-        if not text_blocks: return "无辩论记录."
-        return "\n\n".join(text_blocks)
+        root_claims = [
+            nid for nid, data in self.graph.nodes(data=True)
+            if data.get('metadata', {}).get('is_root_claim')
+        ]
+
+        try: centrality = nx.pagerank(self.graph)
+        except Exception: centrality = nx.degree_centrality(self.graph)
+        clusters = []
+        covered_nodes = set()
+        root_claims.sort(key=lambda n: -centrality.get(n, 0))
+
+        for root_id in root_claims:
+            if root_id in covered_nodes: continue
+            support_cone = set(nx.ancestors(self.graph, root_id))
+            support_cone.add(root_id)
+            attackers = set()
+
+            for node_in_cone in support_cone:
+                for pred in self.graph.predecessors(node_in_cone):
+                    if self.graph.get_edge_data(pred, node_in_cone)['type'] == EdgeType.CONFLICT:
+                        attacker_cone = set(nx.ancestors(self.graph, pred))
+                        attacker_cone.add(pred)
+                        attackers.update(attacker_cone)
+
+            cluster_nodes = support_cone.union(attackers)
+            clusters.append(list(cluster_nodes))
+            covered_nodes.update(cluster_nodes)
+
+        orphan_nodes = list(set(self.graph.nodes()) - covered_nodes)
+        if orphan_nodes: clusters.append(orphan_nodes)
+        final_text_blocks = []
+        visited = set()
+
+        for i, cluster in enumerate(clusters):
+            cluster_roots_in_this_cluster = [n for n in cluster if n in root_claims]
+
+            if cluster_roots_in_this_cluster:
+                cluster_roots_in_this_cluster.sort(key=lambda n: -centrality.get(n, 0))
+                title_node_content = self.graph.nodes[cluster_roots_in_this_cluster[0]]['content']
+                cluster_title = f"议题 {i+1}: 关于 “{title_node_content[:20]}...”"
+
+            else: cluster_title = f"议题 {i+1}: 其他相关论点"
+            final_text_blocks.append(f"\n--- {cluster_title} ---\n")
+
+            local_roots = [
+                n for n in cluster
+                if not any(successor in cluster for successor in self.graph.successors(n))
+            ]
+
+            if not local_roots: local_roots = cluster
+            local_roots.sort(key=lambda n: -centrality.get(n, 0))
+
+            for local_root_id in local_roots:
+                if local_root_id not in visited:
+                    block = self._serialize_node(local_root_id, visited)
+                    if block: final_text_blocks.append(block)
+
+        return "\n".join(final_text_blocks).strip()
 
     def _serialize_node(self, node_id: str, visited: set) -> str:
         if node_id in visited: return ""

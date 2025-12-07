@@ -9,3 +9,4 @@ __pycache__
 *.gif
 demo
 temp_*
+.pytest_cache
