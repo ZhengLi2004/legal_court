@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from .llm import GPTChat, Message
 from .common import ShadowGraph
 from .semantic_matcher import SemanticMatcher
-from .utils import simple_file_lock, cosine_similarity
+from .utils import file_lock, cosine_similarity
 from .config import SystemConfig
 
 @dataclass
@@ -47,7 +47,7 @@ class InsightsManager:
     def _save_insights(self):
         lock_file = self.file_path + ".lock"
         
-        with simple_file_lock(lock_file):
+        with file_lock(lock_file):
             self.insights = [inst for inst in self.insights if inst.score > 0]
             data = [inst.__dict__ for inst in self.insights]
             with open(self.file_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2, ensure_ascii=False)

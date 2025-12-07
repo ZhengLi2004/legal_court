@@ -3,7 +3,7 @@ import pickle
 import networkx as nx
 from dataclasses import dataclass
 from typing import List, Tuple
-from .utils import simple_file_lock
+from .utils import file_lock
 
 
 @dataclass
@@ -25,7 +25,7 @@ class TaskLayer:
     def _save_graph(self):
         lock_file = self._graph_path + ".lock"
         
-        with simple_file_lock(lock_file):
+        with file_lock(lock_file):
             with open(self._graph_path, 'wb') as f: pickle.dump(self.graph, f)
     # 根据外部信息更新图拓扑
     def update_topology(self, new_case_id: str, neighbors: List[Tuple[str, float]]) -> None:
