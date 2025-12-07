@@ -62,7 +62,27 @@ class ShadowGraph:
         self.id_alias: Dict[str, str] = {}
         if not hasattr(self.graph, "graph"): self.graph.graph = {}
         if "id_counter" not in self.graph.graph: self.graph.graph["id_counter"] = 0
+
+    def is_valid_connection(self, src_id: str, tgt_id: str, edge_type: EdgeType) -> bool:
+        if not self.graph.has_node(src_id) or not self.graph.has_node(tgt_id): return False
+        src_type = self._get_node_type(src_id)
+        tgt_type = self._get_node_type(tgt_id)
+        s, t = src_type.value, tgt_type.value
+        F, L, C = NodeType.FACT.value, NodeType.LAW.value, NodeType.CLAIM.value
+        if tgt_type == NodeType.LAW: return False                               # 法条即公理
+        if edge_type == EdgeType.SUPPORT and s == C and t == F: return False    # 观点不能支持事实和法条
+        return True
+
+    def is_valid_evidence(self, node_id: str) -> bool:
+        if not self.graph.has_node(node_id): return False
+        t = self._get_node_type(node_id)
+        return t.value in [NodeType.FACT.value, NodeType.LAW.value]
     
+    def _get_node_type(self, node_id: str) -> NodeType:
+        t = self.graph.nodes[node_id]['type']
+        if isinstance(t, str): return NodeType(t)
+        return t
+
     def add_node(self, content: str, node_type: NodeType, agent_id: str, 
                 matcher: Any = None,
                 metadata: dict = None) -> str:
@@ -112,6 +132,7 @@ class ShadowGraph:
     def add_edge(self, source_id: str, target_id: str, edge_type: EdgeType) -> None:
         if not self.graph.has_node(source_id) or not self.graph.has_node(target_id): raise ValueError(f"Source {source_id} or Target {target_id} does not exist.")
         edge_type = ensure_edge_type(edge_type)
+        if not self.is_valid_connection(source_id, target_id, edge_type): raise ValueError(f"Invalid connection: {edge_type} from {self._get_node_type(source_id)} to {self._get_node_type(target_id)}")
         self.graph.add_edge(source_id, target_id, type=edge_type)
 
     def get_subgraph(self, node_ids: List[str]) -> "ShadowGraph":
@@ -173,7 +194,15 @@ class ShadowGraph:
             NodeStatus.DEFEATED: "【已驳回】"
         }
 
-        status_str = status_map.get(data.get('status'), "")
+        current_status_str = status_map.get(data.get('status'), "")
+        hist_status_str = ""
+        meta = data.get('metadata', {})
+
+        if 'historical_status' in meta:
+            h_status = meta['historical_status']
+            h_val = str(h_status.value) if hasattr(h_status, 'value') else str(h_status)
+            if h_val == NodeStatus.VALIDATED.value: hist_status_str = " (历史经验: 曾被采信)"
+            elif h_val == NodeStatus.DEFEATED.value: hist_status_str = " (历史教训: 曾被驳回)"
 
         type_map = {
             NodeType.FACT: "事实",
@@ -182,7 +211,7 @@ class ShadowGraph:
         }
 
         type_cn = type_map.get(data['type'], data['type'].value)
-        content = f"[{type_cn}] {data['content']}{status_str}"
+        content = f"[{type_cn}] {data['content']}{current_status_str}{hist_status_str}"
         preds = sorted(list(self.graph.predecessors(node_id)))
         supporting_texts = []
         conflicting_texts = []

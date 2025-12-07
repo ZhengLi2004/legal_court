@@ -34,16 +34,34 @@ class GraphExecutor:
         
         return "Error: Unknown ADD format"
 
-    def apply_link(self, src_id: str, tgt_id: str, type_str: str) -> str:
-        if not self.graph.graph.has_node(src_id): return f"Error: Source node '{src_id}' not found in graph."
-        if not self.graph.graph.has_node(tgt_id): return f"Error: Target node '{tgt_id}' not found in graph."
-            
+    def apply_support(self, src_alias: str, tgt_alias:str) -> str:
+        real_src = self.graph.id_alias.get(src_alias, src_alias)
+        real_tgt = self.graph.id_alias.get(tgt_alias, tgt_alias)
+        if not self.graph.graph.has_node(real_src): return f"Error: Source '{src_alias}' not found."
+        if not self.graph.graph.has_node(real_tgt): return f"Error: Target '{tgt_alias}' not found."
+
         try:
-            edge_type = EdgeType[type_str.upper()]
-            self.graph.add_edge(src_id, tgt_id, edge_type=edge_type)
-            return f"Edge Added: {src_id} -> {tgt_id}"
+            self.graph.add_edge(real_src, real_tgt, EdgeType.SUPPORT)
+            return f"Support Added: {real_src} -> {real_tgt}"
         
-        except Exception as e: return f"Error linking nodes: {e}"
+        except ValueError as ve: return f"Error adding support: {ve}"
+        except Exception as e: return f"Error adding support: {e}"
+
+    def apply_challenge(self, attacker_alias: str, target_alias: str, evidence_alias: str = None) -> str:
+        real_attacker = self.graph.id_alias.get(attacker_alias, attacker_alias)
+        real_target = self.graph.id_alias.get(target_alias, target_alias)
+        real_evidence = self.graph.id_alias.get(evidence_alias, evidence_alias) if evidence_alias else None
+        if not self.graph.graph.has_node(real_attacker): return f"Error: Attacker '{attacker_alias}' not found."
+        if not self.graph.graph.has_node(real_target): return f"Error: Target '{target_alias}' not found."
+        if not real_evidence: return "Error: CHALLENGE rejected. No evidence cited."
+        if not self.graph.is_valid_evidence(real_evidence): return f"Error: Cited evidence '{evidence_alias}' is not valid (must be FACT or LAW)."
+
+        try:
+            self.graph.add_edge(real_evidence, real_attacker, EdgeType.SUPPORT)
+            self.graph.add_edge(real_attacker, real_target, EdgeType.CONFLICT)
+
+        except ValueError as ve: return f"Error in Challenge topology: {ve}"
+        return f"Challenge Added: {real_attacker} attacks {real_target} (based on {real_evidence})"
     # 从一段 LLM 回复中提取多条指令、批量执行
     def execute_batch(self, llm_response: str, agent_id: str) -> List[str]:
         logs = []
@@ -70,25 +88,20 @@ class GraphExecutor:
                 else: logs.append(real_id)
                 continue
 
-            link_pattern = r'LINK\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z_]+)\s*\)'
-            link_match = re.match(link_pattern, clean_cmd)
+            support_pattern = r'SUPPORT\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)'
+            support_match = re.match(support_pattern, clean_cmd)
             
-            if link_match:
-                src_alias, tgt_alias, type_str = link_match.groups()
-                real_src = self.graph.id_alias.get(src_alias, src_alias)
-                real_tgt = self.graph.id_alias.get(tgt_alias, tgt_alias)
-                log = self.apply_link(real_src, real_tgt, type_str)
-                logs.append(log)
+            if support_match:
+                src, tgt = support_match.groups()
+                logs.append(self.apply_support(src, tgt))
                 continue
 
-            challenge_pattern = r'CHALLENGE\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)'
+            challenge_pattern = r'CHALLENGE\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)(?:\s*,\s*([a-zA-Z0-9_]+))?\s*\)'
             challenge_match = re.match(challenge_pattern, clean_cmd)
             
             if challenge_match:
-                src_alias, tgt_alias = challenge_match.groups()
-                real_src = self.graph.id_alias.get(src_alias, src_alias)
-                real_tgt = self.graph.id_alias.get(tgt_alias, tgt_alias)
-                log = self.apply_link(real_src, real_tgt, "CONFLICT")
+                src_alias, tgt_alias, evidence_alias = challenge_match.groups()
+                log = self.apply_challenge(src_alias, tgt_alias, evidence_alias)
                 logs.append(log)
                 continue
             

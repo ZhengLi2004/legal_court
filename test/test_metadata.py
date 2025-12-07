@@ -81,5 +81,23 @@ def test_status_metadata_projection():
 
     assert found_bad, "Defeated node should be projected (Full History)"
 
+def test_historical_status_display():
+    sg = ShadowGraph()
+    meta = {"historical_status": "DEFEATED", "projected_from_case": "OLD_CASE"}
+    id_bad = sg.add_node("高利贷利息", NodeType.CLAIM, "Sys", metadata=meta)
+    text = sg.to_recursive_text()
+    print(f"\n历史状态文本:\n{text}")
+    assert "高利贷利息" in text
+    assert "历史教训" in text
+    assert "曾被驳回" in text
+
+def test_historical_success_display():
+    sg = ShadowGraph()
+    meta = {"historical_status": NodeStatus.VALIDATED}
+    id_good = sg.add_node("合法利息", NodeType.CLAIM, "Sys", metadata=meta)
+    text = sg.to_recursive_text()
+    assert "历史经验" in text
+    assert "曾被采信" in text
+
 if __name__ == "__main__":
     pytest.main(["-v", "test/test_metadata.py"])
