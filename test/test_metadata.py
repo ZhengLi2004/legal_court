@@ -1,5 +1,5 @@
 import pytest
-from mas.common import ShadowGraph, ShadowNode, NodeType, ClaimMetadata, EdgeType
+from mas.common import ShadowGraph, LegalMessage, NodeStatus, ShadowNode, NodeType, ClaimMetadata, EdgeType
 from mas.projection import GraphProjector
 from mas.config import SystemConfig
 
@@ -48,7 +48,7 @@ def test_projection_metadata_structure():
     projector = GraphProjector(matcher, SystemConfig())
     src_claim_id = src.add_node("Neighbor Claim", NodeType.CLAIM, "Agent_Old")
     src.add_edge(src_fact_id, src_claim_id, EdgeType.SUPPORT)
-    projector._project_single_graph(tgt, src, [(tgt_fact_id, "New Fact")])
+    projector._project_single_graph(tgt, src, [(tgt_fact_id, "New Fact")], case_id="TEST_CASE_ID")
     found = False
     
     for nid, data in tgt.graph.nodes(data=True):
@@ -59,6 +59,27 @@ def test_projection_metadata_structure():
             break
     
     assert found, "Neighbor node should be projected"
+
+def test_status_metadata_projection():
+    src_sg = ShadowGraph()
+    anchor_id = src_sg.add_node("Anchor Fact", NodeType.FACT, "P")
+    bad_claim_id = src_sg.add_node("Bad Claim", NodeType.CLAIM, "P")
+    src_sg.graph.nodes[bad_claim_id]['status'] = NodeStatus.DEFEATED
+    src_sg.add_edge(anchor_id, bad_claim_id, EdgeType.SUPPORT)
+    msg = LegalMessage(case_id="CASE_2024", case_context="ctx", shadow_graph=src_sg)
+    tgt_sg = ShadowGraph()
+    tgt_anchor = tgt_sg.add_node("Anchor Fact", NodeType.FACT, "Sys")
+    projector = GraphProjector(MockMatcher(), SystemConfig())
+    projector.project(tgt_sg, [msg])
+    found_bad = False
+
+    for _, data in tgt_sg.graph.nodes(data=True):
+        if data['content'] == "Bad Claim":
+            found_bad = True
+            assert data['metadata']['projected_from_case'] == "CASE_2024"
+            assert data['metadata']['historical_status'] == "DEFEATED"
+
+    assert found_bad, "Defeated node should be projected (Full History)"
 
 if __name__ == "__main__":
     pytest.main(["-v", "test/test_metadata.py"])

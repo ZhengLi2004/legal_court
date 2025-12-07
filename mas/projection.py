@@ -1,5 +1,5 @@
 from typing import List, Dict, Set
-from .common import ShadowGraph, NodeType, ProjectionMetadata
+from .common import ShadowGraph, NodeStatus, NodeType, ProjectionMetadata, LegalMessage
 from .semantic_matcher import SemanticMatcher
 from .config import SystemConfig
 
@@ -8,17 +8,17 @@ class GraphProjector:
         self.matcher = matcher
         self.cfg = config or SystemConfig()
 
-    def project(self, current_graph: ShadowGraph, history_graphs: List[ShadowGraph]) -> ShadowGraph:
+    def project(self, current_graph: ShadowGraph, history_messages: List[LegalMessage]) -> ShadowGraph:
         anchors = [
             (nid, data['content'])
             for nid, data in current_graph.graph.nodes(data=True)
         ]
 
         if not anchors: return current_graph
-        for h_graph in history_graphs: self._project_single_graph(current_graph, h_graph, anchors)
+        for msg in history_messages: self._project_single_graph(current_graph, msg.shadow_graph, anchors, msg.case_id)
         return current_graph
 
-    def _project_single_graph(self, target_graph: ShadowGraph, source_graph: ShadowGraph, anchors: List[tuple]):
+    def _project_single_graph(self, target_graph: ShadowGraph, source_graph: ShadowGraph, anchors: List[tuple], case_id: str):
         source_candidates = [
             (nid, data['content'])
             for nid, data in source_graph.graph.nodes(data=True)
@@ -53,10 +53,13 @@ class GraphProjector:
         for nid in nodes_to_project_ids:
             if nid in id_map: continue
             data = source_graph.graph.nodes[nid]
+            hist_status = data.get('status', NodeStatus.HYPOTHETICAL)
+            if hasattr(hist_status, 'value'): hist_status = hist_status.value
 
             meta: ProjectionMetadata = {
-                "historical_status": "UNKNOWN",
-                "projection_score": 1.0,
+                "projected_from_case": case_id,
+                "historical_status": hist_status,
+                "projection_score": 1.0 
             }
 
             new_id = target_graph.add_node(

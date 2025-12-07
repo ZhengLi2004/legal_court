@@ -52,9 +52,8 @@ class LegalSystem:
                         
                         corrective_msgs.append(msg)
 
-        all_msgs = {m.case_id: m for m in initial_msgs + corrective_msgs}.values()
-        history_graphs = [m.shadow_graph for m in all_msgs]
-        self.projector.project(sg, history_graphs)
+        all_msgs = list({m.case_id: m for m in initial_msgs + corrective_msgs}.values())
+        self.projector.project(sg, all_msgs)
 
         if self.recorder:
             self.recorder.log_event(
@@ -91,9 +90,8 @@ class LegalSystem:
                     context = graph.graph.nodes[context_node]['content']
 
                 msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)
-                history_graphs = [m.shadow_graph for m in msgs]
                 nodes_before = graph.graph.number_of_nodes()
-                self.projector.project(graph, history_graphs)
+                self.projector.project(graph, msgs)
                 nodes_after = graph.graph.number_of_nodes()
                 projected_count = nodes_after - nodes_before
 
