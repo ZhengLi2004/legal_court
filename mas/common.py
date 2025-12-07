@@ -1,9 +1,25 @@
 import networkx as nx
 import json
 from dataclasses import dataclass, field, asdict
-from typing import Any, Optional, Dict, List
+from typing import Any, Optional, Dict, List, TypedDict, Union
 from enum import Enum
 from networkx.readwrite import json_graph
+# Metadata Schema
+class BaseMetadata(TypedDict, total=False):
+    created_at: float
+    source_doc_id: str
+
+class ClaimMetadata(BaseMetadata, total=False):
+    is_root_claim: bool
+    claim_index: int
+    verdict_status: str
+
+class ProjectionMetadata(BaseMetadata, total=False):
+    projected_from_case: str
+    historical_status: str
+    projection_score: str
+
+NodeMetadata = Union[BaseMetadata, ClaimMetadata, ProjectionMetadata]
 # 枚举定义
 class NodeType(str, Enum):
     FACT = "FACT"
@@ -26,7 +42,7 @@ class ShadowNode:
     type: NodeType
     agent_id: str   # 提出节点的 Agent
     status: NodeStatus = NodeStatus.HYPOTHETICAL
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: NodeMetadata = field(default_factory=dict)
 
 def ensure_node_type(val: Any) -> NodeType:
     if isinstance(val, NodeType): return val

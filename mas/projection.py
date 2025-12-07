@@ -1,5 +1,5 @@
 from typing import List, Dict, Set
-from .common import ShadowGraph, NodeType
+from .common import ShadowGraph, NodeType, ProjectionMetadata
 from .semantic_matcher import SemanticMatcher
 from .config import SystemConfig
 
@@ -54,11 +54,17 @@ class GraphProjector:
             if nid in id_map: continue
             data = source_graph.graph.nodes[nid]
 
+            meta: ProjectionMetadata = {
+                "historical_status": "UNKNOWN",
+                "projection_score": 1.0,
+            }
+
             new_id = target_graph.add_node(
                 content=data['content'],
                 node_type=data['type'],
                 agent_id=self.cfg.agent.projection_id,
-                matcher=self.matcher
+                matcher=self.matcher,
+                metadata=meta
             )
 
             id_map[nid] = new_id
