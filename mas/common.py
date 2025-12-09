@@ -1,5 +1,6 @@
 import networkx as nx
 import json
+import uuid
 from dataclasses import dataclass, field, asdict
 from typing import Any, Optional, Dict, List, TypedDict, Union
 from enum import Enum
@@ -149,9 +150,8 @@ class ShadowGraph:
         return None
 
     def _generate_id(self, node_type: NodeType) -> str:
-        if "id_counter" not in self.graph.graph: self.graph.graph["id_counter"] = self.graph.number_of_nodes()
-        self.graph.graph["id_counter"] += 1
-        return f"{node_type.value}_{self.graph.graph['id_counter']}"
+        uid = uuid.uuid4().hex[:8]
+        return f"{node_type.value}_{uid}"
     # 序列化方法
     @staticmethod
     def to_dict(sg: "ShadowGraph") -> dict:
@@ -231,6 +231,31 @@ class ShadowGraph:
 
         return "\n".join(final_text_blocks).strip()
 
+    def get_tactical_subgraph(self, focus_nodes: List[str], history_window: int = 1) -> "ShadowGraph":
+        nodes_to_keep = set()
+        roots = [n for n, d in self.graph.nodes(data=True) if d.get('metadata', {}).get('is_root_claim')]
+        nodes_to_keep.update(roots)
+        
+        if not focus_nodes:
+            if not nodes_to_keep: return self.get_subgraph(list(self.graph.nodes()))
+            return self.get_subgraph(list(nodes_to_keep))
+
+        valid_focus = [n for n in focus_nodes if self.graph.has_node(n)]
+        nodes_to_keep.update(valid_focus)
+        
+        for node in valid_focus:
+            ancestors = nx.ancestors(self.graph, node)
+            nodes_to_keep.update(ancestors)
+            successors = self.graph.successors(node)
+            nodes_to_keep.update(successors)
+            pass
+
+        return self.get_subgraph(list(nodes_to_keep))
+    
+    def to_tactical_text(self, focus_nodes: List[str]) -> str:
+        subgraph = self.get_tactical_subgraph(focus_nodes)
+        return subgraph.to_recursive_text()
+
     def _serialize_node(self, node_id: str, visited: set) -> str:
         if node_id in visited: return ""
         visited.add(node_id)
@@ -259,7 +284,7 @@ class ShadowGraph:
         }
 
         type_cn = type_map.get(data['type'], data['type'].value)
-        content = f"[{type_cn}] {data['content']}{current_status_str}{hist_status_str}"
+        content = f"[{node_id}] [{type_cn}] {data['content']}{current_status_str}{hist_status_str}"
         preds = sorted(list(self.graph.predecessors(node_id)))
         supporting_texts = []
         conflicting_texts = []

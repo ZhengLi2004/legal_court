@@ -36,6 +36,14 @@ class BackPropagator:
                     attacker_status = nx_graph.nodes[pred_id]['status']
                     if attacker_status != NodeStatus.VALIDATED: self._mark_defeated(nx_graph, pred_id)
 
+            for succ_id in nx_graph.successors(val_id):
+                edge_data = nx_graph.get_edge_data(val_id, succ_id)
+                edge_type = edge_data.get('type')
+
+                if edge_type == EdgeType.CONFLICT:
+                    attacked_status = nx_graph.nodes[succ_id]['status']
+                    if attacked_status != NodeStatus.VALIDATED: self._mark_defeated(nx_graph, succ_id)
+
         return graph
     
     def _mark_validated(self, nx_graph, node_id): nx_graph.nodes[node_id]['status'] = NodeStatus.VALIDATED

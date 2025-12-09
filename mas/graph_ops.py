@@ -77,7 +77,7 @@ class GraphExecutor:
             
             if add_match:
                 node_type_str = add_match.group(1)
-                count = len([k for k in self.graph.id_alias if k.startswith(node_type_str)]) + 1
+                count = len([k for k in self.graph.id_alias if k.startswith(f"{node_type_str}")]) + 1
                 local_key = f"{node_type_str}_{count}"
                 real_id = self.apply_add(clean_cmd, agent_id)
                 
@@ -96,7 +96,7 @@ class GraphExecutor:
                 logs.append(self.apply_support(src, tgt))
                 continue
 
-            challenge_pattern = r'CHALLENGE\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)(?:\s*,\s*([a-zA-Z0-9_]+))?\s*\)'
+            challenge_pattern = r'CHALLENGE\(\s*(a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)(?:\s*,\s*([a-zA-Z0-9_]+))?\s*\)'
             challenge_match = re.match(challenge_pattern, clean_cmd)
             
             if challenge_match:
