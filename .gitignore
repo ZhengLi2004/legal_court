@@ -10,3 +10,4 @@ __pycache__
 demo
 temp_*
 .pytest_cache
+tests
