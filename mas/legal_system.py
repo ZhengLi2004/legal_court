@@ -26,10 +26,14 @@ class LegalSystem:
         self.backprop = BackPropagator()
         self.recorder = recorder
         self._current_case_insights: List[str] = []
+        self.step_counter = 0
 
     def new_case(self, context: str) -> ShadowGraph:
+        self.step_counter = 0
         sg = ShadowGraph()
-        sg.id_alias["FACT_1"] = sg.add_node(context, "FACT", self.cfg.agent.system_id, matcher=None)
+        nid = sg.add_node(context, "FACT", self.cfg.agent.system_id, matcher=None)
+        sg.touch_nodes([nid], 0)
+        sg.id_alias["FACT_1"] = nid
         relevant_strategies = self.insights.get_relevant_insights(context, top_k=self.cfg.retrieval.insight_top_k)
         self._current_case_insights = relevant_strategies
         initial_msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)
@@ -67,33 +71,44 @@ class LegalSystem:
         return sg, relevant_strategies
     
     def execute_action(self, graph: ShadowGraph, agent_id: str, action_text: str) -> List[str]:
+        self.step_counter += 1
+        current_step = self.step_counter
         executor = GraphExecutor(graph, matcher=self.dedup_matcher)
-        logs = executor.execute_batch(action_text, agent_id)
+        logs = executor.execute_batch(action_text, agent_id, current_step=self.step_counter)
         projection_note = ""
+        focus_nodes = graph.get_nodes_by_step(self.step_counter)
+        query_context = ""
+        retrieval_mode = ""
 
-        if "ADD_" in action_text.upper():            
+        if focus_nodes:
+            query_context = graph.to_tactical_text(focus_nodes)
+            retrieval_mode = f"Tactical (Focus on {len(focus_nodes)} new nodes)"
+
+        else:
+            context_node_candidates = [n for n, d in graph.graph.nodes(data=True) if d.get('agent_id') == self.cfg.agent.system_id]
+            
+            if not context_node_candidates:
+                all_facts = [d['content'] for n, d in graph.graph.nodes(data=True) if str(d.get('type')) == 'FACT']
+                query_context = " ".join(all_facts)
+            
+            else:
+                context_node = context_node_candidates[0]
+                query_context = graph.graph.nodes[context_node]['content']
+            
+            retrieval_mode = "Global Context"
+
+        if query_context:
             try:
-                context_node_candidates = [n for n, d in graph.graph.nodes(data=True) if d.get('agent_id') == self.cfg.agent.system_id]
-                
-                if not context_node_candidates:
-                    all_facts = [d['content'] for n, d in graph.graph.nodes(data=True) if str(d.get('type')) == 'FACT']
-                    context = " ".join(all_facts)
+                msgs, _ = self.memory.retrieve_memory(query_context, top_k=self.cfg.retrieval.initial_top_k)
+                nodes_before = graph.graph.number_of_nodes()
+                self.projector.project(graph, msgs)
+                nodes_after = graph.graph.number_of_nodes()
+                added = nodes_after - nodes_before
 
-                else:
-                    context_node = context_node_candidates[0]
-                    context = graph.graph.nodes[context_node]['content']
+                if added > 0:
+                    projection_note = f"\n[System] Auto-projected {added} related nodes based on {retrieval_mode}."
+                    logs.append(f"System auto-projected {added} nodes ({retrieval_mode}).")
 
-                if context:
-                    msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)
-                    nodes_before = graph.graph.number_of_nodes()
-                    self.projector.project(graph, msgs)
-                    nodes_after = graph.graph.number_of_nodes()
-                    added = nodes_after - nodes_before
-
-                    if added > 0:
-                        projection_note = f"\n[System] Auto-projected {added} related nodes."
-                        logs.append(f"System auto-projected {added} nodes.")
-                    
             except Exception as e: logs.append(f"Error during projection: {e}")
 
         if self.recorder:

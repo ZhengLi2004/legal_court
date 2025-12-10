@@ -1,6 +1,6 @@
 # G-Memory (法律适配版) 架构与实现指南
 
-本文档阐述了 **G-Memory (法律适配版)** 的系统架构，旨在将 **对抗性螺旋协议 (Adversarial Spiral Protocol, ASP)** 方法论中的理论概念，映射到 `mas/` 包中的具体 Python 实现。
+本文档阐述了 **G-Memory (法律适配版)** 的系统架构，旨在将 **对抗性辩论协议** 方法论中的理论概念，映射到 `mas/` 包中的具体 Python 实现。
 
 ---
 
@@ -11,7 +11,7 @@
 *   **事实 ($F$)**: 证据或事件。
 *   **法条 ($L$)**: 法律法规。
 *   **观点 ($C$)**: 基于事实或法条的论点。
-*   **边 ($E$)**: 支持 ($\rightarrow$) 或 冲突 ($\dashv$) 关系。
+*   **边 ($E$)**: 支持 (`SUPPORT`) 或 冲突 (`CONFLICT`) 关系。
 
 **代码实现** (`mas/common.py`):
 ```python
@@ -19,10 +19,11 @@
 class ShadowGraph:
     """
     维护法律论证的有向图。
-    支持语义去重、序列化以及会话级 ID 别名 (id_alias) 管理。
+    - 支持混合去重、智能序列化、动态视界裁剪。
+    - 内置拓扑约束，保证论证的逻辑有效性。
     """
     graph: nx.DiGraph
-    id_alias: Dict[str, str] # 维护 Agent 临时 ID (如 FACT_1) 到真实 Graph ID 的映射
+    id_alias: Dict[str, str] # 会话级别名管理
 ```
 
 ---
@@ -35,85 +36,98 @@ class ShadowGraph:
 **方法论**: 具体的历史案例，用于 **关联投影 (Associative Projection)**。
 **代码实现** (`mas/legal_memory.py`):
 *   **物理存储**: 以 JSON 字符串的形式，作为元数据存储在 **ChromaDB** 中。
-*   **检索**: 通过 `retrieve_memory` 接口检索，并反序列化为 `ShadowGraph` 对象。
+*   **检索**: 通过 `retrieve_memory` 接口，基于**文本向量相似度**进行检索。
 
 ### B. 查询图 (Query Graph - 案例拓扑)
-**方法论**: 一个导航层，用于发现语义相似的案件 (K-Hop 检索)。
+**方法论**: 一个导航层，用于发现语义不直接相似但逻辑相关的案件。
 **代码实现** (`mas/task_layer.py`):
-*   **内存中**: 使用 `networkx` 存储案件之间的连通性（拓扑）。
-*   **磁盘上**: 持久化为 `case_graph.pkl` 文件。
-*   **逻辑**: 基于 ChromaDB 的 ANN (近似最近邻) 检索结果动态更新拓扑。
+*   **存储**: 持久化为 `case_graph.pkl` 文件，使用**工业级文件锁 (`portalocker`)** 保证并发安全。
+*   **逻辑**: 基于 ChromaDB 的检索结果，在案件间建立拓扑连接，支持 `K-Hop` 探索。
 
 ### C. 洞察图 (Insight Graph - 法律策略)
-**方法论**: 从历史案件的胜负模式中抽象出的法律策略。
+**方法论**: 从历史案件的胜负模式中抽象出的可复用法律策略。
 **代码实现** (`mas/insights_manager.py`):
-*   **内存中**: 维护一个策略的向量索引。
-*   **磁盘上**: 持久化为 `legal_insights.json` 文件。
+*   **数据结构**: `Insight` 类，包含**自然语言描述**、**历史效用分数**及**关联案例索引**。
+*   **存储**: 持久化为 `legal_insights.json`，同样使用文件锁保证并发安全。
 *   **逻辑**:
-    *   **提取**: `extract_adversarial_insights` 对比胜诉与败诉子图。
+    *   **提取**: `extract_adversarial_insights` 对比胜败子图，由 LLM 提炼策略。
     *   **奖惩**: `update_scores_from_verdict` 根据实战结果调整策略分数。
-    *   **反查**: `find_cases_by_insight` 根据策略召回历史案例 (Corrective Retrieval)。
+    *   **反查**: `find_cases_by_insight` 根据策略召回成功案例。
 
 ---
 
-## 3. 工作流与算法
+## 3. 工作流与核心算法
 
-### 算法 1: 执行 ($\text{Execute}(a_t, \mathcal{G}_t)$)
-**方法论**: 智能体输出 `ADD/LINK` 等动作来修改图谱。
+### 算法 1: 执行 ($\text{Execute}$)
+**方法论**: Agent 输出 `ADD/SUPPORT/CHALLENGE` 等指令来修改图谱。
 **代码实现** (`mas/graph_ops.py`):
 *   **组件**: `GraphExecutor`
-*   **逻辑**:
-    1.  **解析**: 基于增强正则表达式解析 LLM 的输出。
-    2.  **别名管理**: 自动维护 `FACT_1 -> Node_123` 的映射，确保持久化会话一致性。
-    3.  **动态投影**: 当检测到 `ADD` 指令时，触发即时投影。
+*   **特性**:
+    1.  **指令安全**: 废弃通用的 `LINK`，提供语义明确的 `SUPPORT` 和 `CHALLENGE` 接口。`CONFLICT` 边只能通过 `CHALLENGE` 创建。
+    2.  **完整性检查**:
+        *   **`CHALLENGE` 强制举证**: 必须引用已存在的 `FACT` 或 `LAW` 作为证据。
+        *   **全局拓扑约束**: `add_edge` 内置规则，禁止如“观点支持事实”等非法连接。
+    3.  **动态投影**: `ADD` 指令会触发基于新事实的增量投影。
 
-### 算法 3: 关联投影 ($\mathcal{P}(\mathcal{G}_0, \mathcal{M})$)
-**方法论**: 通过从历史库中投影相关的子图来丰富当前案件。
+### 算法 3: 关联投影 ($\mathcal{P}$)
+**方法论**: 从历史库中投影相关的子图来丰富当前案件。
 **代码实现** (`mas/projection.py`):
-*   **组件**: `GraphProjector`
-*   **策略**: **三阶段子图同构复制 (Three-Stage Subgraph Copy)**。
-    1.  **Gather**: 收集锚点及其 K-Hop 邻居 (过滤掉历史 Fact)。
-    2.  **Copy Nodes**: 复制节点到新图，建立新旧 ID 映射。
-    3.  **Copy Edges**: 复制子图内部的所有连接，保持拓扑完整。
+*   **组件**: `GraphExecutor`
+*   **核心算法**: **状态感知的 1-Hop 邻居投影**
+    1.  **锚定**: 在历史图中寻找与当前图中节点语义相似的“历史锚点”。
+    2.  **扩张**: 仅扩张历史锚点的**一跳 (1-Hop)** 邻居（过滤历史事实）。
+    3.  **复制与融合**:
+        *   将扩张的节点及**它们之间的内部边**复制到新图。
+        *   通过 `add_node` 内的**混合去重**机制，自动合并来自不同历史案例的相同节点，实现**隐式子图融合**。
+    4.  **状态继承**: 投影节点会携带 `metadata['historical_status']` 标签（`VALIDATED`/`DEFEATED`），为 Agent 提供先验知识。
 
 ### 算法 4: 判决反向传播
 **方法论**: 根据法官的判决结果，更新图中节点的状态。
 **代码实现** (`mas/backprop.py`):
 *   **组件**: `BackPropagator`
-*   **逻辑**: 标记 Winner 节点为 `VALIDATED`，Challenged Loser 节点为 `DEFEATED`。
+*   **核心算法**: **基于锚点的优先级传播**
+    1.  **输入**: 法官明确采信的节点 ID 列表 (`explicit_validated_ids`)。
+    2.  **支撑传播**: 从锚点出发，沿 `SUPPORT` 边**逆向**遍历，将所有祖先标记为 `VALIDATED`。
+    3.  **冲突击杀**:
+        *   **主动进攻**: 若节点 A (`VALIDATED`) 攻击 B，则 B 被强制标记为 `DEFEATED`（除非 B 也是初始锚点）。
+        *   **防守反击**: 若节点 B (`VALIDATED`) 被 A 攻击，则 A 被标记为 `DEFEATED`。
 
 ---
 
-## 4. 系统接口 (The Facade)
+## 4. 高级功能与系统接口
 
+### A. 双模智能序列化
+**方法论**: 为满足不同角色的认知需求，系统提供两种图谱视图。
+**代码实现** (`mas/common.py`):
+*   **全局审判视图 (`to_recursive_text`)**:
+    *   **算法**: **语义引导的智能序列化**。
+    *   **步骤**: 1) 以 `Root Claim` 为种子进行**议题聚类**；2) 基于 `PageRank` 对议题和节点**重要性排序**；3) 从局部根递归生成**主次分明**的文本。
+*   **战术聚焦视图 (`to_tactical_text`)**:
+    *   **算法**: **波纹传播动态子图**。
+    *   **步骤**: 1) 以最新节点为“震源”；2) 回溯其**全量祖先**（骨干网）；3) 展开其**直接邻居**（影响范围）；4) 剪除无关平行分支，生成聚焦视图。
+
+### B. 三阶段检索
 **代码实现** (`mas/legal_system.py`):
-`LegalSystem` 类封装了所有组件，并实现了 **三阶段检索 (Three-Stage Retrieval)**。
-
-| 阶段 | 方法 | 描述 |
+`LegalSystem` 在 `new_case` 中实现了三阶段检索，以实现全面的上下文召回。
+| 阶段 | 检索方式 | 目标 |
 | :--- | :--- | :--- |
-| **Stage 1: Downward** | `retrieve_memory` | 基于 Context 相似度召回形似案例。 |
-| **Stage 2: Upward** | `get_relevant_insights` | 检索高层策略指导。 |
-| **Stage 3: Corrective** | `find_cases_by_insight` | 基于 Insight 反查，召回神似案例 (Recall Correction)。 |
+| **Stage 1: Downward** | 文本向量相似度 | 召回**形似**案例 |
+| **Stage 2: Upward** | 策略向量相似度 | 检索高层**思路** |
+| **Stage 3: Corrective** | 基于策略反查 | 召回**神似**案例 |
 
 ---
 
-## 5. 配置管理
+## 5. 待办事项 (TODO) & 未来工作
 
-所有超参数（阈值、路径、Limit）均通过 `mas/config.py` 中的 `SystemConfig` 统一管理，支持梯度化阈值设计：
-*   **Query Graph**: 0.60 (宽松召回)
-*   **Projection**: 0.68 (中等过滤)
-*   **Insight Merge**: 0.80 (严格聚类)
-*   **Deduplication**: 0.95+ (极严格去重)
+*   **双轨检索机制**:
+    *   **构想**: 在辩论的运行时阶段，除了使用“线性化图谱”进行文本检索，还应引入**基于图结构的检索**。
+    *   **方案**: 将历史图谱预计算为**图嵌入 (Graph Embeddings)**，在运行时将当前图谱也编码为图嵌入，进行结构层面的相似度匹配。这将作为 G-Memory v2.0 的核心功能。
+*   **Insight 激活检测**: 搁置。此功能更适合在 MetaGPT 的 Reviewer Agent 层面，通过 LLM 的语义理解能力来实现。
+*   **饱和度终止条件**: 搁置。`ΔΦ` 的计算与 ASP 循环紧密耦合，将在 MetaGPT 中实现。
 
 ---
 
 ## 6. 局限性与方法论对齐
 
-#### **A. 饱和度 vs 语义判决 ($\Delta \Phi$ 的近似)**
-*   **理论**: 论文提出基于**信息增益饱和度 ($\Delta \Phi \approx 0$)** 来终止对抗螺旋。
-*   **现状**: 系统目前依赖**法官的语义判决** (`LLMJudge.evaluate`) 来决定终止。
-*   **偏差说明**: 理论上的“信息饱和”被 LLM 的主观评估所替代。
-
-#### **B. 缺失的驱动器 (算法 2)**
-*   **现状**: `mas` 包是**Engine**。
-*   **集成计划**: **ASP 循环 (算法 2)** 将被实现为一个 **MetaGPT SOP**。`mas` 包作为 Library 被 MetaGPT 调用。
+*   **A. 缺失的驱动器 (算法 2)**: `mas` 包是 **Engine**。**ASP 循环 (算法 2)** 将被实现为一个 **MetaGPT SOP**，`mas` 包作为 Library 被调用。
+*   **B. Agent 依赖**: 系统的许多高级功能（如 Root Claim 识别、Insight 激活）依赖于 MetaGPT Agent 在生成指令时提供正确的元数据或遵循特定模式。Engine 层只负责执行和验证。

@@ -9,6 +9,7 @@ from networkx.readwrite import json_graph
 class BaseMetadata(TypedDict, total=False):
     created_at: float
     source_doc_id: str
+    last_modified_step: int
 
 class ClaimMetadata(BaseMetadata, total=False):
     is_root_claim: bool
@@ -60,9 +61,16 @@ class ShadowGraph:
     graph: nx.DiGraph = field(default_factory=nx.DiGraph)
 
     def __post_init__(self):
-        self.id_alias: Dict[str, str] = {}
         if not hasattr(self.graph, "graph"): self.graph.graph = {}
-        if "id_counter" not in self.graph.graph: self.graph.graph["id_counter"] = 0
+
+    def touch_nodes(self, node_ids: List[str], step_index: int):
+        for nid in node_ids:
+            if self.graph.has_node(nid):
+                current_step = self.graph.nodes[nid].get('metadata', {}).get('last_modified_step', -1)
+                
+                if step_index > current_step:
+                    if 'metadata' not in self.graph.nodes[nid]: self.graph.nodes[nid]['metadata'] = {}
+                    self.graph.nodes[nid]['metadata']['last_modified_step'] = step_index
 
     def is_valid_connection(self, src_id: str, tgt_id: str, edge_type: EdgeType) -> bool:
         if not self.graph.has_node(src_id) or not self.graph.has_node(tgt_id): return False
@@ -140,7 +148,6 @@ class ShadowGraph:
         sub_nx = self.graph.subgraph(node_ids).copy()
         new_sg = ShadowGraph()
         new_sg.graph = sub_nx
-        new_sg.graph.graph["id_counter"] = self.graph.graph.get("id_counter", 0)
         return new_sg
 
     def _find_semantically_identical_node(self, content: str, node_type: NodeType) -> Optional[str]:
@@ -156,15 +163,12 @@ class ShadowGraph:
     @staticmethod
     def to_dict(sg: "ShadowGraph") -> dict:
         graph_data = json_graph.node_link_data(sg.graph)
-        return {"graph_data": graph_data, "id_alias": sg.id_alias}
+        return {"graph_data": graph_data}
 
     @staticmethod
     def from_dict(data: dict) -> "ShadowGraph":
         sg = ShadowGraph()
         sg.graph = json_graph.node_link_graph(data["graph_data"])
-        sg.id_alias = data.get("id_alias", {})
-        graph_dict_data = data.get("graph_data", data)
-        sg.graph.graph["id_counter"] = graph_dict_data["graph"]["id_counter"]
         return sg
 
     def to_json(self) -> str: return json.dumps(self.to_dict(self), ensure_ascii=False)
@@ -308,6 +312,16 @@ class ShadowGraph:
             result += "\n  受到反驳:\n    - " + "\n    - ".join(indented)
 
         return result
+
+    def get_nodes_by_step(self, step_index: int) -> List[str]:
+        target_nodes = []
+
+        for nid, data in self.graph.nodes(data=True):
+            meta = data.get('metadata', {})
+            node_step = meta.get('last_modified_step')
+            if node_step is not None and node_step == step_index: target_nodes.append(nid)
+
+        return target_nodes
 # 传输法律案件上下文
 @dataclass
 class LegalMessage:
