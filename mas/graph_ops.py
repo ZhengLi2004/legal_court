@@ -88,7 +88,7 @@ class GraphExecutor:
                 else: logs.append(real_id)
                 continue
 
-            support_pattern = r'SUPPORT\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)'
+            support_pattern = r'SUPPORT\(\s*([^,)]+?)\s*,\s*([^,)]+?)\s*\)'
             support_match = re.match(support_pattern, clean_cmd)
             
             if support_match:
@@ -96,7 +96,7 @@ class GraphExecutor:
                 logs.append(self.apply_support(src, tgt))
                 continue
 
-            challenge_pattern = r'CHALLENGE\(\s*(a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)(?:\s*,\s*([a-zA-Z0-9_]+))?\s*\)'
+            challenge_pattern = r'CHALLENGE\(\s*([^,)]+?)\s*,\s*([^,)]+?)(?:\s*,\s*([^,)]+?))?\s*\)'
             challenge_match = re.match(challenge_pattern, clean_cmd)
             
             if challenge_match:

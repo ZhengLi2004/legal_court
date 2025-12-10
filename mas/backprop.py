@@ -14,6 +14,8 @@ class BackPropagator:
                 queue.append(nid)
                 validated_set.add(nid)
 
+        initial_anchors = set(explicit_validated_ids)
+
         while queue:
             curr_id = queue.pop()
 
@@ -41,8 +43,7 @@ class BackPropagator:
                 edge_type = edge_data.get('type')
 
                 if edge_type == EdgeType.CONFLICT:
-                    attacked_status = nx_graph.nodes[succ_id]['status']
-                    if attacked_status != NodeStatus.VALIDATED: self._mark_defeated(nx_graph, succ_id)
+                    if succ_id not in initial_anchors: self._mark_defeated(nx_graph, succ_id)
 
         return graph
     

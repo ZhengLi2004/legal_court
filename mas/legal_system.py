@@ -56,10 +56,12 @@ class LegalSystem:
         self.projector.project(sg, all_msgs)
 
         if self.recorder:
+            proj_count = len([n for n, d in sg.graph.nodes(data=True) if d.get('agent_id') == self.cfg.agent.projection_id])
+            
             self.recorder.log_event(
-                step_name="New Case Initialization",
+                step_name="Initialization",
                 shadow_graph=sg,
-                message="Context: {context[:30]}..."
+                message=f"Case initialized. Projected {proj_count} nodes from history.\nContext: {context[:50]}..."
             )
         
         return sg, relevant_strategies
@@ -67,17 +69,9 @@ class LegalSystem:
     def execute_action(self, graph: ShadowGraph, agent_id: str, action_text: str) -> List[str]:
         executor = GraphExecutor(graph, matcher=self.dedup_matcher)
         logs = executor.execute_batch(action_text, agent_id)
+        projection_note = ""
 
-        if self.recorder:
-            self.recorder.log_event(
-                step_name=f"Action: {agent_id} (Executed)",
-                shadow_graph=graph,
-                message=f"Agent added nodes. Preparing for projection."
-            )
-
-        if "ADD_" in action_text.upper():
-            projected_count = 0
-            
+        if "ADD_" in action_text.upper():            
             try:
                 context_node_candidates = [n for n, d in graph.graph.nodes(data=True) if d.get('agent_id') == self.cfg.agent.system_id]
                 
@@ -89,24 +83,26 @@ class LegalSystem:
                     context_node = context_node_candidates[0]
                     context = graph.graph.nodes[context_node]['content']
 
-                msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)
-                nodes_before = graph.graph.number_of_nodes()
-                self.projector.project(graph, msgs)
-                nodes_after = graph.graph.number_of_nodes()
-                projected_count = nodes_after - nodes_before
+                if context:
+                    msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)
+                    nodes_before = graph.graph.number_of_nodes()
+                    self.projector.project(graph, msgs)
+                    nodes_after = graph.graph.number_of_nodes()
+                    added = nodes_after - nodes_before
 
-                if projected_count > 0:
-                    logs.append(f"Projection triggered: {projected_count} nodes imported.")
-
-                    if self.recorder:
-                        self.recorder.log_event(
-                            step_name=f"Projection on ADD Action",
-                            shadow_graph=graph,
-                            message=f"{projected_count} nodes were projected into the graph."
-                        )
+                    if added > 0:
+                        projection_note = f"\n[System] Auto-projected {added} related nodes."
+                        logs.append(f"System auto-projected {added} nodes.")
                     
             except Exception as e: logs.append(f"Error during projection: {e}")
-    
+
+        if self.recorder:
+            self.recorder.log_event(
+                step_name=f"Turn: {agent_id}",
+                shadow_graph=graph,
+                message=f"Action: {action_text[:100]}...\nResult: {logs[-1] if logs else 'No Op'}{projection_note}"
+            )
+        
         return logs
 
     def adjudicate(self, context: str, graph: ShadowGraph) -> Tuple[bool, str]: return self.judge.evaluate(context, graph)
@@ -124,9 +120,9 @@ class LegalSystem:
 
         if self.recorder:
             self.recorder.log_event(
-                step_name="Learning & Verdict",
+                step_name="Verdict & Consolidation",
                 shadow_graph=final_graph,
-                message=f"Winner: {winner}. Graph status updated."
+                message=f"Case Closed. Winner: {winner}. Graph persisted to G-Memory."
             )
         
         msg = LegalMessage(case_id=case_id, case_context=context, shadow_graph=final_graph)
