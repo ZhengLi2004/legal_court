@@ -9,6 +9,10 @@ def get_env_strict(key: str) -> str:
     return value
 
 @dataclass
+class ESConfig:
+    host: str = get_env_strict("ES_HOST")
+
+@dataclass
 class AgentConfig:
     system_id: str = "system"
     projection_id: str = "projection"
@@ -16,8 +20,8 @@ class AgentConfig:
 
 @dataclass
 class PathConfig:
-    embedding_model_path: str = os.getenv("EMBEDDING_MODEL_PATH")
-    storage_root_dir: str = os.getenv("MAS_STORAGE_DIR")
+    embedding_model_path: str = get_env_strict("EMBEDDING_MODEL_PATH")
+    storage_root_dir: str = get_env_strict("MAS_STORAGE_DIR")
     storage_subdir_chroma: str = "chroma_db"
     file_query_graph: str = "case_graph.pkl"
     file_insight_graph: str = "legal_insights.json"
@@ -27,12 +31,8 @@ class LLMConfig:
     temperature: float = 0.1
     max_tokens: int = 1024
     model_name: str = "法衡"
-    api_key: str = os.getenv("LEGAL_LLM_KEY")
-    base_url: str = os.getenv("LEGAL_LLM_URL")
-
-    def __post_init__(self):
-        if not self.api_key: raise ValueError("❌ Critical Error: 'LEGAL_LLM_KEY' not found in .env file.")
-        if not self.base_url: print("⚠️ Warning: 'LEGAL_LLM_URL' not set, using default maybe risky.")
+    api_key: str = get_env_strict("LEGAL_LLM_KEY")
+    base_url: str = get_env_strict("LEGAL_LLM_URL")
 
 @dataclass
 class MatcherConfig:
@@ -74,6 +74,7 @@ class SystemConfig:
     topology: TopologyConfig = TopologyConfig()
     insight: InsightConfig = InsightConfig()
     dedup: DeduplicationConfig = DeduplicationConfig()
+    es: ESConfig = ESConfig()
 
     def __post_init__(self):
         if not os.path.exists(self.path.storage_root_dir): os.makedirs(self.path.storage_root_dir, exist_ok=True)
