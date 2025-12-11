@@ -1,4 +1,3 @@
-import os
 import time
 from typing import Protocol, Literal, Optional, List
 from dataclasses import dataclass
@@ -6,9 +5,6 @@ from abc import ABC, abstractmethod
 from openai import OpenAI
 from .config import SystemConfig
 _CONFIG = SystemConfig().llm
-API_KEY = os.getenv("LEGAL_LLM_KEY", "***") 
-BASE_URL = os.getenv("LEGAL_LLM_URL", "http://47.102.193.166:8060/v1")
-print(f"# LLM Config: Model='{_CONFIG.model_name}' | URL='{BASE_URL}'")
 completion_tokens, prompt_tokens = 0, 0
 
 @dataclass(frozen=True)
@@ -33,12 +29,11 @@ class LLM(ABC):
 
 class GPTChat(LLM):
     def __init__(self, model_name: str = None):
-        super().__init__(model_name=model_name)
-        if not API_KEY or "***" in API_KEY: print("⚠️ [Warning] API Key is missing or invalid!")
+        super().__init__(model_name=model_name or _CONFIG.model_name)
 
         self.client = OpenAI(
-            base_url=BASE_URL,
-            api_key=API_KEY
+            base_url=_CONFIG.base_url,
+            api_key=_CONFIG.api_key
         )
 
     def __call__(

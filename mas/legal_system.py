@@ -12,15 +12,15 @@ from .backprop import BackPropagator
 from .config import SystemConfig
 # Legal-G-Memory 的统一入口
 class LegalSystem:
-    def __init__(self, persist_dir: str = "./storage", recorder: Any = None, config: SystemConfig = None):
+    def __init__(self, persist_dir: str = None, recorder: Any = None, config: SystemConfig = None):
         self.cfg = config or SystemConfig()
         self.llm = GPTChat(model_name=self.cfg.llm.model_name)
-        self.ef = EmbeddingFunc(model_path="./bge-m3")
+        self.ef = EmbeddingFunc(model_path=self.cfg.path.embedding_model_path)
         self.projection_matcher = SemanticMatcher(self.ef, threshold=self.cfg.matcher.projection_threshold)
         self.insight_matcher = SemanticMatcher(self.ef, threshold=self.cfg.matcher.insight_threshold)
         self.dedup_matcher = SemanticMatcher(self.ef)
-        self.memory = LegalGMemory(persist_dir=persist_dir, config=self.cfg)
-        self.insights = InsightsManager(persist_dir, self.llm, self.insight_matcher, self.cfg)
+        self.memory = LegalGMemory(persist_dir=self.cfg.path.storage_root_dir, config=self.cfg)
+        self.insights = InsightsManager(self.cfg.path.storage_root_dir, self.llm, self.insight_matcher, self.cfg)
         self.judge = LLMJudge(self.llm)
         self.projector = GraphProjector(self.projection_matcher, config=self.cfg)
         self.backprop = BackPropagator()
@@ -33,7 +33,6 @@ class LegalSystem:
         sg = ShadowGraph()
         nid = sg.add_node(context, "FACT", self.cfg.agent.system_id, matcher=None)
         sg.touch_nodes([nid], 0)
-        sg.id_alias["FACT_1"] = nid
         relevant_strategies = self.insights.get_relevant_insights(context, top_k=self.cfg.retrieval.insight_top_k)
         self._current_case_insights = relevant_strategies
         initial_msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)

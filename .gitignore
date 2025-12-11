@@ -6,8 +6,9 @@ metagpt
 workspace
 __pycache__
 *.json
-*.gif
 demo
 temp_*
 .pytest_cache
 tests
+.env
+sampling

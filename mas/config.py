@@ -1,5 +1,12 @@
 from dataclasses import dataclass
 import os
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+def get_env_strict(key: str) -> str:
+    value = os.getenv(key)
+    if value is None: raise ValueError(f"❌ [Config Error] Environment variable '{key}' not found! Please check .env document.")
+    return value
 
 @dataclass
 class AgentConfig:
@@ -9,7 +16,8 @@ class AgentConfig:
 
 @dataclass
 class PathConfig:
-    embedding_model_path: str = os.getenv("EMBEDDING_MODEL_PATH", "./bge-m3")
+    embedding_model_path: str = os.getenv("EMBEDDING_MODEL_PATH")
+    storage_root_dir: str = os.getenv("MAS_STORAGE_DIR")
     storage_subdir_chroma: str = "chroma_db"
     file_query_graph: str = "case_graph.pkl"
     file_insight_graph: str = "legal_insights.json"
@@ -19,6 +27,12 @@ class LLMConfig:
     temperature: float = 0.1
     max_tokens: int = 1024
     model_name: str = "法衡"
+    api_key: str = os.getenv("LEGAL_LLM_KEY")
+    base_url: str = os.getenv("LEGAL_LLM_URL")
+
+    def __post_init__(self):
+        if not self.api_key: raise ValueError("❌ Critical Error: 'LEGAL_LLM_KEY' not found in .env file.")
+        if not self.base_url: print("⚠️ Warning: 'LEGAL_LLM_URL' not set, using default maybe risky.")
 
 @dataclass
 class MatcherConfig:
@@ -60,3 +74,6 @@ class SystemConfig:
     topology: TopologyConfig = TopologyConfig()
     insight: InsightConfig = InsightConfig()
     dedup: DeduplicationConfig = DeduplicationConfig()
+
+    def __post_init__(self):
+        if not os.path.exists(self.path.storage_root_dir): os.makedirs(self.path.storage_root_dir, exist_ok=True)

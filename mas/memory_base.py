@@ -5,13 +5,15 @@ from dataclasses import dataclass
 from typing import Tuple, List
 from .utils import EmbeddingFunc
 from .common import LegalMessage
+from .config import SystemConfig
 
 @dataclass
 class MASMemoryBase(ABC):
-    persist_dir: str = "./storage"
-    embedding_model_path: str = "./bge-m3"
+    persist_dir: str
+    embedding_model_path: str = None
 
     def __post_init__(self):
+        if self.embedding_model_path is None: self.embedding_model_path = SystemConfig().path.embedding_model_path
         self.embedding_func = EmbeddingFunc(model_path=self.embedding_model_path)
         if not os.path.exists(self.persist_dir): os.makedirs(self.persist_dir)
 
