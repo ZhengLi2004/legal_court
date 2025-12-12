@@ -2,6 +2,7 @@ from typing import Tuple
 from mas.legal_system import LegalSystem
 from mas.common import ShadowGraph
 from mas.llm import LLMCallable, Message
+from prompts.shared import get_shared_prompt, OutputMode
 
 class GraphTool:
     def __init__(self, legal_system: LegalSystem, llm: LLMCallable):
@@ -58,31 +59,12 @@ class GraphTool:
         return False, f"Validation failed: Ambiguous response '{response}'"
 
     async def _translate_intent(self, intent: str) -> str:
+        rules = get_shared_prompt(mode=OutputMode.DSL_STRICT)
+        
         prompt = f"""
         你是一个指令翻译官。将自然语言的辩论意图转化为标准的图操作指令。
 
-        【可用指令 DSL】：
-        1. ADD_FACT("内容") / ADD_LAW("内容") / ADD_CLAIM("内容")
-        2. SUPPORT(Source_ID, Target_ID)
-        3. CHALLENGE(Attacker_ID, Defender_ID, Evidence_ID)
-
-        【别名处理规则】：
-        当添加**新节点**时，你需要使用临时别名来引用他们。
-        规则如下：
-        1. **独立计数器**：FACT, LAW, CLAIM 拥有各自独立的计数器，均从 1 开始。
-        2. **顺序生成**：
-            - 第一个 ADD_FACT 生成 FACT_1
-            - 第二个 ADD_FACT 生成 FACT_2
-            - 第一个 ADD_CLAIM 生成 CLAIM_1 (与 FACT 计数无关)
-        3. **引用规则**：在 SUPPORT/CHALLENGE 中，如果引用的是**本次新添加**的节点，使用别名（如 FACT_1）；如果引用的是**图中已有**的节点（来自上下文），请直接使用其真实的 UUID。
-
-        【示例】：
-        意图："添加事实A和观点B，用A支持B，并用B反驳已有的观点（ID:uuid-999）"
-        输出：
-        ADD_FACT("A"); 
-        ADD_CLAIM("B"); 
-        SUPPORT(FACT_1, CLAIM_1); 
-        CHALLENGE(CLAIM_1, uuid-999, FACT_1)
+        {rules}
 
         【待转化意图】："{intent}"
 
