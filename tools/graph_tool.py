@@ -1,20 +1,94 @@
+from typing import Tuple
 from mas.legal_system import LegalSystem
 from mas.common import ShadowGraph
+from mas.llm import LLMCallable, Message
 
 class GraphTool:
-    def __init__(self, legal_system: LegalSystem):
+    def __init__(self, legal_system: LegalSystem, llm: LLMCallable):
         self.system = legal_system
-        self.current_graph = None
+        self.llm = llm
+        self.current_graph: ShadowGraph = None
 
     def set_current_graph(self, graph: ShadowGraph): self.current_graph = graph
 
-    def execute_actions(self, agent_id: str, actions_text: str) -> str:
-        if not self.current_graph: return "错误：尚未设置当前操作的图谱。"
+    async def process_intent(self, agent_id: str, intent_text: str) -> str:
+        if not self.current_graph: return "ERROR: Current graph context is not set."
+        is_valid, reason = await self._validate_intent(intent_text)
+        if not is_valid: return f"REJECT: {reason}"
+        actions_script = await self._translate_intent(intent_text)
+        print(f"[GraphTool] Intent: '{intent_text}' -> Script: '{actions_script}'")
 
         logs = self.system.execute_action(
             graph=self.current_graph,
             agent_id=agent_id,
-            action_text=actions_text
+            action_text=actions_script
         )
 
-        return "\n".join(logs)
+        return f"EXECUTED:\nScript: {actions_script}\nLogs:\n" + "\n".join(logs)
+    
+    async def _validate_intent(self, intent: str) -> Tuple[bool, str]:
+        context_text = self.current_graph.latest_context
+
+        prompt = f"""
+        你是一个辩论图谱的语义审查官。你的职责是确保每一个进入图谱的操作都是高质量、强相关且合乎逻辑的。
+        
+        【当前辩论局势】：
+        {context_text}
+
+        【待审查的意图】：
+        {intent}
+
+        【审查标准】（必须全部满足）：
+        1. **相关性（Relevance）**：该意图是否直接回应了上述局势中的争议点？拒绝无关的闲聊或偏题的论述。
+        2. **强度（Strength）**：该意图是否提供了实质性的信息增量？拒绝“我认为他是错的”这类没有证据支撑的空洞反驳。
+        3. **逻辑（Logic）**：是否存在逻辑谬误？（如用‘没有证据’去支撑‘事实存在’）。
+
+        请判断该意图是否应被执行：
+        如果通过，仅输出：VALID
+        如果决绝，输出格式：REJECT: <拒绝具体理由，指出是相关性、强度还是逻辑问题>
+        """
+
+        response = self.llm([Message(role="user", content=prompt)], temperature=0.0)
+
+        if "REJECT:" in response:
+            reason = response.split("REJECT:", 1)[1].strip()
+            return False, reason
+        
+        if "VALID" in response: return True, ""
+        return False, f"Validation failed: Ambiguous response '{response}'"
+
+    async def _translate_intent(self, intent: str) -> str:
+        prompt = f"""
+        你是一个指令翻译官。将自然语言的辩论意图转化为标准的图操作指令。
+
+        【可用指令 DSL】：
+        1. ADD_FACT("内容") / ADD_LAW("内容") / ADD_CLAIM("内容")
+        2. SUPPORT(Source_ID, Target_ID)
+        3. CHALLENGE(Attacker_ID, Defender_ID, Evidence_ID)
+
+        【别名处理规则】：
+        当添加**新节点**时，你需要使用临时别名来引用他们。
+        规则如下：
+        1. **独立计数器**：FACT, LAW, CLAIM 拥有各自独立的计数器，均从 1 开始。
+        2. **顺序生成**：
+            - 第一个 ADD_FACT 生成 FACT_1
+            - 第二个 ADD_FACT 生成 FACT_2
+            - 第一个 ADD_CLAIM 生成 CLAIM_1 (与 FACT 计数无关)
+        3. **引用规则**：在 SUPPORT/CHALLENGE 中，如果引用的是**本次新添加**的节点，使用别名（如 FACT_1）；如果引用的是**图中已有**的节点（来自上下文），请直接使用其真实的 UUID。
+
+        【示例】：
+        意图："添加事实A和观点B，用A支持B，并用B反驳已有的观点（ID:uuid-999）"
+        输出：
+        ADD_FACT("A"); 
+        ADD_CLAIM("B"); 
+        SUPPORT(FACT_1, CLAIM_1); 
+        CHALLENGE(CLAIM_1, uuid-999, FACT_1)
+
+        【待转化意图】："{intent}"
+
+        请生成指令序列（一行一条，分号分隔）：
+        """
+
+        response = self.llm([Message(role="user", content=prompt)], temperature=0.0)
+        clean_script = response.replace("```", "").strip()
+        return clean_script

@@ -57,6 +57,7 @@ class LegalSystem:
 
         all_msgs = list({m.case_id: m for m in initial_msgs + corrective_msgs}.values())
         self.projector.project(sg, all_msgs)
+        sg.refresh_context(0)
 
         if self.recorder:
             proj_count = len([n for n, d in sg.graph.nodes(data=True) if d.get('agent_id') == self.cfg.agent.projection_id])
@@ -109,6 +110,8 @@ class LegalSystem:
                     logs.append(f"System auto-projected {added} nodes ({retrieval_mode}).")
 
             except Exception as e: logs.append(f"Error during projection: {e}")
+
+        graph.refresh_context(current_step)
 
         if self.recorder:
             self.recorder.log_event(

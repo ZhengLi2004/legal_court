@@ -59,9 +59,22 @@ def ensure_edge_type(val: Any) -> EdgeType:
 @dataclass
 class ShadowGraph:
     graph: nx.DiGraph = field(default_factory=nx.DiGraph)
+    latest_context: str = field(default="")
 
     def __post_init__(self):
         if not hasattr(self.graph, "graph"): self.graph.graph = {}
+
+    def refresh_context(self, current_step: int):
+        root_nodes = [
+            nid for nid, data in self.graph.nodes(data=True)
+            if data.get('metadata', {}).get('is_root_claim', False)
+        ]
+
+        step_nodes = self.get_nodes_by_step(current_step)
+        focus_nodes = list(set(root_nodes + step_nodes))
+        if focus_nodes: self.latest_context = self.to_tactical_text(focus_nodes)
+        else: self.latest_context = self.to_recursive_text()
+        if not self.latest_context: self.latest_context = "（当前辩论图谱为空）"
 
     def touch_nodes(self, node_ids: List[str], step_index: int):
         for nid in node_ids:
