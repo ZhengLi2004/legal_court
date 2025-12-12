@@ -1,4 +1,5 @@
 import time
+import asyncio
 from typing import Protocol, Literal, Optional, List
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
@@ -85,5 +86,15 @@ class GPTChat(LLM):
                 else: break 
 
         return ""
+    
+    async def aask(self, prompt:str, system_msgs: Optional[List[str]] = None) -> str:
+        messages = []
+
+        if system_msgs:
+            for sm in system_msgs: messages.append(Message(role="system", content=sm))
+        
+        messages.append(Message(role="user", content=prompt))
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.__call__, messages)
     
 def get_price(): return completion_tokens, prompt_tokens

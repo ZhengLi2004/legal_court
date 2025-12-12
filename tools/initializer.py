@@ -1,6 +1,6 @@
 import json
-from dataclasses import dataclass, asdict
-from typing import List, Tuple
+from dataclasses import dataclass
+from typing import List
 from mas.llm import GPTChat, Message
 
 @dataclass

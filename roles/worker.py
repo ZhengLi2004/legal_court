@@ -1,5 +1,4 @@
 import re
-from typing import Optional
 from metagpt.roles import Role
 from metagpt.schema import Message
 from metagpt.logs import logger

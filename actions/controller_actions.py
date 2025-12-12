@@ -1,5 +1,4 @@
 from metagpt.actions import Action
-from prompts.shared import get_shared_prompt, OutputMode
 
 class PlanTactics(Action):
     name: str = "PlanTactics"
