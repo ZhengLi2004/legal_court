@@ -12,7 +12,7 @@ from .backprop import BackPropagator
 from .config import SystemConfig
 # Legal-G-Memory 的统一入口
 class LegalSystem:
-    def __init__(self, persist_dir: str = None, recorder: Any = None, config: SystemConfig = None):
+    def __init__(self, persist_dir: str = None, config: SystemConfig = None):
         self.cfg = config or SystemConfig()
         self.llm = GPTChat(model_name=self.cfg.llm.model_name)
         self.ef = EmbeddingFunc(model_path=self.cfg.path.embedding_model_path)
@@ -24,15 +24,12 @@ class LegalSystem:
         self.judge = LLMJudge(self.llm)
         self.projector = GraphProjector(self.projection_matcher, config=self.cfg)
         self.backprop = BackPropagator()
-        self.recorder = recorder
         self._current_case_insights: List[str] = []
         self.step_counter = 0
 
     def new_case(self, context: str) -> ShadowGraph:
         self.step_counter = 0
         sg = ShadowGraph()
-        nid = sg.add_node(context, "FACT", self.cfg.agent.system_id, matcher=None)
-        sg.touch_nodes([nid], 0)
         relevant_strategies = self.insights.get_relevant_insights(context, top_k=self.cfg.retrieval.insight_top_k)
         self._current_case_insights = relevant_strategies
         initial_msgs, _ = self.memory.retrieve_memory(context, top_k=self.cfg.retrieval.initial_top_k)
@@ -58,15 +55,6 @@ class LegalSystem:
         all_msgs = list({m.case_id: m for m in initial_msgs + corrective_msgs}.values())
         self.projector.project(sg, all_msgs)
         sg.refresh_context(0)
-
-        if self.recorder:
-            proj_count = len([n for n, d in sg.graph.nodes(data=True) if d.get('agent_id') == self.cfg.agent.projection_id])
-            
-            self.recorder.log_event(
-                step_name="Initialization",
-                shadow_graph=sg,
-                message=f"Case initialized. Projected {proj_count} nodes from history.\nContext: {context[:50]}..."
-            )
         
         return sg, relevant_strategies
     
@@ -105,21 +93,11 @@ class LegalSystem:
                 nodes_after = graph.graph.number_of_nodes()
                 added = nodes_after - nodes_before
 
-                if added > 0:
-                    projection_note = f"\n[System] Auto-projected {added} related nodes based on {retrieval_mode}."
-                    logs.append(f"System auto-projected {added} nodes ({retrieval_mode}).")
+                if added > 0: logs.append(f"System auto-projected {added} nodes ({retrieval_mode}).")
 
             except Exception as e: logs.append(f"Error during projection: {e}")
 
         graph.refresh_context(current_step)
-
-        if self.recorder:
-            self.recorder.log_event(
-                step_name=f"Turn: {agent_id}",
-                shadow_graph=graph,
-                message=f"Action: {action_text[:100]}...\nResult: {logs[-1] if logs else 'No Op'}{projection_note}"
-            )
-        
         return logs
 
     def adjudicate(self, context: str, graph: ShadowGraph) -> Tuple[bool, str]: return self.judge.evaluate(context, graph)
@@ -134,14 +112,6 @@ class LegalSystem:
         )
 
         final_graph = self.backprop.propagate(current_graph, winner)
-
-        if self.recorder:
-            self.recorder.log_event(
-                step_name="Verdict & Consolidation",
-                shadow_graph=final_graph,
-                message=f"Case Closed. Winner: {winner}. Graph persisted to G-Memory."
-            )
-        
         msg = LegalMessage(case_id=case_id, case_context=context, shadow_graph=final_graph)
         self.memory.add_memory(msg)
         win_nodes = [n for n, d in final_graph.graph.nodes(data=True) if d['status'] == NodeStatus.VALIDATED]

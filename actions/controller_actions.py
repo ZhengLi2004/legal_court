@@ -17,10 +17,20 @@ class PlanTactics(Action):
     【当前战局】:
     {graph_context}
     
-    你的任务：为了推进我方战略，你需要指示【事实参谋(FactWorker)】或【法律参谋(LawWorker)】去寻找什么情报？
+    你的任务：为了推进我方战略，你需要指示哪位参谋去寻找什么情报？
     
-    请输出一个简练的查询指令。
-    示例: "指示 FactWorker 查询关于'借条备注'的先例"
+    【可用参谋】:
+    - **事实参谋 (FactWorker)**: 负责检索相似的历史判例，提供战术参考。
+    - **法律参谋 (LawWorker)**: 负责检索具体的法律条款。
+    
+    请输出一个简练的查询指令，并明确指出由谁执行。
+    
+    【输出格式】:
+    指示 [FactWorker/LawWorker] 查询 [具体内容]
+    
+    【示例】:
+    指示 FactWorker 查询关于'借条备注'的先例
+    指示 LawWorker 查询《民法典》中关于'债务加入'的规定
     """
 
     async def run(self, role_name: str, persona: object, insights: str, graph_context: str):

@@ -18,7 +18,8 @@ class DebateTeam:
         fact_es: FactEsTool,
         law_es: LawEsTool,
         llm: GPTChat,
-        insights: str = ""
+        insights: str = "",
+        verbose: bool = False
     ):
         self.side = side
         self.persona = persona
@@ -47,35 +48,55 @@ class DebateTeam:
         )
 
         self.max_micro_loops = 3
+        self.verbose = verbose
 
     async def run_turn(self, graph: ShadowGraph) -> str:
         logger.info(f"\n{'='*10} Team {self.side} Turn Start {'='*10}")
         self.graph_tool.set_current_graph(graph)
         self.controller.rc.memory.add(Message(content="SYSTEM_START", role="System"))
+        transcript = []
         loop_count = 0
+        final_result = f"Turn ended without action (Max loops {self.max_micro_loops} reached)."
 
         while loop_count < self.max_micro_loops:
             loop_count += 1
             logger.info(f"--- Micro Loop {loop_count}/{self.max_micro_loops} ---")
             ctrl_msg = await self.controller._act()
+            
+            if self.verbose:
+                transcript.append({
+                    "from": self.controller.name,
+                    "to": ctrl_msg.send_to or "GraphTool",
+                    "content": ctrl_msg.content
+                })
+
             content = str(ctrl_msg.content)
 
             if "Action Completed" in content or "Executed:" in content:
-                logger.info(f"Turn Finished: {content}")
-                return content
+                final_result = content
+                break
 
             if "query" in content and "graph_context" in content:
                 target_worker = self.fact_worker    # 默认
                 if "LawWorker" in ctrl_msg.send_to: target_worker = self.law_worker
-                elif "FactWorker" in ctrl_msg.send_to: target_worker = self.fact_worker
-                logger.info(f"Controller -> {target_worker.name}")
+                logger.info(f"Routing to {target_worker.name}")
                 target_worker.rc.memory.add(ctrl_msg)
                 worker_msg = await target_worker._act()
-                logger.info(f"{target_worker.name} -> Controller")
+                
+                if self.verbose:
+                    transcript.append({
+                        "from": target_worker.name,
+                        "to": self.controller.name,
+                        "content": worker_msg.content
+                    })
+                
                 self.controller.rc.memory.add(worker_msg)
                 continue
 
-            logger.warning(f"Controller produced unexpected output: {content}")
+            final_result = f"Controller produced unroutable output: {content}"
             break
 
-        return f"Turn ended without action (Max loops {self.max_micro_loops} reached)."
+        return {
+            "summary": final_result,
+            "transcript": transcript
+        }
