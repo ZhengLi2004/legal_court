@@ -13,20 +13,28 @@ class GraphTool:
     def set_current_graph(self, graph: ShadowGraph): self.current_graph = graph
 
     async def process_intent(self, agent_id: str, intent_text: str) -> str:
-        if not self.current_graph: return "ERROR: Current graph context is not set."
-        is_valid, reason = await self._validate_intent(intent_text)
-        if not is_valid: return f"REJECT: {reason}"
-        actions_script = await self._translate_intent(intent_text)
-        print(f"[GraphTool] Intent: '{intent_text}' -> Script: '{actions_script}'")
+        try:
+            if not self.current_graph: return "ERROR: Current graph context is not set."
+            is_valid, reason = await self._validate_intent(intent_text)
+            if not is_valid: return f"REJECT: {reason}"
+            actions_script = await self._translate_intent(intent_text)
 
-        logs = self.system.execute_action(
-            graph=self.current_graph,
-            agent_id=agent_id,
-            action_text=actions_script
-        )
+            try:
+                logs = self.system.execute_action(
+                    graph=self.current_graph,
+                    agent_id=agent_id,
+                    action_text=actions_script
+                )
 
-        return f"EXECUTED:\nScript: {actions_script}\nLogs:\n" + "\n".join(logs)
-    
+                error_logs = [l for l in logs if l.startswith("Error")]
+                if error_logs: return f"ERROR in Execution: {'; '.join(error_logs)}"
+
+                return f"EXECUTED:\nScript: {actions_script}\nLogs:\n" + "\n".join(logs)
+            
+            except Exception as e: return f"ERROR in System Execution: {str(e)}"
+
+        except Exception as e: return f"ERROR in GraphTool: {str(e)}"
+
     async def _validate_intent(self, intent: str) -> Tuple[bool, str]:
         context_text = self.current_graph.latest_context
 

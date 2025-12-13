@@ -73,8 +73,24 @@ class DebateTeam:
             content = str(ctrl_msg.content)
 
             if "Action Completed" in content or "Executed:" in content:
-                final_result = content
-                break
+                if "ERROR" in content or "REJECT" in content:
+                    logger.warning(f"Controller action failed: {content}")
+
+                    feedback_msg = Message(
+                        content=f"SYSTEM_FEEDBACK: 上次操作失败。{content}。请重新规划。",
+                        role="System"
+                    )
+
+                    self.controller.rc.memory.add(feedback_msg)
+
+                    if self.verbose:
+                        transcript.append({
+                            "from": "System",
+                            "to": self.controller.name,
+                            "content": feedback_msg.content
+                        })
+
+                    continue
 
             if "query" in content and "graph_context" in content:
                 target_worker = self.fact_worker    # 默认

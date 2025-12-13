@@ -4,6 +4,7 @@ import json
 from mas.engine import DebateEngine
 from mas.config import SystemConfig
 from vis.app_utils import render_graph, render_global_memory, JUDGE_CONFIG
+
 st.set_page_config(layout="wide", page_title="Legal MAS Debugger")
 st.title("⚖️ Legal Multi-Agent Debate Console")
 

@@ -37,13 +37,21 @@ class ArgumentController(Role):
 
     async def _plan_phase(self) -> Message:
         context = self.graph_tool.current_graph.latest_context
+        last_mem = self.get_memories(k=1)[0]
+        feedback = ""
+
+        if "SYSTEM_FEEDBACK" in str(last_mem.content):
+            feedback = str(last_mem.content)
+            logger.info(f"Controller received feedback: {feedback[:50]}...")
+
         action = PlanTactics(llm=self.llm)
         
         query_intent = await action.run(
             self.name, 
             self.persona, 
             self.insights, 
-            context
+            context,
+            feedback=feedback
         )
         
         instruction = WorkerInstruction(

@@ -41,8 +41,14 @@ MODE_INSTRUCTION = {
     【输出要求 - 指令模式】:
     请输出严格的 DSL 代码块，不包含任何解释。
     可用指令: ADD_CLAIM, ADD_LAW, SUPPORT, CHALLENGE。
+    
+    【严禁事项 (Negative Constraints)】:
+    1. 严禁在 ID 周围保留方括号。错误: `SUPPORT([FACT_1], ...)` -> 正确: `SUPPORT(FACT_1, ...)`
+    2. 严禁将别名作为内容。错误: `ADD_CLAIM(CLAIM_1)` -> 正确: `ADD_CLAIM("具体的观点内容")`
+    3. 严禁编造 ID。只能使用上下文中已有的 UUID 或本轮生成的临时别名。
+        
     示例:
-    ADD_CLAIM("被告违约");
+    ADD_CLAIM("被告存在违约行为");
     SUPPORT(FACT_u8a9, CLAIM_1);
     """
 }

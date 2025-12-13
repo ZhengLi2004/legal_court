@@ -4,38 +4,38 @@ from mas.utils import EmbeddingFunc
 # ES 进行向量检索的基础工具
 class BaseEsTool:
     def __init__(self, es_host: str, embedding_func: EmbeddingFunc):
-        self.es_client = AsyncElasticsearch(es_host)
+        self.es_host = es_host
         self.embedding_func = embedding_func
-
     async def _search(self,
                       index_name: str,
                       query_vector: List[float],
                       vector_field: str,
                       source_fields: List[str],
                       top_k: int = 3) -> List[Dict[str, Any]]:
-        search_body = {
-            "size": top_k,
-            
-            "query": {
-                "script_score": {
-                    "query": {"match_all": {}},
+        async with AsyncElasticsearch(self.es_host) as client:
+            search_body = {
+                "size": top_k,
+                
+                "query": {
+                    "script_score": {
+                        "query": {"match_all": {}},
 
-                    "script": {
-                        "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
-                        "params": {"query_vector": query_vector}
+                        "script": {
+                            "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
+                            "params": {"query_vector": query_vector}
+                        }
                     }
-                }
-            },
+                },
 
-            "_source": source_fields
-        }
+                "_source": source_fields
+            }
 
-        try:
-            response = await self.es_client.search(index=index_name, body=search_body)
-            return response['hits']['hits']
+            try:
+                response = await client.search(index=index_name, body=search_body)
+                return response['hits']['hits']
+            
+            except Exception as e:
+                print(f"Error during ES search in index '{index_name}': {e}")
+                return []
         
-        except Exception as e:
-            print(f"Error during ES search in index '{index_name}': {e}")
-            return []
-        
-    async def close(self): await self.es_client.close()
+    async def close(self): pass

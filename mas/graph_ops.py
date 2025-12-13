@@ -1,4 +1,5 @@
 import re
+import copy
 from typing import List, Dict
 from .common import ShadowGraph, NodeType, EdgeType
 from .semantic_matcher import SemanticMatcher
@@ -8,6 +9,11 @@ class GraphExecutor:
     def __init__(self, graph: ShadowGraph, matcher: SemanticMatcher = None):
         self.graph = graph
         self.matcher = matcher
+
+    def _sanitize_instruction(self, cmd: str) -> str:
+        cmd = re.sub(r'\[([a-zA-Z0-9_]+)\]', r'\1', cmd)
+        return cmd.strip()
+
     # 执行单条指令并执行
     def apply_add(self, instruction: str, agent_id: str, current_step: int = 0) -> str:
         add_pattern = r'ADD_(FACT|LAW|CLAIM)\(["\'](.*?)["\']\)'
@@ -24,11 +30,15 @@ class GraphExecutor:
                     if node_type == NodeType.FACT: self.matcher.threshold = cfg.fact_threshold
                     else: self.matcher.threshold = cfg.other_threshold
 
+                meta = {}
+                if current_step == 1 and node_type == NodeType.CLAIM: meta["is_root_claim"] = True
+
                 node_id = self.graph.add_node(
                     content=content,
                     node_type=node_type,
                     agent_id=agent_id,
                     matcher=self.matcher,
+                    metadata=meta
                 )
 
                 self.graph.touch_nodes([node_id], current_step)
@@ -73,53 +83,59 @@ class GraphExecutor:
     def execute_batch(self, llm_response: str, agent_id: str, current_step: int = 0) -> List[str]:
         logs = []
         instructions = []
+        original_nx_graph = copy.deepcopy(self.graph.graph)
+        original_alias_snapshot = self.graph.id_alias.copy() if hasattr(self.graph, 'id_alias') else {}
         local_aliases: Dict[str, str] = {}
-        
-        local_counters = {
-            "FACT": 0,
-            "LAW": 0,
-            "CLAIM": 0
-        }
+        local_counters = {"FACT": 0, "LAW": 0,"CLAIM": 0}
 
         raw_lines = llm_response.split('\n')
         for line in raw_lines: instructions.extend([part.strip() for part in line.split(';') if part.strip()])
 
-        for cmd_text in instructions:
-            clean_cmd = re.sub(r'^[\d\-\*\.]+\s*', '', cmd_text).strip()
-            if not clean_cmd: continue
-            add_pattern = r'ADD_(FACT|LAW|CLAIM)\(["\'](.*?)["\']\)'
-            add_match = re.match(add_pattern, clean_cmd, re.DOTALL)
-            
-            if add_match:
-                node_type_str = add_match.group(1)
-                local_counters[node_type_str] += 1
-                local_key = f"{node_type_str}_{local_counters[node_type_str]}"
-                real_id = self.apply_add(clean_cmd, agent_id, current_step=current_step)
+        try:
+            for cmd_text in instructions:
+                clean_cmd = self._sanitize_instruction(cmd_text)
+                clean_cmd = re.sub(r'^[\d\-\*\.]+\s*', '', cmd_text).strip()
+                if not clean_cmd: continue
+                add_pattern = r'ADD_(FACT|LAW|CLAIM)\(["\'](.*?)["\']\)'
+                add_match = re.match(add_pattern, clean_cmd, re.DOTALL)
                 
-                if not real_id.startswith("Error"):
-                    local_aliases[local_key] = real_id
-                    logs.append(f"Created {local_key} -> {real_id}")
+                if add_match:
+                    node_type_str = add_match.group(1)
+                    local_counters[node_type_str] += 1
+                    local_key = f"{node_type_str}_{local_counters[node_type_str]}"
+                    real_id = self.apply_add(clean_cmd, agent_id, current_step=current_step)
+                    
+                    if not real_id.startswith("Error"):
+                        local_aliases[local_key] = real_id
+                        logs.append(f"Created {local_key} -> {real_id}")
+                    
+                    else: raise ValueError(f"Add Failed: {real_id}")
+                    continue
+
+                support_pattern = r'SUPPORT\(\s*([^,)]+?)\s*,\s*([^,)]+?)\s*\)'
+                support_match = re.match(support_pattern, clean_cmd)
                 
-                else: logs.append(real_id)
-                continue
+                if support_match:
+                    src, tgt = support_match.groups()
+                    res = self.apply_support(src, tgt, current_step, local_aliases)
+                    if "Error" in res: raise ValueError(res)
+                    logs.append(res)
+                    continue
 
-            support_pattern = r'SUPPORT\(\s*([^,)]+?)\s*,\s*([^,)]+?)\s*\)'
-            support_match = re.match(support_pattern, clean_cmd)
-            
-            if support_match:
-                src, tgt = support_match.groups()
-                logs.append(self.apply_support(src, tgt, current_step, local_aliases))
-                continue
+                challenge_pattern = r'CHALLENGE\(\s*([^,)]+?)\s*,\s*([^,)]+?)(?:\s*,\s*([^,)]+?))?\s*\)'
+                challenge_match = re.match(challenge_pattern, clean_cmd)
+                
+                if challenge_match:
+                    src, tgt, ev = challenge_match.groups()
+                    res = self.apply_challenge(src, tgt, ev, current_step, local_aliases)
+                    if "Error" in res: raise ValueError(res)
+                    logs.append(res)
+                    continue
+                                
+            return logs
 
-            challenge_pattern = r'CHALLENGE\(\s*([^,)]+?)\s*,\s*([^,)]+?)(?:\s*,\s*([^,)]+?))?\s*\)'
-            challenge_match = re.match(challenge_pattern, clean_cmd)
-            
-            if challenge_match:
-                src_alias, tgt_alias, evidence_alias = challenge_match.groups()
-                log = self.apply_challenge(src_alias, tgt_alias, evidence_alias, current_step, local_aliases)
-                logs.append(log)
-                continue
-            
-            logs.append(f"Error: Unknown instruction '{clean_cmd}'")
-            
-        return logs
+        except Exception as e:
+            self.graph.graph = original_nx_graph
+            if hasattr(self.graph, 'id_alias'): self.graph.id_alias = original_alias_snapshot
+            error_msg = f"Error: Atomic Execution Failed. Rollback triggered. Cause: {str(e)}"
+            return [error_msg]

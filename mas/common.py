@@ -65,13 +65,18 @@ class ShadowGraph:
         if not hasattr(self.graph, "graph"): self.graph.graph = {}
 
     def refresh_context(self, current_step: int):
-        root_nodes = [
+        focus_nodes = set([
             nid for nid, data in self.graph.nodes(data=True)
             if data.get('metadata', {}).get('is_root_claim', False)
-        ]
+        ])
 
-        step_nodes = self.get_nodes_by_step(current_step)
-        focus_nodes = list(set(root_nodes + step_nodes))
+        lookback_window = [current_step, current_step - 1]
+
+        for step in lookback_window:
+            if step >= 0:
+                step_nodes = self.get_nodes_by_step(step)
+                focus_nodes.update(step_nodes)
+
         if focus_nodes: self.latest_context = self.to_tactical_text(focus_nodes)
         else: self.latest_context = self.to_recursive_text()
         if not self.latest_context: self.latest_context = "（当前辩论图谱为空）"

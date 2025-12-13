@@ -16,6 +16,8 @@ class PlanTactics(Action):
     
     【当前战局】:
     {graph_context}
+
+    {feedback_section}
     
     你的任务：为了推进我方战略，你需要指示哪位参谋去寻找什么情报？
     
@@ -33,14 +35,18 @@ class PlanTactics(Action):
     指示 LawWorker 查询《民法典》中关于'债务加入'的规定
     """
 
-    async def run(self, role_name: str, persona: object, insights: str, graph_context: str):
+    async def run(self, role_name: str, persona: object, insights: str, graph_context: str, feedback: str = ""):
+        feedback_text = ""
+        if feedback: feedback_text = f"【⚠️ 上次尝试失败反馈】:\n{feedback}\n请分析失败原因，并重新规划。如果是指令错误，请修正格式；如果是逻辑错误，请调整策略。"
+        
         prompt = self.PROMPT_TEMPLATE.format(
             role_name=role_name,
             style=persona.intention,
             belief=persona.belief,
             strategic_focus=persona.initial_strategy,
             insights=insights,
-            graph_context=graph_context
+            graph_context=graph_context,
+            feedback_section=feedback_text
         )
         
         return await self.llm.aask(prompt)

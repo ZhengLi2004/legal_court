@@ -10,26 +10,35 @@ JUDGE_CONFIG = {
     "max_tokens": 512
 }
 
-async def main():
-    logger.info(">>> Starting Non-Interactive (Experiment) Run...")
-    engine = DebateEngine(config=SystemConfig(), judge_config=JUDGE_CONFIG)
-    
+async def run_experiment():
+    logger.info(">>> Starting Experiment Run...")
+
+    engine = DebateEngine(
+        config=SystemConfig(),
+        judge_config=JUDGE_CONFIG
+    )
+
     try:
         await engine.setup(DATA_FILE)
-        
+
         while not engine.is_finished:
             await engine.step()
             snapshot = engine.get_snapshot()
             log = snapshot.get("last_log", {})
-            print(f"--- Turn {log.get('turn')} Summary ---")
-            print(log.get('action', 'No action logged.'))
+            print(f"\n--- Turn {log.get('turn')} Summary ---")
+            print(f"Action: {log.get('action')}")
 
         final_snapshot = engine.get_snapshot()
         winner = final_snapshot.get("winner", "Unknown")
         print("\n" + "="*30 + " FINAL RESULT " + "="*30)
         print(f"Winner: {winner}")
 
-    finally:
-        if engine: await engine.close_resources()
+    finally: await engine.close_resources()
 
-if __name__ == "__main__": asyncio.run(main())
+def main():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try: loop.run_until_complete(run_experiment())
+    finally: loop.close()
+
+if __name__ == "__main__": main()
