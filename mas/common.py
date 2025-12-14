@@ -64,6 +64,17 @@ class ShadowGraph:
     def __post_init__(self):
         if not hasattr(self.graph, "graph"): self.graph.graph = {}
 
+    def get_id_inventory(self) -> str:
+        lines = []
+        
+        for n, d in self.graph.nodes(data=True):
+            n_type = d.get('type', 'UNKNOWN')
+            if hasattr(n_type, 'value'): n_type = n_type.value
+            content = d.get('content', '')[:30].replace('\n', ' ')
+            lines.append(f"- [{n}] {n_type}: {content}...")
+
+        return "\n".join(lines)
+
     def refresh_context(self, current_step: int):
         focus_nodes = set([
             nid for nid, data in self.graph.nodes(data=True)

@@ -17,23 +17,61 @@ class GraphTool:
             if not self.current_graph: return "ERROR: Current graph context is not set."
             is_valid, reason = await self._validate_intent(intent_text)
             if not is_valid: return f"REJECT: {reason}"
-            actions_script = await self._translate_intent(intent_text)
-
-            try:
-                logs = self.system.execute_action(
-                    graph=self.current_graph,
-                    agent_id=agent_id,
-                    action_text=actions_script
-                )
-
-                error_logs = [l for l in logs if l.startswith("Error")]
-                if error_logs: return f"ERROR in Execution: {'; '.join(error_logs)}"
-
-                return f"EXECUTED:\nScript: {actions_script}\nLogs:\n" + "\n".join(logs)
+            max_retries = 2
+            last_error = ""
+            current_script = ""
             
-            except Exception as e: return f"ERROR in System Execution: {str(e)}"
+            for attempt in range(max_retries + 1):
+                if attempt == 0: current_script = await self._translate_intent(intent_text)
+
+                else:
+                    print(f"[GraphTool] Self-correcting (Attempt {attempt})...")
+                    current_script = await self._fix_script(intent_text, current_script, last_error)
+            
+                try:
+                    logs = self.system.execute_action(
+                        graph=self.current_graph,
+                        agent_id=agent_id,
+                        action_text=current_script
+                    )
+
+                    error_logs = [l for l in logs if l.startswith("Error") or "Failed" in l]
+                    if not error_logs: return f"EXECUTED:\nScript: {current_script}\nLogs:\n" + "\n".join(logs)
+                    last_error = "; ".join(error_logs)
+                
+                except Exception as e: last_error = f"System Exception: {str(e)}"
+
+            return f"ERROR: GraphTool failed after {max_retries} retries. Last Error: {last_error}"
 
         except Exception as e: return f"ERROR in GraphTool: {str(e)}"
+
+    async def _fix_script(self, original_intent: str, bad_script: str, error_msg: str) -> str:
+        rules = get_shared_prompt(mode=OutputMode.DSL_STRICT)
+        id_inventory = "（图谱为空）"
+        if self.current_graph: id_inventory = self.current_graph.get_id_inventory()
+
+        prompt = f"""
+        你是一个 DSL 修复专家。上次生成的指令执行失败了。
+
+        {rules}
+        
+        【原始意图】: "{original_intent}"
+        【生成的指令】: "{bad_script}"
+        【执行报错】: "{error_msg}"
+
+        【当前图谱中的有效 ID 清单 (Valid IDs)】:
+        {id_inventory}
+        
+        【修复指南】:
+        1. **ID 修正**: 报错如果是 "Source not found"，请在上面的清单中找到内容匹配的**正确 UUID** 并替换。
+        2. **幻觉去除**: 如果意图引用了一个根本不存在的节点，请删除该指令。
+        3. **格式修正**: 确保移除所有方括号 `[]`。
+
+        请输出修正后的指令序列（不要解释，只输出代码）。
+        """
+
+        response = self.llm([Message(role="user", content=prompt)], temperature=0.0)
+        return response.replace("```","").strip()
 
     async def _validate_intent(self, intent: str) -> Tuple[bool, str]:
         context_text = self.current_graph.latest_context
@@ -68,13 +106,23 @@ class GraphTool:
 
     async def _translate_intent(self, intent: str) -> str:
         rules = get_shared_prompt(mode=OutputMode.DSL_STRICT)
-        
+        id_inventory = "（图谱为空）"
+        if self.current_graph: id_inventory = self.current_graph.get_id_inventory()
+
         prompt = f"""
         你是一个指令翻译官。将自然语言的辩论意图转化为标准的图操作指令。
 
         {rules}
 
+        【当前图谱中的有效 ID 清单 (Valid IDs)】:
+        {id_inventory}
+
         【待转化意图】："{intent}"
+
+        【翻译指南】:
+        1. **查表引用**: 当意图提到某个已有的事实或观点时，**必须**在上面的清单中找到对应的 UUID 并填入。严禁编造 ID。
+        2. **新节点**: 只有当意图明确表示要“添加”新内容时，才使用 `ADD_CLAIM/LAW` 和临时别名。
+        3. **格式**: 严格遵守 DSL，不保留方括号。
 
         请生成指令序列（一行一条，分号分隔）：
         """

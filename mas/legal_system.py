@@ -63,7 +63,6 @@ class LegalSystem:
         current_step = self.step_counter
         executor = GraphExecutor(graph, matcher=self.dedup_matcher)
         logs = executor.execute_batch(action_text, agent_id, current_step=self.step_counter)
-        projection_note = ""
         focus_nodes = graph.get_nodes_by_step(self.step_counter)
         query_context = ""
         retrieval_mode = ""

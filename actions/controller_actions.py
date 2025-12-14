@@ -66,10 +66,14 @@ class VerifyAndDecide(Action):
     请判断：这条建议是否有利于你的【战略重心】({focus})？
     
     - 如果有利且逻辑通顺 -> 输出 "ADOPT: <基于建议生成最终的自然语言操作意图>"
-      示例: "ADOPT: 采纳建议，添加观点'被告违约'，并用[FACT_1]支持它。"
-      
-    - 如果无关或有害 -> 输出 "REJECT: <理由>"
-    - 如果需要进一步挖掘 -> 输出 "RETRY: <新方向>"
+    
+    【输出规范】:
+    1. 使用自然语言描述逻辑。
+    2. 对于**新添加**的内容，请使用 `<new_claim>内容</new_claim>` 或 `<new_law>内容</new_law>` 标记。
+    3. 对于**已有**的节点，使用 `[ID]` 引用。
+    
+    示例: 
+    "ADOPT: 采纳建议。添加观点 <new_claim>被告违约</new_claim>，并使用 [FACT_u8a9] 支持它。"
     """
 
     async def run(self, role_name: str, worker_advice: str, graph_context: str, focus: str):

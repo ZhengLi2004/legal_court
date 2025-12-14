@@ -8,6 +8,7 @@ from tools.law_es_tool import LawEsTool
 from tools.initializer import AgentPersona
 from .common import ShadowGraph
 from .llm import GPTChat
+from prompts.shared import get_shared_prompt, OutputMode
 
 class DebateTeam:
     def __init__(
@@ -56,7 +57,7 @@ class DebateTeam:
         self.controller.rc.memory.add(Message(content="SYSTEM_START", role="System"))
         transcript = []
         loop_count = 0
-        final_result = f"Turn ended without action (Max loops {self.max_micro_loops} reached)."
+        final_result = None
 
         while loop_count < self.max_micro_loops:
             loop_count += 1
@@ -71,7 +72,7 @@ class DebateTeam:
                 })
 
             content = str(ctrl_msg.content)
-
+            # 分支一：Controller 试图执行操作
             if "Action Completed" in content or "Executed:" in content:
                 if "ERROR" in content or "REJECT" in content:
                     logger.warning(f"Controller action failed: {content}")
@@ -92,6 +93,9 @@ class DebateTeam:
 
                     continue
 
+                final_result = content
+                break
+            # 分支二：Controller 尝试查询
             if "query" in content and "graph_context" in content:
                 target_worker = self.fact_worker    # 默认
                 if "LawWorker" in ctrl_msg.send_to: target_worker = self.law_worker
@@ -108,9 +112,59 @@ class DebateTeam:
                 
                 self.controller.rc.memory.add(worker_msg)
                 continue
-
+            # 分支三：无法识别的输出
             final_result = f"Controller produced unroutable output: {content}"
+            logger.warning(final_result)
             break
+
+        if final_result is None:
+            logger.warning(f"Team {self.side} loop exhausted. Entering FORCE ACTION phase.")
+            max_forced_attempts = 3
+            forced_count = 0
+            last_error = ""
+
+            while forced_count < max_forced_attempts:
+                rules = get_shared_prompt(OutputMode.LOGIC_ONLY)
+
+                force_prompt = f"""
+                你已经消耗了所有思考轮次。现在进入【强制行动阶段】。
+                
+                【当前战局】:
+                {graph.latest_context}
+
+                {rules}
+                
+                【指令】:
+                1. **禁止**再查询任何 Worker。
+                2. 基于现有信息，**必须**立即生成一个图谱操作意图（如重申观点、反驳对方、补充法条）。
+                3. 请直接输出意图内容 (Logic Mode)。
+                """
+
+                if last_error: force_prompt += f"\n\n【⚠️ 上次强制尝试失败反馈】:\n{last_error}\n请修正你的意图或格式。"
+
+                intent_res = await self.controller.llm.aask(
+                    f"你是{self.controller.name}。{force_prompt}"
+                )
+
+                if self.verbose:
+                    transcript.append({
+                        "from": "System (Force)", 
+                        "to": self.controller.name, 
+                        "content": f"Attempt {forced_count}: {intent_res}"
+                    })
+
+                exec_result = await self.graph_tool.process_intent(self.controller.name, intent_res)
+
+                if "ERROR" in exec_result or "REJECT" in exec_result:
+                    last_error = exec_result
+                    logger.warning(f"Forced action failed ({forced_count}/{max_forced_attempts}): {last_error}")
+                    continue
+
+                else:
+                    final_result = f"Forced Action Completed: {exec_result}"
+                    break
+
+            if final_result is None: final_result = f"Turn Failed: Controller unable to produce valid action after {max_forced_attempts} forced attempts."
 
         return {
             "summary": final_result,
