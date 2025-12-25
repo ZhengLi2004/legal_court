@@ -12,3 +12,6 @@ temp_*
 tests
 .env
 sampling
+*.md
+context.txt
+*.pdf

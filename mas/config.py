@@ -35,6 +35,13 @@ class LLMConfig:
     base_url: str = get_env_strict("LEGAL_LLM_URL")
 
 @dataclass
+class JudgeLLMConfig:
+    temperature: float = 0.1
+    model_name: str = "qwen3"
+    base_url: str = get_env_strict("JUDGE_API_BASE")
+    api_key: str = get_env_strict("JUDGE_API_KEY")
+
+@dataclass
 class MatcherConfig:
     projection_threshold: float = 0.60
     insight_threshold: float = 0.70
@@ -69,6 +76,7 @@ class SystemConfig:
     agent: AgentConfig = AgentConfig()
     path: PathConfig = PathConfig()
     llm: LLMConfig = LLMConfig()
+    judge: JudgeLLMConfig = JudgeLLMConfig()
     matcher: MatcherConfig = MatcherConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
     topology: TopologyConfig = TopologyConfig()

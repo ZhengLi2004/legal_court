@@ -39,8 +39,13 @@ class DebateEngine:
     async def setup(self, case_data_path: str, verbose: bool = False):
         logger.info(">>> [Engine] Setting up...")
         agent_llm = GPTChat(model_name=self.cfg.llm.model_name)
-        # TODO: 替换为真实 Judge 模型
-        judge_llm = GPTChat(model_name=self.cfg.llm.model_name)
+        
+        judge_llm = GPTChat(
+            model_name=self.cfg.judge.model_name,
+            base_url=self.cfg.judge.base_url,
+            api_key=self.cfg.judge.api_key
+        )
+
         self.legal_sys = LegalSystem(config=self.cfg)
         self.legal_sys.judge = LLMJudge(llm=judge_llm)
         self.fact_es = FactEsTool(es_host=self.cfg.es.host, embedding_func=self.legal_sys.ef)

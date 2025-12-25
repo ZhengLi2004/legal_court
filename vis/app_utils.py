@@ -4,17 +4,11 @@ from mas.config import SystemConfig
 from .adapter import GraphAdapter
 import os
 
-JUDGE_CONFIG = {
-    "model_name": "法衡",
-    "temperature": 0.0,
-    "max_tokens": 512
-}
-
 def initialize_engine():
     if 'engine' not in st.session_state:
         st.session_state.engine = DebateEngine(
             config=SystemConfig(),
-            judge_config=JUDGE_CONFIG
+            judge_config={}
         )
     
     return st.session_state.engine

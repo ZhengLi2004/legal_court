@@ -3,15 +3,14 @@ import asyncio
 import json
 from mas.engine import DebateEngine
 from mas.config import SystemConfig
-from vis.app_utils import render_graph, render_global_memory, JUDGE_CONFIG
-
+from vis.app_utils import render_graph, render_global_memory
 st.set_page_config(layout="wide", page_title="Legal MAS Debugger")
 st.title("⚖️ Legal Multi-Agent Debate Console")
 
 if 'engine' not in st.session_state:
     st.session_state.engine = DebateEngine(
         config=SystemConfig(),
-        judge_config=JUDGE_CONFIG
+        judge_config={}
     )
 
     st.session_state.is_setup = False

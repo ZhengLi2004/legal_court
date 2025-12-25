@@ -29,12 +29,15 @@ class LLM(ABC):
     def __call__(self, *args, **kwargs) -> str: pass
 
 class GPTChat(LLM):
-    def __init__(self, model_name: str = None):
+    def __init__(self, model_name: str = None, base_url: str = None, api_key: str = None):
         super().__init__(model_name=model_name or _CONFIG.model_name)
 
+        final_base_url = base_url if base_url else _CONFIG.base_url
+        final_api_key = api_key if api_key else _CONFIG.api_key
+
         self.client = OpenAI(
-            base_url=_CONFIG.base_url,
-            api_key=_CONFIG.api_key
+            base_url=final_base_url,
+            api_key=final_api_key
         )
 
     def __call__(

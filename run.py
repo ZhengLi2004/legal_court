@@ -4,18 +4,12 @@ from mas.engine import DebateEngine
 from mas.config import SystemConfig
 DATA_FILE = "data/sampling/cleaned_samples.jsonl"
 
-JUDGE_CONFIG = {
-    "model_name": "法衡",
-    "temperature": 0.0,
-    "max_tokens": 512
-}
-
 async def run_experiment():
     logger.info(">>> Starting Experiment Run...")
 
     engine = DebateEngine(
         config=SystemConfig(),
-        judge_config=JUDGE_CONFIG
+        judge_config={}
     )
 
     try:
