@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Union, List
 from mas.legal_system import LegalSystem
 from mas.common import ShadowGraph, NodeType, EdgeType # Added NodeType, EdgeType for execute_action
 from mas.llm import LLMCallable, Message
@@ -12,14 +12,19 @@ class GraphTool:
 
     def set_current_graph(self, graph: ShadowGraph): self.current_graph = graph
 
-    async def process_intent(self, agent_id: str, action: AgentAction) -> str:
+    async def process_intent(self, agent_id: str, actions: Union[AgentAction, List[AgentAction]]) -> str:
         try:
             if not self.current_graph: return "REJECT: 当前图谱上下文未设置。"
+            
+            actions_list: List[AgentAction] = []
+            if isinstance(actions, AgentAction): actions_list.append(actions)
+            elif isinstance(actions, list) and all(isinstance(a, AgentAction) for a in actions): actions_list = actions
+            else: return "REJECT: 无效的动作格式。期望 AgentAction 对象或 AgentAction 对象的列表。"
 
             logs = self.system.execute_action(
                 graph=self.current_graph,
                 agent_id=agent_id,
-                action=action
+                actions=actions_list
             )
 
             error_logs = [l for l in logs if "Error" in l or "Failed" in l or "Reject" in l]

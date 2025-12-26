@@ -128,20 +128,36 @@ class DebateTeam:
                 {graph.latest_context}
                 
                 【重要】你的任务是生成一个图谱操作意图。
-                **请严格按照以下 AgentAction 的 JSON 格式输出，不包含任何额外文本或代码块标记**:
+                **请严格按照以下 JSON 格式输出，不包含任何额外文本或代码块标记**:
+                你的输出必须是完整的、合法的 JSON 字符串，且必须是包含一个或多个 AgentAction 对象的 JSON 数组。数组中的每个对象必须符合 AgentAction 模型的定义。
+
+                AgentAction模型定义（字段说明）：
+                - action_type (enum): 动作类型，必须是 'add_claim', 'cite_law', 'rebut_claim' 之一。
+                - content (string): 动作的具体内容，例如主张的详细文本，法条查询的关键词。
+                - target_id (string, optional): 动作的目标节点 ID。例如，反驳某个主张时，这是被反驳的主张的 ID。
+                - source_id (string, optional): 动作的来源节点 ID。例如，一个主张支持另一个主张，这是支持方的 ID。
+                - relation_type (enum, optional): **【强制】** 仅当动作涉及创建关系（即 `action_type` 为 `cite_law` 或 `rebut_claim`）时使用，**必须且只能是 'SUPPORT' 或 'CONFLICT'**。**严禁使用其他任何值！**
+                    当 `action_type` 为 `add_claim` 时，`relation_type` 必须为 `null`。
+
+                【输出示例】:
                 ```json
-                {{
-                    "action_type": "add_claim" | "add_fact" | "cite_law" | "rebut_claim",
-                    "content": "具体的行动内容",
-                    "target_id": "可选，当为 cite_law 或 rebut_claim 时提供，目标节点的 UUID",
-                    "source_id": "可选，当为 rebut_claim 时提供，源节点的 UUID",
-                    "relation_type": "可选，当为 cite_law 或 rebut_claim 时提供，'SUPPORT' 或 'CONFLICT'"
-                }}
+                [
+                    {{
+                        "action_type": "add_claim",
+                        "content": "被告无证据证明其已履行还款义务",
+                        "target_id": null,
+                        "source_id": null,
+                        "relation_type": null
+                    }},
+                    {{
+                        "action_type": "cite_law",
+                        "content": "中华人民共和国合同法 第二百零六条",
+                        "target_id": "CLAIM_12345678",
+                        "source_id": null,
+                        "relation_type": "SUPPORT"
+                    }}
+                ]
                 ```
-                请确保 `action_type` 字段的值是预定义枚举中的一个。
-                请确保 `content` 字段包含详细的文本内容。
-                当 `action_type` 是 `cite_law` 或 `rebut_claim` 时，`target_id` 和 `relation_type` 字段必须存在。
-                当 `action_type` 是 `rebut_claim` 时，如果 `source_id` 为空，系统会自动基于 `content` 创建一个隐式主张作为反驳来源。
                 """
 
                 if last_error: force_prompt += f"\n\n【⚠️ 上次强制尝试失败反馈】:\n{last_error}\n请修正你的意图或格式。"
@@ -159,10 +175,11 @@ class DebateTeam:
                         "content": f"Attempt {forced_count}: {intent_res}"
                     })
 
-                parsed_forced_action = parse_agent_action_output(intent_res)
+                parsed_forced_actions = parse_agent_action_output(intent_res)
 
-                if isinstance(parsed_forced_action, AgentAction):
-                    exec_result = await self.graph_tool.process_intent(self.controller.name, parsed_forced_action) # Pass AgentAction
+                if isinstance(parsed_forced_actions, list) and all(isinstance(a, AgentAction) for a in parsed_forced_actions):
+                    exec_result = await self.graph_tool.process_intent(self.controller.name, parsed_forced_actions) # Pass List[AgentAction]
+                    
                     if "REJECT" in exec_result or "ERROR" in exec_result:
                         last_error = exec_result
                         logger.warning(f"Forced action failed ({forced_count}/{max_forced_attempts}): {last_error}")
@@ -173,7 +190,7 @@ class DebateTeam:
                         break
                 
                 else:
-                    last_error = f"REJECT: 强制行动意图解析失败。LLM输出不是有效的 AgentAction JSON。错误信息: {parsed_forced_action}"
+                    last_error = f"REJECT: 强制行动意图解析失败。LLM输出不是有效的 AgentAction JSON。错误信息: {parsed_forced_actions}"
                     logger.warning(f"Forced action parsing failed ({forced_count}/{max_forced_attempts}): {last_error}")
                     continue
             

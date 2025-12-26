@@ -6,6 +6,7 @@ from mas.schema import WorkerInstruction, WorkerReport, WorkerReportStatus, Agen
 from mas.action_parser import parse_agent_action_output
 from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
+from typing import List
 
 class ArgumentController(Role):
     name: str = "Controller"
@@ -90,19 +91,19 @@ class ArgumentController(Role):
                 logger.info(f"Controller rejected advice: {reject_reason}")
                 return await self._plan_phase(feedback=f"上次的决策被拒绝，理由是: {reject_reason}。请重新评估并提出新方案。")
             
-            parsed_action = parse_agent_action_output(decision_raw_output)
+            parsed_actions = parse_agent_action_output(decision_raw_output)
 
-            if isinstance(parsed_action, AgentAction):
-                exec_result_message = await self.graph_tool.process_intent(self.name, parsed_action)
+            if isinstance(parsed_actions, List) and all(isinstance(a, AgentAction) for a in parsed_actions):
+                exec_result_message = await self.graph_tool.process_intent(self.name, parsed_actions) # Pass list
 
-                if "REJECT:" in exec_result_message:
+                if "REJECT:" in exec_result_message: # Check if the execution result indicates a rejection/error
                     logger.warning(f"GraphTool rejected intent: {exec_result_message}")
                     return await self._plan_phase(feedback=f"GraphTool 拒绝执行您的意图：{exec_result_message}。请根据反馈调整。")
 
                 return Message(content=f"动作已完成: {exec_result_message}", role=self.profile)
             
             else:
-                logger.warning(f"Controller decision parsing failed: {parsed_action}")
-                return await self._plan_phase(feedback=f"您的输出格式不正确。请严格按照 AgentAction 的 JSON 格式输出。错误信息：{parsed_action}")
+                logger.warning(f"Controller decision parsing failed: {parsed_actions}")
+                return await self._plan_phase(feedback=f"您的输出格式不正确。请严格按照 AgentAction 的 JSON 格式输出。错误信息：{parsed_actions}")
         
         return Message(content="ERROR: 无法处理决策阶段。", role=self.profile)

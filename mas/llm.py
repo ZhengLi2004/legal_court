@@ -91,7 +91,7 @@ class GPTChat(LLM):
 
         return ""
     
-    async def aask(self, prompt:str, system_msgs: Optional[List[str]] = None) -> str:
+    async def aask(self, prompt:str, system_msgs: Optional[List[str]] = None, max_tokens: Optional[int] = None) -> str:
         messages = []
 
         if system_msgs:
@@ -99,6 +99,6 @@ class GPTChat(LLM):
         
         messages.append(Message(role="user", content=prompt))
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.__call__, messages)
+        return await loop.run_in_executor(None, self.__call__, messages, None, max_tokens) # Pass max_tokens to __call__
     
 def get_price(): return completion_tokens, prompt_tokens

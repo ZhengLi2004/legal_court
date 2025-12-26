@@ -66,7 +66,7 @@ class VerifyAndDecide(Action):
     请判断：这条建议是否有利于你的【战略重心】({focus})？
     
     如果采纳这条建议，请严格按照以下 JSON 格式生成一个表示你决策的 AgentAction 对象。
-    你的输出必须是完整的、合法的 JSON 字符串，且必须符合 AgentAction 模型的定义。
+    你的输出必须是完整的、合法的 JSON 字符串，且必须是包含一个或多个 AgentAction 对象的 JSON 数组。数组中的每个对象必须符合 AgentAction 模型的定义。
 
     AgentAction模型定义（字段说明）：
     - action_type (enum): 动作类型，必须是 'add_claim', 'cite_law', 'rebut_claim' 之一。
@@ -74,35 +74,33 @@ class VerifyAndDecide(Action):
     - target_id (string, optional): 动作的目标节点 ID。例如，反驳某个主张时，这是被反驳的主张的 ID。
     - source_id (string, optional): 动作的来源节点 ID。例如，一个主张支持另一个主张，这是支持方的 ID。
     - relation_type (enum, optional): **【强制】** 仅当动作涉及创建关系（即 `action_type` 为 `cite_law` 或 `rebut_claim`）时使用，**必须且只能是 'SUPPORT' 或 'CONFLICT'**。**严禁使用其他任何值！**
-        当 `action_type` 为 `add_claim` 或 `add_fact` 时，`relation_type` 必须为 `null`。
+        当 `action_type` 为 `add_claim` 时，`relation_type` 必须为 `null`。
 
     【输出示例】:
     ```json
-    {{
-        "action_type": "add_claim",
-        "content": "被告无证据证明其已履行还款义务",
-        "target_id": null,
-        "source_id": null,
-        "relation_type": null
-    }}
-    ```
-    ```json
-    {{
-        "action_type": "cite_law",
-        "content": "中华人民共和国合同法 第二百零六条",
-        "target_id": "CLAIM_12345678",
-        "source_id": null,
-        "relation_type": "SUPPORT"
-    }}
-    ```
-    ```json
-    {{
-        "action_type": "rebut_claim",
-        "content": "原告提交的证据链存在断裂，无法证明资金流向被告",
-        "target_id": "CLAIM_98765432",
-        "source_id": null,
-        "relation_type": "CONFLICT"
-    }}
+    [
+        {{
+            "action_type": "add_claim",
+            "content": "被告无证据证明其已履行还款义务",
+            "target_id": null,
+            "source_id": null,
+            "relation_type": null
+        }},
+        {{
+            "action_type": "cite_law",
+            "content": "中华人民共和国合同法 第二百零六条",
+            "target_id": "CLAIM_12345678",
+            "source_id": null,
+            "relation_type": "SUPPORT"
+        }},
+        {{
+            "action_type": "rebut_claim",
+            "content": "原告提交的证据链存在断裂，无法证明资金流向被告",
+            "target_id": "CLAIM_98765432",
+            "source_id": null,
+            "relation_type": "CONFLICT"
+        }}
+    ]
     ```
     如果认为不应采纳建议，请直接输出 "REJECT:" 加上拒绝理由（例如 "REJECT: 建议与我方战略不符"）。
     """
@@ -115,4 +113,4 @@ class VerifyAndDecide(Action):
             focus=focus
         )
         
-        return await self.llm.aask(prompt)
+        return await self.llm.aask(prompt, max_tokens=4096)
