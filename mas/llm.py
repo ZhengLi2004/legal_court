@@ -24,21 +24,22 @@ class LLMCallable(Protocol):
     ) -> str: pass
 
 class LLM(ABC):
-    def __init__(self, model_name: str = None): self.model_name = model_name
+    def __init__(self, model_name: str = None, base_url: str = None, api_key: str = None):
+        self.model_name = model_name
+        self._base_url = base_url if base_url else _CONFIG.base_url
+        self._api_key = api_key if api_key else _CONFIG.api_key
+        self._model_name = model_name or _CONFIG.model_name
+
+        self.client = OpenAI(
+            base_url=self._base_url,
+            api_key=self._api_key
+        )
+
     @abstractmethod
     def __call__(self, *args, **kwargs) -> str: pass
 
 class GPTChat(LLM):
-    def __init__(self, model_name: str = None, base_url: str = None, api_key: str = None):
-        super().__init__(model_name=model_name or _CONFIG.model_name)
-
-        final_base_url = base_url if base_url else _CONFIG.base_url
-        final_api_key = api_key if api_key else _CONFIG.api_key
-
-        self.client = OpenAI(
-            base_url=final_base_url,
-            api_key=final_api_key
-        )
+    def __init__(self, model_name: str = None, base_url: str = None, api_key: str = None): super().__init__(model_name=model_name, base_url=base_url, api_key=api_key) 
 
     def __call__(
         self,
@@ -58,7 +59,7 @@ class GPTChat(LLM):
         for attempt in range(max_retries):
             try:                
                 response = self.client.chat.completions.create(
-                    model=self.model_name,
+                    model=self._model_name,
                     messages=openai_messages,
                     max_tokens=final_max_tokens,
                     temperature=final_temp,

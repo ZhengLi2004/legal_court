@@ -10,6 +10,7 @@ from .semantic_matcher import SemanticMatcher
 from .projection import GraphProjector
 from .backprop import BackPropagator
 from .config import SystemConfig
+from mas.schema import AgentAction
 # Legal-G-Memory 的统一入口
 class LegalSystem:
     def __init__(self, persist_dir: str = None, config: SystemConfig = None):
@@ -58,11 +59,11 @@ class LegalSystem:
         
         return sg, relevant_strategies
     
-    def execute_action(self, graph: ShadowGraph, agent_id: str, action_text: str) -> List[str]:
+    def execute_action(self, graph: ShadowGraph, agent_id: str, action: AgentAction) -> List[str]:
         self.step_counter += 1
         current_step = self.step_counter
         executor = GraphExecutor(graph, matcher=self.dedup_matcher)
-        logs = executor.execute_batch(action_text, agent_id, current_step=self.step_counter)
+        logs = executor.execute_batch(action, agent_id, current_step=self.step_counter)
         focus_nodes = graph.get_nodes_by_step(self.step_counter)
         query_context = ""
         retrieval_mode = ""

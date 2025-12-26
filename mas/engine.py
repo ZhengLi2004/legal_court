@@ -13,6 +13,7 @@ from tools.law_es_tool import LawEsTool
 from .llm import GPTChat
 from .config import SystemConfig
 from .common import ShadowGraph
+from mas.schema import AgentAction
 
 class Turn(Enum):
     PLAINTIFF = "plaintiff"
@@ -58,12 +59,31 @@ class DebateEngine:
         init_res = await initializer.initialize(self.raw_facts, cause)
         self.graph, insights = self.legal_sys.new_case(self.raw_facts)
         graph_tool.set_current_graph(self.graph)
-        seed_script = "\n".join(init_res.fact_actions + init_res.root_claim_actions)
-        if seed_script: self.legal_sys.execute_action(self.graph, "System_Init", seed_script)
+        fact_actions = []
+        
+        for fact_statement in init_res.fact_statements:
+            fact_actions.append(AgentAction(
+                action_type="add_fact",
+                content=fact_statement,
+                target_id=None,
+                source_id=None,
+                relation_type=None
+            ))
+        
+        initial_actions = fact_actions + init_res.root_claim_actions
+        
+        if initial_actions:
+            for action_obj in initial_actions:
+                try:
+                    logs = self.legal_sys.execute_action(self.graph, "System_Init", action_obj)
+                    for log_msg in logs: logger.info(f"[System_Init] {log_msg}")
+                
+                except Exception as e: logger.error(f"[System_Init] Error executing initial action {action_obj.to_json()}: {e}")
+        
         self.p_team = DebateTeam("plaintiff", init_res.plaintiff_persona, graph_tool, self.fact_es, self.law_es, agent_llm, insights, verbose=verbose)
         self.d_team = DebateTeam("defendant", init_res.defendant_persona, graph_tool, self.fact_es, self.law_es, agent_llm, insights, verbose=verbose)
         logger.info(">>> [Engine] Setup complete.")
-        self.last_step_log = {"turn": "Setup", "action": "System Initialized", "details": f"{len(init_res.fact_actions)} facts, {len(init_res.root_claim_actions)} claims added."}
+        self.last_step_log = {"turn": "Setup", "action": "System Initialized", "details": f"{len(initial_actions)} initial claims/facts added."}
 
     async def step(self):
         if self.is_finished:

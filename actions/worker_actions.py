@@ -1,5 +1,4 @@
 from metagpt.actions import Action
-from prompts.shared import get_shared_prompt, OutputMode
 
 class AnalyzeSearchResults(Action):
     name: str = "AnalyzeSearchResults"
@@ -17,21 +16,23 @@ class AnalyzeSearchResults(Action):
     {search_result}
     
     你的任务：结合情报，为指挥官提供具体的图谱操作建议。
-    
-    {graph_rules_section}
-    
+    你的建议应该清晰地指出要“添加”什么（事实/主张/法条），或者要“支持”/“反驳”哪个已有节点。
+    如果涉及关系，请明确指出源节点和目标节点（使用其ID）。
+
+    【建议示例】:
+    - 基于检索结果，添加事实：“王某于2023年3月15日向李某借款人民币10万元。”
+    - 基于检索结果，引用法条：“中华人民共和国合同法 第二百零六条”，并用其支持主张 CLAIM_abcde123。
+    - 基于检索结果，添加主张：“被告无证据证明其已履行还款义务”，并用其反驳 CLAIM_fghij456。
+
     请生成建议:
     """
 
     async def run(self, role_type: str, graph_context: str, user_query: str, search_result: str):
-        rules = get_shared_prompt(mode=OutputMode.LOGIC_ONLY)
-
         prompt = self.PROMPT_TEMPLATE.format(
             role_type=role_type,
             graph_context=graph_context,
             user_query=user_query,
             search_result=search_result,
-            graph_rules_section=rules
         )
 
         return await self.llm.aask(prompt)
