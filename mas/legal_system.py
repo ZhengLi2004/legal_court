@@ -1,4 +1,4 @@
-from typing import Tuple, List, Any
+from typing import Tuple, List, Any, Dict
 from .llm import GPTChat
 from .utils import EmbeddingFunc
 from .common import ShadowGraph, LegalMessage, NodeStatus
@@ -15,14 +15,26 @@ from mas.schema import AgentAction
 class LegalSystem:
     def __init__(self, persist_dir: str = None, config: SystemConfig = None):
         self.cfg = config or SystemConfig()
-        self.llm = GPTChat(model_name=self.cfg.llm.model_name)
+        self.llm = GPTChat(model_name=self.cfg.llm.model_name) # This is the agent LLM
         self.ef = EmbeddingFunc(model_path=self.cfg.path.embedding_model_path)
         self.projection_matcher = SemanticMatcher(self.ef, threshold=self.cfg.matcher.projection_threshold)
         self.insight_matcher = SemanticMatcher(self.ef, threshold=self.cfg.matcher.insight_threshold)
         self.dedup_matcher = SemanticMatcher(self.ef)
         self.memory = LegalGMemory(persist_dir=self.cfg.path.storage_root_dir, config=self.cfg)
         self.insights = InsightsManager(self.cfg.path.storage_root_dir, self.llm, self.insight_matcher, self.cfg)
-        self.judge = LLMJudge(self.llm)
+        
+        judge_llm = GPTChat(
+            model_name=self.cfg.judge.model_name,
+            base_url=self.cfg.judge.base_url,
+            api_key=self.cfg.judge.api_key
+        )
+        extraction_llm = GPTChat(
+            model_name=self.cfg.llm.model_name, # Use the agent LLM config for extraction
+            base_url=self.cfg.llm.base_url,
+            api_key=self.cfg.llm.api_key
+        )
+        
+        self.judge = LLMJudge(judge_llm=judge_llm, extraction_llm=extraction_llm)
         self.projector = GraphProjector(self.projection_matcher, config=self.cfg)
         self.backprop = BackPropagator()
         self._current_case_insights: List[str] = []
@@ -100,7 +112,10 @@ class LegalSystem:
         graph.refresh_context(current_step)
         return logs
 
-    def adjudicate(self, context: str, graph: ShadowGraph) -> Tuple[bool, str]: return self.judge.evaluate(context, graph)
+    async def adjudicate(self, context: str, graph: ShadowGraph) -> Tuple[str, Dict[str, NodeStatus]]:
+        judgment_document = self.judge.evaluate(context, graph)
+        root_claims_status = await self.judge.extract_verdict(judgment_document, graph)
+        return judgment_document, root_claims_status
     # 学习: BackProp -> Store -> Extract Insights
     def learn(self, context: str, current_graph: ShadowGraph, winner: str, case_id: str):
         was_successful = (winner == "plaintiff")
