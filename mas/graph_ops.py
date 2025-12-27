@@ -63,68 +63,87 @@ class GraphExecutor:
 
         try:
             for action in actions_batch:
-                if action.action_type in [AgentActionType.ADD_FACT, AgentActionType.ADD_CLAIM, AgentActionType.CITE_LAW]:
-                    n_type = NodeType.CLAIM
-                    if action.action_type == AgentActionType.ADD_FACT: n_type = NodeType.FACT
-                    elif action.action_type == AgentActionType.CITE_LAW: n_type = NodeType.LAW
-
-                    if action.action_type == AgentActionType.ADD_FACT and agent_id not in [None, "System_Init"]:
-                        current_error = ValueError(f"Error: 代理 '{agent_id}' 尝试在辩论阶段添加新事实 '{action.content}'。事实只能在初始化阶段添加。")
+                if action.action_type in [AgentActionType.CITE_FACT, AgentActionType.CITE_LAW]:
+                    required_type = NodeType.FACT if action.action_type == AgentActionType.CITE_FACT else NodeType.LAW
+                    type_str = "事实(FACT)" if required_type == NodeType.FACT else "法条(LAW)"
+                    
+                    if not action.source_id or not action.target_id:
+                        current_error = ValueError(f"Error: {action.action_type} 必须同时提供 source_id 和 target_id。")
                         break
                     
-                    node_id, log_msg = self._apply_add_node(action.content, n_type, agent_id, current_step, action.metadata)
-                    
-                    if node_id is None:
-                        current_error = ValueError(log_msg)
+                    if not self.graph.graph.has_node(action.source_id):
+                        current_error = ValueError(f"Error: 指定的{type_str}节点 '{action.source_id}' 不存在。")
                         break
                     
-                    logs.append(log_msg)
-
-                    if action.action_type == AgentActionType.CITE_LAW and action.target_id:
-                        if action.relation_type == EdgeType.SUPPORT:
-                            res = self._apply_add_edge(node_id, action.target_id, EdgeType.SUPPORT, agent_id, current_step)
-
-                            if res.startswith("Error") or "[REJECT]" in res:
-                                current_error = ValueError(res)
-                                break
-                            
-                            logs.append(res)
-                        
-                        elif action.target_id and action.relation_type == EdgeType.CONFLICT:
-                            current_error = ValueError("Error: 法条不能直接反驳主张，它必须通过支持一个反驳方来进行。")
-                            break
-            
-                elif action.action_type == AgentActionType.REBUT_CLAIM:
-                    if not action.target_id:
-                        current_error = ValueError("REBUT_CLAIM 操作需要提供 target_id (被反驳的主张ID)。")
+                    actual_type = self.graph._get_node_type(action.source_id)
+                    
+                    if actual_type != required_type:
+                        current_error = ValueError(f"Error: 节点 '{action.source_id}' 类型为 {actual_type}，但动作要求为 {required_type}。")
                         break
                     
-                    source_node_for_conflict = action.source_id
+                    if not self.graph.graph.has_node(action.target_id):
+                        current_error = ValueError(f"Error: 目标观点节点 '{action.target_id}' 不存在。")
+                        break
                     
-                    if not action.source_id:
-                        implicit_claim_id, log_msg = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step)
-                        
-                        if implicit_claim_id is None:
-                            current_error = ValueError(log_msg)
-                            break
-                        
-                        logs.append(log_msg)
-                        source_node_for_conflict = implicit_claim_id
+                    res = self._apply_add_edge(action.source_id, action.target_id, EdgeType.SUPPORT, agent_id, current_step)
                     
-                    res = self._apply_add_edge(source_node_for_conflict, action.target_id, EdgeType.CONFLICT, agent_id, current_step)
-                    
-                    if res.startswith("Error") or "[REJECT]" in res:
+                    if "Error" in res or "REJECT" in res:
                         current_error = ValueError(res)
                         break
                     
                     logs.append(res)
+
+                elif action.action_type == AgentActionType.ADD_CLAIM:
+                    node_id, log = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step, action.metadata)
+                    
+                    if node_id is None:
+                        current_error = ValueError(log)
+                        break
+                    
+                    logs.append(log)
+
+                elif action.action_type in [AgentActionType.SUPPORT_CLAIM, AgentActionType.REBUT_CLAIM]:
+                    is_support = (action.action_type == AgentActionType.SUPPORT_CLAIM)
+                    edge_type = EdgeType.SUPPORT if is_support else EdgeType.CONFLICT
+                    
+                    if not action.target_id:
+                        current_error = ValueError(f"Error: {action.action_type} 必须提供 target_id。")
+                        break
+
+                    source_id = action.source_id
+                    
+                    if source_id:
+                        if not self.graph.graph.has_node(source_id):
+                            current_error = ValueError(f"Error: 源节点 '{source_id}' 不存在。")
+                            break
+                        
+                        if self.graph._get_node_type(source_id) != NodeType.CLAIM:
+                            current_error = ValueError(f"Error: 逻辑推导/反驳的源头必须是 CLAIM 类型。")
+                            break
+                    
+                    else:
+                        if not action.content:
+                            current_error = ValueError(f"Error: {action.action_type} 若不引用已有观点，必须提供 content。")
+                            break
+                        
+                        source_id, log = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step, action.metadata)
+                        logs.append(log)
+
+                    res = self._apply_add_edge(source_id, action.target_id, edge_type, agent_id, current_step)
+                    
+                    if "Error" in res or "REJECT" in res:
+                        current_error = ValueError(res)
+                        break
+                    
+                    logs.append(res)
+                
+                else:
+                    current_error = ValueError(f"Error: 收到未知的动作类型 {action.action_type}")
+                    break
 
             if current_error: raise current_error
             return logs
 
         except Exception as e:
             self.graph.graph = original_nx_graph
-            import traceback
-            traceback.print_exc()
-            error_msg = f"Error: 执行批量操作失败。已回滚。原因: {str(e)}"
-            return [error_msg]
+            return [f"Error: 批量执行异常回滚。原因: {str(e)}"]

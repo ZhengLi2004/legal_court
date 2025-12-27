@@ -32,3 +32,25 @@ class GraphTool:
             return f"EXECUTED: 操作成功。\n日志:\n" + "\n".join(logs)
 
         except Exception as e: return f"REJECT: GraphTool 处理意图时发生异常: {str(e)}"
+    # LawWorker 专用
+    def inject_law_nodes(self, law_contents: List[str]) -> str:
+        if not self.current_graph: return "Error: Graph not set."
+        count = 0
+        ids = []
+
+        for content in law_contents:
+            node_id, is_new = self.current_graph.add_node(
+                content=content,
+                node_type=NodeType.LAW,
+                agent_id="LawWorker"
+            )
+
+            if is_new:
+                count += 1
+                ids.append(node_id)
+
+        if ids:
+            self.current_graph.touch_nodes(ids, step_index=self.system.step_counter) 
+            self.current_graph.refresh_context(current_step=self.system.step_counter)
+
+        return f"已底层注入 {count} 条法条到图谱中。"

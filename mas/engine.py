@@ -10,8 +10,7 @@ from tools.fact_es_tool import FactEsTool
 from tools.law_es_tool import LawEsTool
 from .llm import GPTChat
 from .config import SystemConfig
-from .common import ShadowGraph, NodeStatus, EdgeType
-from mas.schema import AgentAction
+from .common import ShadowGraph, NodeStatus, EdgeType, NodeType
 
 class Turn(Enum):
     PLAINTIFF = "plaintiff"
@@ -52,25 +51,32 @@ class DebateEngine:
         initializer = CaseInitializer(agent_llm)
         init_res = await initializer.initialize(self.raw_facts, cause)
         self.graph, insights = self.legal_sys.new_case(self.raw_facts)
+        self.legal_sys.step_counter = 0
         self.prev_stats["nodes"] = self.graph.graph.number_of_nodes()
         self.prev_stats["conflict_edges"] = 0
         graph_tool.set_current_graph(self.graph)
-        fact_actions = []
-        
+        logger.info(">>> [System] Injecting immutable facts...")
+        fact_count = 0
+        fact_ids = []
+
         for fact_statement in init_res.fact_statements:
-            fact_actions.append(AgentAction(
-                action_type="add_fact",
+            node_id, is_new = self.graph.add_node(
                 content=fact_statement,
-                target_id=None,
-                source_id=None,
-                relation_type=None
-            ))
-        
-        initial_actions = fact_actions + init_res.root_claim_actions
-        
-        if initial_actions:
+                node_type=NodeType.FACT,
+                agent_id="System_Init",
+                metadata={"is_objective_fact": True}
+            )
+            
+            if is_new:
+                fact_count += 1
+                fact_ids.append(node_id)
+
+        if fact_ids: self.graph.touch_nodes(fact_ids, step_index=0)
+        logger.info(f">>> [System] Injected {fact_count} fact nodes.")
+
+        if init_res.root_claim_actions:
             try:
-                logs = self.legal_sys.execute_action(self.graph, "System_Init", initial_actions)
+                logs = self.legal_sys.execute_action(self.graph, "System_Init", init_res.root_claim_actions)
                 for log_msg in logs: logger.info(f"[System_Init] {log_msg}")
             
             except Exception as e: logger.error(f"[System_Init] Error executing initial actions: {e}")
@@ -79,7 +85,7 @@ class DebateEngine:
         self.p_team = DebateTeam("plaintiff", init_res.plaintiff_persona, graph_tool, self.fact_es, self.law_es, agent_llm, insights, verbose=verbose)
         self.d_team = DebateTeam("defendant", init_res.defendant_persona, graph_tool, self.fact_es, self.law_es, agent_llm, insights, verbose=verbose)
         logger.info(">>> [Engine] Setup complete.")
-        self.last_step_log = {"turn": "Setup", "action": "System Initialized", "details": f"{len(initial_actions)} initial claims/facts added."}
+        self.last_step_log = {"turn": "Setup", "action": "System Initialized", "details": f"{len(init_res.root_claim_actions)} initial claims/facts added."}
 
     def _calculate_convergence(self) -> float:
         current_nodes = self.graph.graph.number_of_nodes()
@@ -102,10 +108,8 @@ class DebateEngine:
         return delta_phi
 
     async def step(self):
-        if self.is_finished:
-            logger.warning("[Engine] Debate is already finished. No more steps.")
-            return
-        
+        if self.is_finished: return
+        self.legal_sys.advance_step()        
         is_plaintiff_turn = (self.current_turn == Turn.PLAINTIFF)
         
         if is_plaintiff_turn:

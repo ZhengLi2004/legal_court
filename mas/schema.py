@@ -27,9 +27,10 @@ class WorkerReport(BaseModel):
 # 新增 AgentAction 模型
 class AgentActionType(str, Enum):
     ADD_CLAIM = "add_claim"
+    CITE_FACT = "cite_fact"
     CITE_LAW = "cite_law"
+    SUPPORT_CLAIM = "support_claim"
     REBUT_CLAIM = "rebut_claim"
-    ADD_FACT = "add_fact"
 
 class AgentAction(BaseModel):
     action_type: AgentActionType = Field(..., description="智能体执行的动作类型")
