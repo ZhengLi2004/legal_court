@@ -61,3 +61,33 @@ class SuggestPivot(Action):
         )
 
         return await self.llm.aask(prompt)
+    
+class InjectLawsToGraph(Action):
+    name: str = "InjectLawsToGraph"
+
+    async def run(self, query: str, es_tool, graph_tool, threshold: float = 0.6, top_k: int = 3) -> str:
+        try:
+            query_vector = es_tool.embedding_func.embed_query(query)
+
+            hits = await es_tool._search(
+                index_name=es_tool.INDEX_NAME,
+                query_vector=query_vector,
+                vector_field=es_tool.VECTOR_FIELD,
+                source_fields=es_tool.SOURCE_FIELDS,
+                top_k=top_k
+            )
+        
+        except Exception as e: return f"检索失败: {str(e)}"
+        if not hits: return "未检索到相关法条。"
+        law_contents = []
+
+        for hit in hits:
+            score = hit['_score'] - 1.0
+            if score < threshold: continue
+            source = hit['_source']
+            content = f"《{source.get('law_name')}》{source.get('article_id')}: {source.get('content')}"
+            law_contents.append(content)
+
+        if not law_contents: return f"检索到法条但相似度均低于阈值 ({threshold})。"
+        log = graph_tool.inject_law_nodes(law_contents)
+        return f"✅ 检索完成。{log}\n内容示例: {law_contents[0][:20]}..."

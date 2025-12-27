@@ -49,6 +49,7 @@ class DebateTeam:
             llm=llm
         )
 
+        self.law_worker.graph_tool = graph_tool
         self.max_micro_loops = 3
         self.verbose = verbose
 
