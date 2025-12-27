@@ -112,7 +112,14 @@ class CaseInitializer:
             else: clean_json = response.replace("```json", "").replace("```", "").strip()
             actions_data = json.loads(clean_json)
             if not isinstance(actions_data, list): raise ValueError("LLM did not return a JSON array for ADD_CLAIM.")
-            return [AgentAction(**data) for data in actions_data]
+            actions = []
+            
+            for data in actions_data:
+                action = AgentAction(**data)
+                action.metadata["is_root_claim"] = True
+                actions.append(action)
+            
+            return actions
         
         except Exception as e:
             logger.error(f"Error parsing root claims into AgentAction: {e}\nResponse: {response}")

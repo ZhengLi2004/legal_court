@@ -29,19 +29,20 @@ class LLMJudge(BaseJudge):
     async def extract_verdict(self, judgment_document: str, graph: ShadowGraph) -> Dict[str, NodeStatus]:
         root_claims_status: Dict[str, NodeStatus] = {}
         
-        plaintiff_root_claims = {
+
+        all_root_claims = {
             nid: data.get('content') 
             for nid, data in graph.graph.nodes(data=True) 
-            if data.get('metadata', {}).get('is_root_claim', False) and data.get('agent_id', '').startswith('plaintiff')
+            if data.get('metadata', {}).get('is_root_claim', False)
         }
 
-        if not plaintiff_root_claims:
-            logger.info("No plaintiff root claims found in the graph for extraction.")
+        if not all_root_claims:
+            logger.info("No root claims found in the graph for extraction.")
             return {}
 
         extraction_tasks = []
         
-        for claim_id, claim_content in plaintiff_root_claims.items():
+        for claim_id, claim_content in all_root_claims.items():
             extraction_prompt = f"""
             以下是一份法官撰写的法律分析报告：
             ---
@@ -61,7 +62,7 @@ class LLMJudge(BaseJudge):
 
         extraction_responses = await asyncio.gather(*extraction_tasks)
 
-        for i, (claim_id, claim_content) in enumerate(plaintiff_root_claims.items()):
+        for i, (claim_id, claim_content) in enumerate(all_root_claims.items()):
             response = extraction_responses[i]
             if "STATUS: ACCEPTED" in response: root_claims_status[claim_id] = NodeStatus.VALIDATED
             elif "STATUS: REJECTED" in response: root_claims_status[claim_id] = NodeStatus.DEFEATED

@@ -23,9 +23,17 @@ async def run_experiment():
             print(f"Action: {log.get('action')}")
 
         final_snapshot = engine.get_snapshot()
-        winner = final_snapshot.get("winner", "Unknown")
-        print("\n" + "="*30 + " FINAL RESULT " + "="*30)
-        print(f"Winner: {winner}")
+        print("\n" + "="*30 + " FINAL ADJUDICATION " + "="*30)
+        judgment_document = final_snapshot.get("judgment_document", "N/A")
+        root_claims_status = final_snapshot.get("root_claims_status", {})
+        print("\n--- Judge's Document ---")
+        print(judgment_document)
+        print("\n--- Claim Statuses ---")
+        
+        if root_claims_status:
+            for claim_id, status in root_claims_status.items(): print(f"  {claim_id}: {status}")
+        
+        else: print("  No claims adjudicated.")
 
     finally: await engine.close_resources()
 

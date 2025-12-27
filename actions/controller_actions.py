@@ -113,4 +113,4 @@ class VerifyAndDecide(Action):
             focus=focus
         )
         
-        return await self.llm.aask(prompt, max_tokens=4096)
+        return await self.llm.aask(prompt, max_tokens=8192)

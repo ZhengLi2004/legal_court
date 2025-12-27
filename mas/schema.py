@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Optional, Literal, Union
+from typing import Optional, Literal, Union, Dict, Any
 from mas.common import EdgeType
 
 class MessageType(str, Enum):
@@ -37,4 +37,5 @@ class AgentAction(BaseModel):
     target_id: Optional[str] = Field(None, description="动作目标节点的ID（例如，反驳某个主张时的主张ID）")
     source_id: Optional[str] = Field(None, description="动作源节点的ID（例如，某个主张支持另一个主张时的发起主张ID）")
     relation_type: Optional[Literal[EdgeType.SUPPORT, EdgeType.CONFLICT]] = Field(None, description="当操作涉及建立关系时，关系的类型")
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="额外元数据")
     def to_json(self) -> str: return self.model_dump_json(exclude_none=True, indent=2)

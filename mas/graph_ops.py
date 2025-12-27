@@ -10,22 +10,19 @@ class GraphExecutor:
         self.graph = graph
         self.matcher = matcher
 
-    def _apply_add_node(self, content: str, node_type: NodeType, agent_id: str, current_step: int = 0) -> str:
+    def _apply_add_node(self, content: str, node_type: NodeType, agent_id: str, current_step: int = 0, metadata: Dict = None) -> str:
         try:
             if self.matcher:
                 cfg = SystemConfig().dedup
                 if node_type == NodeType.FACT: self.matcher.threshold = cfg.fact_threshold
                 else: self.matcher.threshold = cfg.other_threshold
 
-            meta = {}
-            if current_step == 1 and node_type == NodeType.CLAIM: meta["is_root_claim"] = True
-
             node_id = self.graph.add_node(
                 content=content,
                 node_type=node_type,
                 agent_id=agent_id,
                 matcher=self.matcher,
-                metadata=meta
+                metadata=metadata or {}
             )
             self.graph.touch_nodes([node_id], current_step)
             return node_id
@@ -57,7 +54,7 @@ class GraphExecutor:
                         current_error = ValueError(f"Error: 代理 '{agent_id}' 尝试在辩论阶段添加新事实 '{action.content}'。事实只能在初始化阶段添加。")
                         break
                     
-                    node_id = self._apply_add_node(action.content, NodeType.FACT, agent_id, current_step)
+                    node_id = self._apply_add_node(action.content, NodeType.FACT, agent_id, current_step, action.metadata)
                     
                     if node_id.startswith("Error"):
                         current_error = ValueError(node_id)
@@ -66,7 +63,7 @@ class GraphExecutor:
                     logs.append(f"添加事实: {action.content} (ID: {node_id})")
 
                 elif action.action_type == AgentActionType.ADD_CLAIM:
-                    node_id = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step)
+                    node_id = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step, action.metadata)
                     
                     if node_id.startswith("Error"):
                         current_error = ValueError(node_id)
@@ -75,7 +72,7 @@ class GraphExecutor:
                     logs.append(f"添加主张: {action.content} (ID: {node_id})")
 
                 elif action.action_type == AgentActionType.CITE_LAW:
-                    node_id = self._apply_add_node(action.content, NodeType.LAW, agent_id, current_step)
+                    node_id = self._apply_add_node(action.content, NodeType.LAW, agent_id, current_step, action.metadata)
                     
                     if node_id.startswith("Error"):
                         current_error = ValueError(node_id)

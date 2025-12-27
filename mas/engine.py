@@ -12,7 +12,7 @@ from tools.fact_es_tool import FactEsTool
 from tools.law_es_tool import LawEsTool
 from .llm import GPTChat
 from .config import SystemConfig
-from .common import ShadowGraph
+from .common import ShadowGraph, NodeStatus # Import NodeStatus
 from mas.schema import AgentAction
 
 class Turn(Enum):
@@ -32,23 +32,17 @@ class DebateEngine:
         self.round_idx: int = 0
         self.max_rounds: int = 3
         self.is_finished: bool = False
-        self.winner: str = "Unsettled"
+        self.winner: str = "Unsettled" # Kept for compatibility, but focus is on claim status
         self.last_step_log: Dict[str, Any] = {}
         self.fact_es = None
         self.law_es = None
+        self.judgment_document: str = ""
+        self.root_claims_status: Dict[str, NodeStatus] = {}
 
     async def setup(self, case_data_path: str, verbose: bool = False):
         logger.info(">>> [Engine] Setting up...")
         agent_llm = GPTChat(model_name=self.cfg.llm.model_name)
-        
-        judge_llm = GPTChat(
-            model_name=self.cfg.judge.model_name,
-            base_url=self.cfg.judge.base_url,
-            api_key=self.cfg.judge.api_key
-        )
-
         self.legal_sys = LegalSystem(config=self.cfg)
-        self.legal_sys.judge = LLMJudge(llm=judge_llm)
         self.fact_es = FactEsTool(es_host=self.cfg.es.host, embedding_func=self.legal_sys.ef)
         self.law_es = LawEsTool(es_host=self.cfg.es.host, embedding_func=self.legal_sys.ef)
         graph_tool = GraphTool(legal_system=self.legal_sys, llm=agent_llm)
@@ -115,26 +109,25 @@ class DebateEngine:
         should_adjudicate = (not is_plaintiff_turn) or (self.round_idx >= self.max_rounds)
 
         if should_adjudicate:
-            is_settled, winner = self.legal_sys.adjudicate(self.raw_facts, self.graph)
-        
-            if is_settled:
-                self.is_finished = True
-                self.winner = winner
-                self.last_step_log["verdict"] = f"{winner} Wins!"
-                logger.info(f">>> [Engine] Verdict Reached: {winner} Wins!")
+            logger.info(">>> [Engine] Adjudication phase started...")
+            self.judgment_document, self.root_claims_status = await self.legal_sys.adjudicate(self.raw_facts, self.graph)
+            logger.info(f">>> [Engine] root_claims_status: {self.root_claims_status}")
+
+            self.last_step_log["adjudication_result"] = {
+                "document": self.judgment_document,
+                "claims_status": {k: v.value for k, v in self.root_claims_status.items()}
+            }
             
-            elif self.round_idx > self.max_rounds:
-                self.is_finished = True
-                self.winner = "Unsettled (Max rounds reached)"
-                self.last_step_log["verdict"] = self.winner
-                logger.info(f">>> [Engine] Max rounds reached.")
+            logger.info(">>> [Engine] Adjudication complete.")
+            self.is_finished = True
 
         if not self.is_finished:
             self.current_turn = next_turn
             if not is_plaintiff_turn: self.round_idx += 1
 
-    def get_snapshot(self) -> Dict[str, str]:
+    def get_snapshot(self) -> Dict[str, Any]:
         if not self.legal_sys: return {}
+        serializable_claims_status = {k: v.value for k, v in self.root_claims_status.items()}
 
         return {
             "shadow_graph": self.graph,
@@ -142,7 +135,9 @@ class DebateEngine:
             "task_layer": self.legal_sys.memory.task_layer,
             "last_log": self.last_step_log,
             "is_finished": self.is_finished,
-            "winner": self.winner
+            "winner": self.winner,
+            "judgment_document": self.judgment_document,
+            "root_claims_status": serializable_claims_status,
         }
     
     async def close_resources(self):

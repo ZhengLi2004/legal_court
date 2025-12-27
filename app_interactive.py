@@ -40,7 +40,7 @@ with st.sidebar:
                     st.session_state.log_messages.append(log)
                     st.rerun()
         
-        else: st.success(f"Debate Finished! Winner: {engine.winner}")
+        else: st.success("Debate Finished! Adjudication complete.")
             
         if st.button("🔄 Reset & New Case"):
             if isinstance(engine, DebateEngine): asyncio.run(engine.close_resources())
@@ -72,6 +72,20 @@ if st.session_state.is_setup:
                 with st.expander(f"Step {len(st.session_state.log_messages) - i}: {turn_info}", expanded=(i == 0)):
                     st.markdown(f"**Action Summary:**")
                     st.info(log_item.get('action', 'N/A'))
+                    adjudication_result = log_item.get("adjudication_result")
+                    
+                    if adjudication_result:
+                        st.subheader("⚖️ Adjudication Result")
+                        with st.expander("Judge's Document"): st.markdown(adjudication_result.get("document", "No document available."))
+                        st.markdown("**Claim Statuses:**")
+                        claims_status = adjudication_result.get("claims_status", {})
+                        
+                        if claims_status:
+                            for claim_id, status in claims_status.items(): st.write(f"- **{claim_id}**: `{status}`")
+                        
+                        else: st.write("No claims adjudicated.")
+                        st.markdown("---")
+                        
                     dialogue = log_item.get("dialogue", [])
                     
                     if dialogue:
