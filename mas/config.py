@@ -42,6 +42,13 @@ class JudgeLLMConfig:
     api_key: str = get_env_strict("JUDGE_API_KEY")
 
 @dataclass
+class ConvergenceConfig:
+    alpha: float = 0.3
+    epsilon: float = 2
+    window_size: int = 4
+    min_rounds: int = 2
+
+@dataclass
 class MatcherConfig:
     projection_threshold: float = 0.60
     insight_threshold: float = 0.70
@@ -66,7 +73,8 @@ class TopologyConfig:
 
 @dataclass
 class InsightConfig:
-    score_weight: float = 0.05
+    weight_relevance: float = 1.0
+    weight_utility: float = 0.1
     reward_win: float = 1.0
     penalty_lose: float = 0.5
     reward_merge: float = 0.5
@@ -83,6 +91,7 @@ class SystemConfig:
     insight: InsightConfig = InsightConfig()
     dedup: DeduplicationConfig = DeduplicationConfig()
     es: ESConfig = ESConfig()
+    convergence: ConvergenceConfig = ConvergenceConfig()
 
     def __post_init__(self):
         if not os.path.exists(self.path.storage_root_dir): os.makedirs(self.path.storage_root_dir, exist_ok=True)

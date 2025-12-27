@@ -1,32 +1,37 @@
 import copy
-from typing import List, Dict
-from .common import ShadowGraph, NodeType, EdgeType
+from typing import List, Dict, Tuple, Optional
+from .common import ShadowGraph, NodeType, EdgeType, EdgeAddResult
 from .semantic_matcher import SemanticMatcher
 from .config import SystemConfig
 from mas.schema import AgentAction, AgentActionType
-# 解析 LLM 输出指令，执行图操作
+
 class GraphExecutor:
     def __init__(self, graph: ShadowGraph, matcher: SemanticMatcher = None):
         self.graph = graph
         self.matcher = matcher
 
-    def _apply_add_node(self, content: str, node_type: NodeType, agent_id: str, current_step: int = 0, metadata: Dict = None) -> str:
+    def _apply_add_node(self, content: str, node_type: NodeType, agent_id: str, current_step: int = 0, metadata: Dict = None) -> Tuple[Optional[str], str]:
         try:
             if self.matcher:
                 cfg = SystemConfig().dedup
                 if node_type == NodeType.FACT: self.matcher.threshold = cfg.fact_threshold
                 else: self.matcher.threshold = cfg.other_threshold
 
-            node_id = self.graph.add_node(
+            node_id, is_new = self.graph.add_node(
                 content=content,
                 node_type=node_type,
                 agent_id=agent_id,
                 matcher=self.matcher,
                 metadata=metadata or {}
             )
+
             self.graph.touch_nodes([node_id], current_step)
-            return node_id
-        except Exception as e: return f"Error: 无法添加节点 ({node_type.value} - {content}): {e}"
+            type_cn = {NodeType.FACT: "事实", NodeType.LAW: "法条", NodeType.CLAIM: "主张"}.get(node_type, "节点")
+            
+            if is_new: return node_id, f"✅ [SUCCESS] 已添加新{type_cn}: {content} (ID: {node_id})"
+            else: return node_id, f"⚠️ [NOTICE] 该{type_cn}已存在 (ID: {node_id})，已复用现有节点。"
+                
+        except Exception as e:  return None, f"Error: 无法添加节点 ({node_type.value} - {content}): {e}"
 
     def _apply_add_edge(self, source_id: str, target_id: str, edge_type: EdgeType, agent_id: str, current_step: int = 0) -> str:
         if not self.graph.graph.has_node(source_id): return f"Error: 源节点 '{source_id}' 未找到。"
@@ -35,9 +40,18 @@ class GraphExecutor:
         try:
             if self.graph._get_node_type(target_id) == NodeType.LAW: return f"Error: 不能将关系连接到法条节点 '{target_id}'，法条是公理。"
             if edge_type == EdgeType.CONFLICT and self.graph._get_node_type(source_id) != NodeType.CLAIM: return f"Error: 只有 CLAIM 节点才能作为反驳关系的源节点。"
-            self.graph.add_edge(source_id, target_id, edge_type)
+            result = self.graph.add_edge(source_id, target_id, edge_type)
             self.graph.touch_nodes([source_id, target_id], current_step)
-            return f"{edge_type.value} 关系已添加: {source_id} -> {target_id}"
+            if result == EdgeAddResult.CREATED: return f"✅ [SUCCESS] {edge_type.value} 关系已添加: {source_id} -> {target_id}"
+            elif result == EdgeAddResult.DUPLICATE: return f"ℹ️ [NOTICE] 关系已存在: {source_id} -> {target_id} ({edge_type.value})，无需重复添加。"
+            
+            elif result == EdgeAddResult.TYPE_CLASH:
+                existing_data = self.graph.graph.get_edge_data(source_id, target_id)
+                old_type = existing_data.get('type') if existing_data else "UNKNOWN"
+                return f"❌ [REJECT] 关系冲突: {source_id} 与 {target_id} 之间已存在 {old_type} 关系，无法添加 {edge_type.value}。"
+            
+            elif result == EdgeAddResult.SELF_LOOP: return f"❌ [REJECT] 逻辑错误: 无法建立自环关系 (源节点与目标节点相同)。"
+            else: return f"Error: 未知的边添加结果: {result}"
         
         except ValueError as ve: return f"Error: 添加 {edge_type.value} 关系失败: {ve}"
         except Exception as e: return f"Error: 添加 {edge_type.value} 关系时发生异常: {e}"
@@ -49,54 +63,38 @@ class GraphExecutor:
 
         try:
             for action in actions_batch:
-                if action.action_type == AgentActionType.ADD_FACT:
-                    if agent_id not in [None, "System_Init"]:
+                if action.action_type in [AgentActionType.ADD_FACT, AgentActionType.ADD_CLAIM, AgentActionType.CITE_LAW]:
+                    n_type = NodeType.CLAIM
+                    if action.action_type == AgentActionType.ADD_FACT: n_type = NodeType.FACT
+                    elif action.action_type == AgentActionType.CITE_LAW: n_type = NodeType.LAW
+
+                    if action.action_type == AgentActionType.ADD_FACT and agent_id not in [None, "System_Init"]:
                         current_error = ValueError(f"Error: 代理 '{agent_id}' 尝试在辩论阶段添加新事实 '{action.content}'。事实只能在初始化阶段添加。")
                         break
                     
-                    node_id = self._apply_add_node(action.content, NodeType.FACT, agent_id, current_step, action.metadata)
+                    node_id, log_msg = self._apply_add_node(action.content, n_type, agent_id, current_step, action.metadata)
                     
-                    if node_id.startswith("Error"):
-                        current_error = ValueError(node_id)
+                    if node_id is None:
+                        current_error = ValueError(log_msg)
                         break
                     
-                    logs.append(f"添加事实: {action.content} (ID: {node_id})")
+                    logs.append(log_msg)
 
-                elif action.action_type == AgentActionType.ADD_CLAIM:
-                    node_id = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step, action.metadata)
-                    
-                    if node_id.startswith("Error"):
-                        current_error = ValueError(node_id)
-                        break
-                    
-                    logs.append(f"添加主张: {action.content} (ID: {node_id})")
+                    if action.action_type == AgentActionType.CITE_LAW and action.target_id:
+                        if action.relation_type == EdgeType.SUPPORT:
+                            res = self._apply_add_edge(node_id, action.target_id, EdgeType.SUPPORT, agent_id, current_step)
 
-                elif action.action_type == AgentActionType.CITE_LAW:
-                    node_id = self._apply_add_node(action.content, NodeType.LAW, agent_id, current_step, action.metadata)
-                    
-                    if node_id.startswith("Error"):
-                        current_error = ValueError(node_id)
-                        break
-                    
-                    logs.append(f"引用法条: {action.content} (ID: {node_id})")
-                    
-                    if action.target_id and action.relation_type == EdgeType.SUPPORT:
-                        res = self._apply_add_edge(node_id, action.target_id, EdgeType.SUPPORT, agent_id, current_step)
+                            if res.startswith("Error") or "[REJECT]" in res:
+                                current_error = ValueError(res)
+                                break
+                            
+                            logs.append(res)
                         
-                        if res.startswith("Error"):
-                            current_error = ValueError(res)
+                        elif action.target_id and action.relation_type == EdgeType.CONFLICT:
+                            current_error = ValueError("Error: 法条不能直接反驳主张，它必须通过支持一个反驳方来进行。")
                             break
-                        
-                        logs.append(res)
-                    
-                    elif action.target_id and action.relation_type == EdgeType.CONFLICT:
-                        current_error = ValueError("Error: 法条不能直接反驳主张，它必须通过支持一个反驳方来进行。")
-                        break
             
-            if current_error: raise current_error
-
-            for action in actions_batch:
-                if action.action_type == AgentActionType.REBUT_CLAIM:
+                elif action.action_type == AgentActionType.REBUT_CLAIM:
                     if not action.target_id:
                         current_error = ValueError("REBUT_CLAIM 操作需要提供 target_id (被反驳的主张ID)。")
                         break
@@ -104,18 +102,18 @@ class GraphExecutor:
                     source_node_for_conflict = action.source_id
                     
                     if not action.source_id:
-                        implicit_claim_id = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step)
+                        implicit_claim_id, log_msg = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step)
                         
-                        if implicit_claim_id.startswith("Error"):
-                            current_error = ValueError(implicit_claim_id)
+                        if implicit_claim_id is None:
+                            current_error = ValueError(log_msg)
                             break
                         
-                        logs.append(f"为反驳添加隐式主张: {action.content} (ID: {implicit_claim_id})")
+                        logs.append(log_msg)
                         source_node_for_conflict = implicit_claim_id
                     
                     res = self._apply_add_edge(source_node_for_conflict, action.target_id, EdgeType.CONFLICT, agent_id, current_step)
                     
-                    if res.startswith("Error"):
+                    if res.startswith("Error") or "[REJECT]" in res:
                         current_error = ValueError(res)
                         break
                     
@@ -126,5 +124,7 @@ class GraphExecutor:
 
         except Exception as e:
             self.graph.graph = original_nx_graph
+            import traceback
+            traceback.print_exc()
             error_msg = f"Error: 执行批量操作失败。已回滚。原因: {str(e)}"
             return [error_msg]

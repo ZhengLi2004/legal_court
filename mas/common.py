@@ -2,8 +2,8 @@ import networkx as nx
 import json
 import uuid
 from dataclasses import dataclass, field, asdict
-from typing import Any, Optional, Dict, List, TypedDict, Union
-from enum import Enum
+from typing import Any, Optional, Dict, List, TypedDict, Union, Tuple
+from enum import Enum, auto
 from networkx.readwrite import json_graph
 # Metadata Schema
 class BaseMetadata(TypedDict, total=False):
@@ -36,6 +36,12 @@ class NodeStatus(str, Enum):
 class EdgeType(str, Enum):
     SUPPORT = "SUPPORT"    # 支持关系
     CONFLICT = "CONFLICT"  # 冲突/反驳关系
+
+class EdgeAddResult(Enum):
+    CREATED = auto()
+    DUPLICATE = auto()
+    TYPE_CLASH = auto()
+    SELF_LOOP = auto()
 # 核心数据结构
 @dataclass
 class ShadowNode:
@@ -140,7 +146,7 @@ class ShadowGraph:
         
             else: existing_id = self._find_exact_match_node(content, node_type)
         
-        if existing_id: return existing_id
+        if existing_id: return existing_id, False
         node_id = self._generate_id(node_type)
         
         node = ShadowNode(
@@ -152,7 +158,7 @@ class ShadowGraph:
         )
         
         self.graph.add_node(node_id, **asdict(node))
-        return node_id
+        return node_id, True
     # 查找内容完全一致的节点
     def _find_exact_match_node(self, content: str, node_type: NodeType) -> Optional[str]:
         norm_content = content.strip().lower()
@@ -167,11 +173,44 @@ class ShadowGraph:
             
         return None
 
+    def garbage_collect(self) -> int:
+        all_roots = [
+            n for n, d in self.graph.nodes(data=True)
+            if d.get('metadata', {}).get('is_root_claim')
+        ]
+
+        active_roots = []
+        
+        for r in all_roots:
+            if self.graph.degree(r) > 0: active_roots.append(r)
+
+        valid_nodes = set(active_roots)
+        for r in active_roots: valid_nodes.update(nx.ancestors(self.graph, r))
+        all_nodes = set(self.graph.nodes())
+        garbage = all_nodes - valid_nodes
+        
+        if garbage:
+            self.graph.remove_nodes_from(garbage)
+            self.refresh_context(current_step=9999)
+
+        return len(garbage)
+
     def add_edge(self, source_id: str, target_id: str, edge_type: EdgeType) -> None:
         if not self.graph.has_node(source_id) or not self.graph.has_node(target_id): raise ValueError(f"Source {source_id} or Target {target_id} does not exist.")
+        if source_id == target_id: return EdgeAddResult.SELF_LOOP
         edge_type = ensure_edge_type(edge_type)
+
+        if self.graph.has_edge(source_id, target_id):
+            existing_data = self.graph.get_edge_data(source_id, target_id)
+            existing_type = existing_data.get('type')
+            if hasattr(existing_type, 'value'): existing_type = existing_type.value
+            target_type_val = edge_type.value
+            if existing_type == target_type_val: return EdgeAddResult.DUPLICATE
+            else: return EdgeAddResult.TYPE_CLASH
+
         if not self.is_valid_connection(source_id, target_id, edge_type): raise ValueError(f"Invalid connection: {edge_type} from {self._get_node_type(source_id)} to {self._get_node_type(target_id)}")
         self.graph.add_edge(source_id, target_id, type=edge_type)
+        return EdgeAddResult.CREATED
 
     def get_subgraph(self, node_ids: List[str]) -> "ShadowGraph":
         sub_nx = self.graph.subgraph(node_ids).copy()

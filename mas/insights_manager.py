@@ -124,7 +124,12 @@ class InsightsManager:
         
         for emb, inst in self._insight_index:
             sim = cosine_similarity(query_emb, emb)
-            final_score = sim * (1.0 + cfg.score_weight * inst.score)
+
+            final_score = (
+                cfg.weight_relevance * sim +
+                cfg.weight_utility * inst.score
+            )
+
             candidates.append((final_score, inst))
         
         candidates.sort(key=lambda x: x[0], reverse=True)

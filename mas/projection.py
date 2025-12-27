@@ -62,7 +62,7 @@ class GraphProjector:
                 "projection_score": 1.0 
             }
 
-            new_id = target_graph.add_node(
+            new_id, _ = target_graph.add_node(
                 content=data['content'],
                 node_type=data['type'],
                 agent_id=self.cfg.agent.projection_id,
