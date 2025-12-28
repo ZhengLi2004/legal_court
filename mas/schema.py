@@ -40,3 +40,53 @@ class AgentAction(BaseModel):
     relation_type: Optional[Literal[EdgeType.SUPPORT, EdgeType.CONFLICT]] = Field(None, description="当操作涉及建立关系时，关系的类型")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="额外元数据")
     def to_json(self) -> str: return self.model_dump_json(exclude_none=True, indent=2)
+
+AGENT_ACTION_SCHEMA_DESC = """
+【AgentAction JSON 输出规范】
+
+你的输出必须是一个 JSON 数组 `[...]`，其中每个对象代表一个动作。
+
+1. **核心拓扑规则**:
+   - **严禁造物**: 你不能创建 FACT 或 LAW 节点。
+   - **引用必连**: 使用 `cite_fact` / `cite_law` 时，`source_id` 必须填入图谱中【已存在】的节点ID。
+   - **逻辑链**: 使用 `support_claim` / `rebut_claim` 连接观点。
+
+2. **字段定义**:
+   - `action_type` (必填):
+     - "add_claim": 提出新观点（仅当无法连接现有节点时）。
+     - "cite_fact": 引用事实（source_id=FACT_xxx -> target_id=CLAIM_yyy）。
+     - "cite_law": 引用法条（source_id=LAW_xxx -> target_id=CLAIM_yyy）。
+     - "support_claim": 观点支持（source_id=CLAIM_A -> target_id=CLAIM_B）。
+     - "rebut_claim": 观点反驳（source_id=CLAIM_A -> target_id=CLAIM_B）。
+   - `content` (必填): 动作的简短描述或新观点的内容。
+   - `target_id` (必填): 被支持或被攻击的目标节点ID。
+   - `source_id` (引用类必填): 证据/法条/前提的节点ID。
+   - `relation_type` (连线类必填): "SUPPORT" 或 "CONFLICT"。
+
+3. **标准示例**:
+```json
+[
+    {
+        "action_type": "cite_fact",
+        "content": "证据显示...",
+        "source_id": "FACT_9e8c2d", 
+        "target_id": "CLAIM_14d2e6",
+        "relation_type": "SUPPORT"
+    },
+    {
+        "action_type": "cite_law",
+        "content": "依据民法典...",
+        "source_id": "LAW_34da21",
+        "target_id": "CLAIM_ff562a",
+        "relation_type": "SUPPORT"
+    },
+    {
+        "action_type": "rebut_claim",
+        "content": "反驳对方观点...",
+        "source_id": "CLAIM_3e2a21", 
+        "target_id": "CLAIM_4eda56",
+        "relation_type": "CONFLICT"
+    }
+]
+```
+"""

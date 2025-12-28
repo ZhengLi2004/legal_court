@@ -56,17 +56,23 @@ class ArgumentController(Role):
             context,
             feedback=feedback_text
         )
+
+        target_worker_name = "FactWorker"
+        if "LawWorker" in query_intent: target_worker_name = "LawWorker"
+        elif "FactWorker" in query_intent: target_worker_name = "FactWorker"
         
         instruction = WorkerInstruction(
             query=query_intent,
             graph_context=context
         )
+
+        logger.info(f"Controller planned intent: {query_intent} -> Routing to {target_worker_name}")
         
         return Message(
             content=instruction.to_json(), 
             role=self.profile,
             cause_by=PlanTactics,
-            send_to="FactWorker"
+            send_to=target_worker_name
         )
 
     async def _decide_phase(self, report: WorkerReport) -> Message:

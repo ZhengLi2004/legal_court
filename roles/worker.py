@@ -143,7 +143,7 @@ class LawWorker(BaseWorker):
                 threshold=self.threshold
             )
 
-            status = WorkerReportStatus.FOUND if "已底层注入" in report_content else WorkerReportStatus.NOT_FOUND
+            status = WorkerReportStatus.FOUND if "✅" in report_content else WorkerReportStatus.NOT_FOUND
 
             report = WorkerReport(
                 status=status,
