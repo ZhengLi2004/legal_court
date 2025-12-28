@@ -1,5 +1,5 @@
 from metagpt.actions import Action
-from mas.schema import AGENT_ACTION_SCHEMA_DESC, ControllerIntent
+from mas.schema import AGENT_ACTION_SCHEMA_DESC
 
 class PlanTactics(Action):
     name: str = "PlanTactics"
@@ -56,19 +56,19 @@ class VerifyAndDecide(Action):
     name: str = "VerifyAndDecide"
 
     PROMPT_TEMPLATE: str = """
-    你是【{role_name}】。你的参谋已完成任务。
+    你是【{role_name}】。你的参谋已完成任务并提交了报告。
 
-    【参谋建议】:
+    【参谋报告/行动结果】:
     "{worker_advice}"
 
     【当前战局】:
     {graph_context}
 
-    请决策：基于战局和报告，生成图谱操作指令以推进【战略重心】({focus})？
-    
+    任务：请结合【参谋报告】中提到的成果和【当前战局】中的已有节点，生成具体的图谱操作 JSON 数组，以推进【战略重心】({focus})。
+
     {action_schema_desc}
 
-    如果认为不应采纳建议，请直接输出 "REJECT:" 加上拒绝理由。
+    请严格按照 JSON 格式输出决策：
     """
 
     async def run(self, role_name: str, worker_advice: str, graph_context: str, focus: str):

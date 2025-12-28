@@ -3,7 +3,6 @@ import re
 from dataclasses import dataclass
 from typing import List
 from mas.llm import GPTChat, Message
-from mas.schema import AgentAction, AgentActionType
 from metagpt.logs import logger
 
 @dataclass
@@ -19,14 +18,14 @@ class InitializationResult:
     plaintiff_persona: AgentPersona
     defendant_persona: AgentPersona
     fact_statements: List[str]
-    root_claim_actions: List[AgentAction]
+    root_claim_actions: List[str]
 
 class CaseInitializer:
     def __init__(self, llm: GPTChat): self.llm = llm
     
     async def initialize(self, fact_finding: str, cause: str) -> InitializationResult:
         fact_statements = await self._decompose_facts(fact_finding)
-        root_actions = await self._generate_root_claim(fact_finding, cause)
+        root_claim_texts = await self._generate_root_claim(fact_finding, cause)
         p_persona = await self._generate_persona(fact_finding, cause, "plaintiff")
         d_persona = await self._generate_persona(fact_finding, cause, "defendant")
 
@@ -34,7 +33,7 @@ class CaseInitializer:
             plaintiff_persona=p_persona,
             defendant_persona=d_persona,
             fact_statements=fact_statements,
-            root_claim_actions=root_actions
+            root_claim_actions=root_claim_texts
         )
     
     async def _parse_numbered_list_to_agent_actions(self, text: str) -> List[str]:
@@ -82,7 +81,7 @@ class CaseInitializer:
             logger.error(f"Error parsing decomposed facts from numbered list: {e}\nResponse: {response}")
             return []
 
-    async def _generate_root_claim(self, facts: str, cause: str) -> List[AgentAction]:
+    async def _generate_root_claim(self, facts: str, cause: str) -> List[str]:
         prompt = f"""
         基于案由【{cause}】和以下事实，请提炼出原告的所有核心法律诉求。
         诉求应具体明确（如，要求被告偿还本金XX元）。
@@ -90,16 +89,14 @@ class CaseInitializer:
         【事实】：
         {facts}
 
-        请直接输出一个 JSON 数组，每个元素是一个 AgentAction 对象，表示一个 ADD_CLAIM 操作。
-        **AgentAction 对象的 action_type 必须是 "add_claim"**。
-        AgentAction 模型定义（仅限 action_type="add_claim"）：
-        {{
-            "action_type": "add_claim",
-            "content": "主张的详细描述，例如：判令被告偿还借款本金10万元",
-            "target_id": null,
-            "source_id": null,
-            "relation_type": null
-        }}
+        请直接输出一个 JSON 字符串数组，每个元素是一个诉求的文本描述。
+        例如：
+        ```json
+        [
+            "判令被告偿还借款本金10万元",
+            "判令被告支付逾期利息"
+        ]
+        ```
         不要输出任何其他内容或 Markdown 标记外的文字。
         """
 
@@ -107,22 +104,15 @@ class CaseInitializer:
         
         try:
             clean_json = response
-            match = re.search(r"```json\s*(\{.*\}|\[.*\])\s*```", response, re.DOTALL)
+            match = re.search(r"```json\s*(\[.*?\])\s*```", response, re.DOTALL)
             if match: clean_json = match.group(1)
             else: clean_json = response.replace("```json", "").replace("```", "").strip()
-            actions_data = json.loads(clean_json)
-            if not isinstance(actions_data, list): raise ValueError("LLM did not return a JSON array for ADD_CLAIM.")
-            actions = []
-            
-            for data in actions_data:
-                action = AgentAction(**data)
-                action.metadata["is_root_claim"] = True
-                actions.append(action)
-            
-            return actions
+            claims_list = json.loads(clean_json)
+            if not isinstance(claims_list, list) or not all(isinstance(item, str) for item in claims_list): raise ValueError("LLM did not return a JSON array of strings.")
+            return claims_list
         
         except Exception as e:
-            logger.error(f"Error parsing root claims into AgentAction: {e}\nResponse: {response}")
+            logger.error(f"Error parsing root claim texts: {e}\nResponse: {response}")
             return []
     
     async def _generate_persona(self, facts: str, cause: str, role: str) -> AgentPersona:

@@ -73,14 +73,21 @@ class DebateEngine:
 
         if fact_ids: self.graph.touch_nodes(fact_ids, step_index=0)
         logger.info(f">>> [System] Injected {fact_count} fact nodes.")
+        logger.info(">>> [System] Injecting root claims...")
+        claim_ids = []
 
-        if init_res.root_claim_actions:
-            try:
-                logs = self.legal_sys.execute_action(self.graph, "System_Init", init_res.root_claim_actions)
-                for log_msg in logs: logger.info(f"[System_Init] {log_msg}")
+        for claim_statement in init_res.root_claim_actions:
+            node_id, is_new = self.graph.add_node(
+                content=claim_statement,
+                node_type=NodeType.CLAIM,
+                agent_id="System_Init",
+                metadata={"is_root_claim": True} 
+            )
             
-            except Exception as e: logger.error(f"[System_Init] Error executing initial actions: {e}")
+            if is_new: claim_ids.append(node_id)
         
+        if claim_ids: self.graph.touch_nodes(claim_ids, step_index=0)
+        logger.info(f">>> [System] Injected {len(claim_ids)} root claim nodes.")
         self.prev_stats["nodes"] = self.graph.graph.number_of_nodes()
         self.p_team = DebateTeam("plaintiff", init_res.plaintiff_persona, graph_tool, self.fact_es, self.law_es, agent_llm, insights, verbose=verbose)
         self.d_team = DebateTeam("defendant", init_res.defendant_persona, graph_tool, self.fact_es, self.law_es, agent_llm, insights, verbose=verbose)
