@@ -1,8 +1,8 @@
-from typing import Tuple, Union, List
+from typing import Union, List
 from mas.legal_system import LegalSystem
-from mas.common import ShadowGraph, NodeType, EdgeType # Added NodeType, EdgeType for execute_action
-from mas.llm import LLMCallable, Message
-from mas.schema import AgentAction, AgentActionType # Import AgentActionType too
+from mas.common import ShadowGraph, NodeType
+from mas.llm import LLMCallable
+from mas.schema import AgentAction
 
 class GraphTool:
     def __init__(self, legal_system: LegalSystem, llm: LLMCallable):

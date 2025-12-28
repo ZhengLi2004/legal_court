@@ -46,8 +46,6 @@ class ArgumentController(Role):
 
     async def _plan_phase(self, feedback: str = "") -> Message:
         context = self.graph_tool.current_graph.latest_context
-        valid_nodes = list(self.graph_tool.current_graph.graph.nodes())
-        context += f"\n\n【系统强制提示】: 当前图谱中真实有效的节点ID列表仅限于: {valid_nodes}。严禁臆造不存在的ID！"
         feedback_text = ""
         if feedback: feedback_text = f"【⚠️ 上次尝试失败反馈】:\n{feedback}\n请分析失败原因，并重新规划。如果是指令错误，请修正格式；如果是逻辑错误，请调整策略。"
         memories = self.get_memories(k=5)
@@ -104,9 +102,6 @@ class ArgumentController(Role):
 
     async def _decide_phase(self, report: WorkerReport, feedback: str = "") -> Message:
         context = self.graph_tool.current_graph.latest_context
-        # Inject Valid IDs to curb hallucination in VerifyAndDecide
-        valid_nodes = list(self.graph_tool.current_graph.graph.nodes())
-        context += f"\n\n【系统强制提示】: 请务必只使用以下列表中的ID作为 source_id 或 target_id: {valid_nodes}。如果找不到对应ID，说明该信息尚未入图，请勿引用。"
 
         if report.status == WorkerReportStatus.NOT_FOUND:
             logger.info("Worker found nothing. Re-planning...")

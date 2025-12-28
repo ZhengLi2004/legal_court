@@ -30,7 +30,7 @@ class PathConfig:
 class LLMConfig:
     temperature: float = 0.1
     max_tokens: int = 1024
-    model_name: str = "法衡"
+    model_name: str = "DeepSeek-V3.2"
     api_key: str = get_env_strict("LEGAL_LLM_KEY")
     base_url: str = get_env_strict("LEGAL_LLM_URL")
 

@@ -49,7 +49,6 @@ class DebateEngine:
             with open(case_data_path, 'r', encoding='utf-8') as f:  case_data = json.loads(f.readline())
         
         if case_data is None: raise ValueError("Either case_data_path or case_data must be provided to setup the engine.")
-
         self.raw_facts = case_data.get("fact_finding", "")
         cause = case_data.get("cause", ["未知案由"])[0]
         initializer = CaseInitializer(agent_llm)
