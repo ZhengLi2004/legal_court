@@ -1,5 +1,5 @@
 from metagpt.actions import Action
-from mas.schema import AGENT_ACTION_SCHEMA_DESC
+from mas.schema import AGENT_ACTION_SCHEMA_DESC, ControllerIntent
 
 class PlanTactics(Action):
     name: str = "PlanTactics"
@@ -20,20 +20,20 @@ class PlanTactics(Action):
 
     {feedback_section}
     
-    你的任务：为了推进我方战略，你需要指示哪位参谋去寻找什么情报？
+    你的任务：判断当前是否需要补充外部情报（法条或事实），还是可以直接进行论证。
     
-    【可用参谋】:
-    - **事实参谋 (FactWorker)**: 负责检索相似的历史判例，提供战术参考。
-    - **法律参谋 (LawWorker)**: 负责检索具体的法律条款。
+    【决策选项】:
+    1. **LawWorker**: 图谱中缺少支撑你观点的【法条节点】。填写法条检索需求。
+    2. **FactWorker**: 图谱中缺少【历史判例】或需要确认某些事实细节。填写事实检索需求。
+    3. **Self**: 图谱中已有足够的法条和事实，或者是时候发起攻击/总结了。简述你的论证思路。
     
-    请输出一个简练的查询指令，并明确指出由谁执行。
-    
-    【输出格式】:
-    指示 [FactWorker/LawWorker] 查询 [具体内容]
-    
-    【示例】:
-    指示 FactWorker 查询关于'借条备注'的先例
-    指示 LawWorker 查询《民法典》中关于'债务加入'的规定
+    请严格按照以下 JSON 格式输出决策：
+    ```json
+    {{
+        "target": "LawWorker" | "FactWorker" | "Self",
+        "content": "..."
+    }}
+    ```
     """
 
     async def run(self, role_name: str, persona: object, insights: str, graph_context: str, feedback: str = ""):

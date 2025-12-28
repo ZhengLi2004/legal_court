@@ -26,7 +26,6 @@ class WorkerReport(BaseModel):
     def to_json(self) -> str: return self.model_dump_json(exclude_none=True)
 # 新增 AgentAction 模型
 class AgentActionType(str, Enum):
-    ADD_CLAIM = "add_claim"
     CITE_FACT = "cite_fact"
     CITE_LAW = "cite_law"
     SUPPORT_CLAIM = "support_claim"
@@ -34,11 +33,21 @@ class AgentActionType(str, Enum):
 
 class AgentAction(BaseModel):
     action_type: AgentActionType = Field(..., description="智能体执行的动作类型")
-    content: str = Field(..., description="动作的主要内容，例如主张文本、法条查询内容或事实描述")
-    target_id: Optional[str] = Field(None, description="动作目标节点的ID（例如，反驳某个主张时的主张ID）")
-    source_id: Optional[str] = Field(None, description="动作源节点的ID（例如，某个主张支持另一个主张时的发起主张ID）")
+    content: str = Field(..., description="当创建新节点时必填，仅连线时做备注。")
+    target_id: Optional[str] = Field(None, description="cite类若为空则创建新Target；logic类必填。")
+    source_id: Optional[str] = Field(None, description="cite类必填；logic类若为空则创建新Source。")
     relation_type: Optional[Literal[EdgeType.SUPPORT, EdgeType.CONFLICT]] = Field(None, description="当操作涉及建立关系时，关系的类型")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="额外元数据")
+    def to_json(self) -> str: return self.model_dump_json(exclude_none=True, indent=2)
+
+class TargetRole(str, Enum):
+    LAW_WORKER = "LawWorker"
+    FACT_WORKER = "FactWorker"
+    SELF = "Self"
+
+class ControllerIntent(str, Enum):
+    target: TargetRole = Field(..., description="指令接收方")
+    content: str = Field(..., description="具体的查询指令（给Worker）或 思考备注（给Self）")
     def to_json(self) -> str: return self.model_dump_json(exclude_none=True, indent=2)
 
 AGENT_ACTION_SCHEMA_DESC = """
@@ -48,42 +57,40 @@ AGENT_ACTION_SCHEMA_DESC = """
 
 1. **核心拓扑规则**:
    - **严禁造物**: 你不能创建 FACT 或 LAW 节点。
-   - **引用必连**: 使用 `cite_fact` / `cite_law` 时，`source_id` 必须填入图谱中【已存在】的节点ID。
-   - **逻辑链**: 使用 `support_claim` / `rebut_claim` 连接观点。
+   - **连接即创造**: 当你需要提出新观点时，请通过【留空】一端ID的方式，由系统自动创建。
 
 2. **字段定义**:
    - `action_type` (必填):
-     - "add_claim": 提出新观点（仅当无法连接现有节点时）。
-     - "cite_fact": 引用事实（source_id=FACT_xxx -> target_id=CLAIM_yyy）。
-     - "cite_law": 引用法条（source_id=LAW_xxx -> target_id=CLAIM_yyy）。
-     - "support_claim": 观点支持（source_id=CLAIM_A -> target_id=CLAIM_B）。
-     - "rebut_claim": 观点反驳（source_id=CLAIM_A -> target_id=CLAIM_B）。
+     - "cite_fact": 引用事实（source_id=FACT_xxx）。若 target_id 为 null，则创建新观点。
+     - "cite_law": 引用法条（source_id=LAW_xxx）。若 target_id 为 null，则创建新观点。
+     - "support_claim": 观点支持（target_id=CLAIM_xxx）。若 source_id 为 null，则创建新观点。
+     - "rebut_claim": 观点反驳（target_id=CLAIM_xxx）。若 source_id 为 null，则创建新观点。
    - `content` (必填): 动作的简短描述或新观点的内容。
-   - `target_id` (必填): 被支持或被攻击的目标节点ID。
-   - `source_id` (引用类必填): 证据/法条/前提的节点ID。
-   - `relation_type` (连线类必填): "SUPPORT" 或 "CONFLICT"。
+   - `target_id`: 被支持或被攻击的目标节点ID。
+   - `source_id`: 证据/法条/前提的节点ID。
+   - `relation_type` (必填): "SUPPORT" 或 "CONFLICT"。
 
 3. **标准示例**:
 ```json
 [
     {
         "action_type": "cite_fact",
-        "content": "证据显示...",
+        "content": "基于事实提出新观点...",
         "source_id": "FACT_9e8c2d", 
-        "target_id": "CLAIM_14d2e6",
+        "target_id": null,
         "relation_type": "SUPPORT"
     },
     {
         "action_type": "cite_law",
-        "content": "依据民法典...",
+        "content": "依据民法典支持旧观点...",
         "source_id": "LAW_34da21",
         "target_id": "CLAIM_ff562a",
         "relation_type": "SUPPORT"
     },
     {
         "action_type": "rebut_claim",
-        "content": "反驳对方观点...",
-        "source_id": "CLAIM_3e2a21", 
+        "content": "提出新观点反驳...",
+        "source_id": null, 
         "target_id": "CLAIM_4eda56",
         "relation_type": "CONFLICT"
     }

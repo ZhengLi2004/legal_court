@@ -65,80 +65,81 @@ class GraphExecutor:
             for action in actions_batch:
                 if action.action_type in [AgentActionType.CITE_FACT, AgentActionType.CITE_LAW]:
                     required_type = NodeType.FACT if action.action_type == AgentActionType.CITE_FACT else NodeType.LAW
-                    type_str = "事实(FACT)" if required_type == NodeType.FACT else "法条(LAW)"
-                    
-                    if not action.source_id or not action.target_id:
-                        current_error = ValueError(f"Error: {action.action_type} 必须同时提供 source_id 和 target_id。")
+
+                    if not action.source_id:
+                        current_error = ValueError(f"Error: {action.action_type} 必须提供 source_id。")
                         break
-                    
+
                     if not self.graph.graph.has_node(action.source_id):
-                        current_error = ValueError(f"Error: 指定的{type_str}节点 '{action.source_id}' 不存在。")
+                        current_error = ValueError(f"Error: 源节点 '{action.source_id}' 不存在。")
                         break
-                    
-                    actual_type = self.graph._get_node_type(action.source_id)
-                    
-                    if actual_type != required_type:
-                        current_error = ValueError(f"Error: 节点 '{action.source_id}' 类型为 {actual_type}，但动作要求为 {required_type}。")
+
+                    if self.graph._get_node_type(action.source_id) != required_type:
+                        current_error = ValueError(f"Error: 源节点类型错误，要求 {required_type}。")
                         break
-                    
-                    if not self.graph.graph.has_node(action.target_id):
-                        current_error = ValueError(f"Error: 目标观点节点 '{action.target_id}' 不存在。")
-                        break
-                    
-                    res = self._apply_add_edge(action.source_id, action.target_id, EdgeType.SUPPORT, agent_id, current_step)
-                    
+
+                    target_id =  action.target_id
+                    # 尝试创建新观点
+                    if not target_id:
+                        if not action.content:
+                            current_error = ValueError(f"Error: {action.action_type} 创建新观点时 content 不能为空。")
+                            break
+
+                        target_id, log = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step, action.metadata)
+                        logs.append(log)
+
+                    res = self._apply_add_edge(action.source_id, target_id, EdgeType.SUPPORT, agent_id, current_step)
+
                     if "Error" in res or "REJECT" in res:
                         current_error = ValueError(res)
                         break
-                    
+
                     logs.append(res)
 
-                elif action.action_type == AgentActionType.ADD_CLAIM:
-                    node_id, log = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step, action.metadata)
-                    
-                    if node_id is None:
-                        current_error = ValueError(log)
-                        break
-                    
-                    logs.append(log)
-
                 elif action.action_type in [AgentActionType.SUPPORT_CLAIM, AgentActionType.REBUT_CLAIM]:
-                    is_support = (action.action_type == AgentActionType.SUPPORT_CLAIM)
-                    edge_type = EdgeType.SUPPORT if is_support else EdgeType.CONFLICT
-                    
+                    edge_type = EdgeType.SUPPORT if action.action_type == AgentActionType.SUPPORT_CLAIM else EdgeType.CONFLICT
+
                     if not action.target_id:
                         current_error = ValueError(f"Error: {action.action_type} 必须提供 target_id。")
                         break
-
-                    source_id = action.source_id
                     
-                    if source_id:
+                    if not self.graph.graph.has_node(action.target_id):
+                        current_error = ValueError(f"Error: 目标节点 '{action.target_id}' 不存在。")
+                        break
+                    
+                    if self.graph._get_node_type(action.target_id) != NodeType.CLAIM:
+                        current_error = ValueError(f"Error: 逻辑操作的目标必须是 CLAIM。")
+                        break
+                    
+                    source_id = action.source_id
+                    # 尝试创建新观点
+                    if not source_id:
+                        if not action.content:
+                            current_error = ValueError(f"Error: {action.action_type} 创建新观点时 content 不能为空。")
+                            break
+
+                        source_id, log = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step, action.metadata)
+                        logs.append(log)
+
+                    else:
                         if not self.graph.graph.has_node(source_id):
                             current_error = ValueError(f"Error: 源节点 '{source_id}' 不存在。")
                             break
                         
                         if self.graph._get_node_type(source_id) != NodeType.CLAIM:
-                            current_error = ValueError(f"Error: 逻辑推导/反驳的源头必须是 CLAIM 类型。")
+                            current_error = ValueError(f"Error: 逻辑操作的源节点必须是 CLAIM。")
                             break
-                    
-                    else:
-                        if not action.content:
-                            current_error = ValueError(f"Error: {action.action_type} 若不引用已有观点，必须提供 content。")
-                            break
-                        
-                        source_id, log = self._apply_add_node(action.content, NodeType.CLAIM, agent_id, current_step, action.metadata)
-                        logs.append(log)
 
                     res = self._apply_add_edge(source_id, action.target_id, edge_type, agent_id, current_step)
-                    
+
                     if "Error" in res or "REJECT" in res:
                         current_error = ValueError(res)
                         break
-                    
+
                     logs.append(res)
-                
+
                 else:
-                    current_error = ValueError(f"Error: 收到未知的动作类型 {action.action_type}")
+                    current_error = ValueError(f"Error: 未知动作 {action.action_type}")
                     break
 
             if current_error: raise current_error
@@ -146,4 +147,4 @@ class GraphExecutor:
 
         except Exception as e:
             self.graph.graph = original_nx_graph
-            return [f"Error: 批量执行异常回滚。原因: {str(e)}"]
+            return [f"Error: 批量执行回滚: {str(e)}"]

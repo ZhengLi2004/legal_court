@@ -1,8 +1,9 @@
+import re
 from metagpt.roles import Role
 from metagpt.schema import Message
 from metagpt.logs import logger
 from actions.controller_actions import PlanTactics, VerifyAndDecide
-from mas.schema import WorkerInstruction, WorkerReport, WorkerReportStatus, AgentAction
+from mas.schema import WorkerInstruction, WorkerReport, WorkerReportStatus, AgentAction, ControllerIntent, TargetRole
 from mas.action_parser import parse_agent_action_output
 from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
@@ -49,7 +50,7 @@ class ArgumentController(Role):
         if feedback: feedback_text = f"【⚠️ 上次尝试失败反馈】:\n{feedback}\n请分析失败原因，并重新规划。如果是指令错误，请修正格式；如果是逻辑错误，请调整策略。"
         action = PlanTactics(llm=self.llm)
         
-        query_intent = await action.run(
+        raw_intent = await action.run(
             self.name, 
             self.persona, 
             self.insights, 
@@ -57,23 +58,44 @@ class ArgumentController(Role):
             feedback=feedback_text
         )
 
-        target_worker_name = "FactWorker"
-        if "LawWorker" in query_intent: target_worker_name = "LawWorker"
-        elif "FactWorker" in query_intent: target_worker_name = "FactWorker"
-        
-        instruction = WorkerInstruction(
-            query=query_intent,
-            graph_context=context
-        )
+        try:
+            clean_json = raw_intent.strip()
+            match = re.search(r"```json\s*(\{.*?\})\s*```", clean_json, re.DOTALL)
+            if match: clean_json = match.group(1)
+            else: clean_json = raw_intent[raw_intent.find("{"):raw_intent.rfind("}")+1]
+            intent = ControllerIntent.model_validate_json(clean_json)
 
-        logger.info(f"Controller planned intent: {query_intent} -> Routing to {target_worker_name}")
+        except Exception as e:
+            error_msg = f"意图解析失败 (JSONDecodeError/ValidationError): {str(e)}"
+            logger.error(f"[{self.name}] {error_msg}. 准备重新规划...")
+            return await self._plan_phase(feedback=error_msg)
+
+        logger.info(f"[{self.name}] Planned Intent: {intent.target} -> {intent.content}")
+
+        if intent.target == TargetRole.SELF:
+            fake_report = WorkerReport(
+                status=WorkerReportStatus.FOUND,
+                content=f"无需外部检索。战术思路: {intent.content}",
+                max_score=1.0
+            )
+
+            return await self._decide_phase(fake_report)
         
-        return Message(
-            content=instruction.to_json(), 
-            role=self.profile,
-            cause_by=PlanTactics,
-            send_to=target_worker_name
-        )
+        else:
+            instruction = WorkerInstruction(
+                query=intent.content,
+                graph_context=context
+            )
+
+            target_worker_name = "FactWorker"
+            if intent.target == TargetRole.LAW_WORKER: target_worker_name = "LawWorker"
+            
+            return Message(
+                content=instruction.to_json(), 
+                role=self.profile,
+                cause_by=PlanTactics,
+                send_to=target_worker_name 
+            )
 
     async def _decide_phase(self, report: WorkerReport) -> Message:
         context = self.graph_tool.current_graph.latest_context

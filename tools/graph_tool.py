@@ -15,11 +15,10 @@ class GraphTool:
     async def process_intent(self, agent_id: str, actions: Union[AgentAction, List[AgentAction]]) -> str:
         try:
             if not self.current_graph: return "REJECT: 当前图谱上下文未设置。"
-            
             actions_list: List[AgentAction] = []
             if isinstance(actions, AgentAction): actions_list.append(actions)
             elif isinstance(actions, list) and all(isinstance(a, AgentAction) for a in actions): actions_list = actions
-            else: return "REJECT: 无效的动作格式。期望 AgentAction 对象或 AgentAction 对象的列表。"
+            else: return "REJECT: 无效的动作格式。"
 
             logs = self.system.execute_action(
                 graph=self.current_graph,
@@ -35,6 +34,7 @@ class GraphTool:
     # LawWorker 专用
     def inject_law_nodes(self, law_contents: List[str]) -> str:
         if not self.current_graph: return "Error: Graph not set."
+        current_step = self.system.step_counter
         count = 0
         ids = []
 
@@ -50,7 +50,7 @@ class GraphTool:
                 ids.append(node_id)
 
         if ids:
-            self.current_graph.touch_nodes(ids, step_index=self.system.step_counter) 
-            self.current_graph.refresh_context(current_step=self.system.step_counter)
+            self.current_graph.touch_nodes(ids, step_index=current_step) 
+            self.current_graph.refresh_context(current_step=current_step)
 
         return f"已底层注入 {count} 条法条到图谱中。"
