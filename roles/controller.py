@@ -46,8 +46,12 @@ class ArgumentController(Role):
 
     async def _plan_phase(self, feedback: str = "") -> Message:
         context = self.graph_tool.current_graph.latest_context
+        valid_nodes = list(self.graph_tool.current_graph.graph.nodes())
+        context += f"\n\n【系统强制提示】: 当前图谱中真实有效的节点ID列表仅限于: {valid_nodes}。严禁臆造不存在的ID！"
         feedback_text = ""
         if feedback: feedback_text = f"【⚠️ 上次尝试失败反馈】:\n{feedback}\n请分析失败原因，并重新规划。如果是指令错误，请修正格式；如果是逻辑错误，请调整策略。"
+        memories = self.get_memories(k=5)
+        history_text = "\n".join([f"[{m.role}]: {m.content}" for m in memories])
         action = PlanTactics(llm=self.llm)
         
         raw_intent = await action.run(
@@ -55,7 +59,8 @@ class ArgumentController(Role):
             self.persona, 
             self.insights, 
             context,
-            feedback=feedback_text
+            feedback=feedback_text,
+            history=history_text
         )
 
         try:
@@ -66,8 +71,8 @@ class ArgumentController(Role):
             intent = ControllerIntent.model_validate_json(clean_json)
 
         except Exception as e:
-            error_msg = f"意图解析失败 (JSONDecodeError/ValidationError): {str(e)}"
-            logger.error(f"[{self.name}] {error_msg}. 准备重新规划...")
+            error_msg = f"Intent parsing failed for role {self.name}. Error: {e}. Raw LLM Output: '{raw_intent}'"
+            logger.error(f"[{self.name}] {error_msg}. Preparing to re-plan...")
             return await self._plan_phase(feedback=error_msg)
 
         logger.info(f"[{self.name}] Planned Intent: {intent.target} -> {intent.content}")
@@ -79,7 +84,7 @@ class ArgumentController(Role):
                 max_score=1.0
             )
 
-            return await self._decide_phase(fake_report)
+            return await self._decide_phase(fake_report, feedback=feedback)
         
         else:
             instruction = WorkerInstruction(
@@ -97,9 +102,12 @@ class ArgumentController(Role):
                 send_to=target_worker_name 
             )
 
-    async def _decide_phase(self, report: WorkerReport) -> Message:
+    async def _decide_phase(self, report: WorkerReport, feedback: str = "") -> Message:
         context = self.graph_tool.current_graph.latest_context
-        
+        # Inject Valid IDs to curb hallucination in VerifyAndDecide
+        valid_nodes = list(self.graph_tool.current_graph.graph.nodes())
+        context += f"\n\n【系统强制提示】: 请务必只使用以下列表中的ID作为 source_id 或 target_id: {valid_nodes}。如果找不到对应ID，说明该信息尚未入图，请勿引用。"
+
         if report.status == WorkerReportStatus.NOT_FOUND:
             logger.info("Worker found nothing. Re-planning...")
             return await self._plan_phase()
@@ -111,7 +119,8 @@ class ArgumentController(Role):
                 self.name, 
                 report.content,
                 context, 
-                self.persona.initial_strategy
+                self.persona.initial_strategy,
+                feedback=feedback
             )
             
             if decision_raw_output.strip().startswith("REJECT:"):

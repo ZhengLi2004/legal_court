@@ -38,14 +38,18 @@ class DebateEngine:
         self.convergence_history: List[float] = []
         self.prev_stats: Dict[str, int] = {"nodes": 0, "conflict_edges": 0}
 
-    async def setup(self, case_data_path: str, verbose: bool = False):
+    async def setup(self, case_data_path: str = None, case_data: Dict = None, verbose: bool = False):
         logger.info(">>> [Engine] Setting up...")
         agent_llm = GPTChat(model_name=self.cfg.llm.model_name)
         self.legal_sys = LegalSystem(config=self.cfg)
         self.fact_es = FactEsTool(es_host=self.cfg.es.host, embedding_func=self.legal_sys.ef)
         self.law_es = LawEsTool(es_host=self.cfg.es.host, embedding_func=self.legal_sys.ef)
         graph_tool = GraphTool(legal_system=self.legal_sys, llm=agent_llm)
-        with open(case_data_path, 'r', encoding='utf-8') as f: case_data = json.loads(f.readline())
+        if case_data is None and case_data_path:
+            with open(case_data_path, 'r', encoding='utf-8') as f:  case_data = json.loads(f.readline())
+        
+        if case_data is None: raise ValueError("Either case_data_path or case_data must be provided to setup the engine.")
+
         self.raw_facts = case_data.get("fact_finding", "")
         cause = case_data.get("cause", ["未知案由"])[0]
         initializer = CaseInitializer(agent_llm)

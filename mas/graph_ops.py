@@ -50,7 +50,7 @@ class GraphExecutor:
                 old_type = existing_data.get('type') if existing_data else "UNKNOWN"
                 return f"❌ [REJECT] 关系冲突: {source_id} 与 {target_id} 之间已存在 {old_type} 关系，无法添加 {edge_type.value}。"
             
-            elif result == EdgeAddResult.SELF_LOOP: return f"❌ [REJECT] 逻辑错误: 无法建立自环关系 (源节点与目标节点相同)。"
+            elif result == EdgeAddResult.SELF_LOOP: return f"⚠️ [NOTICE] Self-Loop operation ignored (Source == Target). This is likely caused by deduplication mapping a new node back to an existing one."
             else: return f"Error: 未知的边添加结果: {result}"
         
         except ValueError as ve: return f"Error: 添加 {edge_type.value} 关系失败: {ve}"
@@ -112,6 +112,11 @@ class GraphExecutor:
                         break
                     
                     source_id = action.source_id
+                    
+                    if source_id and source_id == action.target_id:
+                        source_id = None
+                        logs.append(f"⚠️ [AUTO-FIX] Detected Self-Loop for {action.action_type} on {action.target_id}. Converted to New Node creation.")
+                    
                     # 尝试创建新观点
                     if not source_id:
                         if not action.content:

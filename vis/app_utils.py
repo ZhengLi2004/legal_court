@@ -21,11 +21,14 @@ def render_graph(graph_obj):
     nodes, edges = GraphAdapter.parse_shadow_graph(graph_dict)
     
     config = Config(
-        width=800,
-        height=600,
+        width="100%",
+        height=500,
         directed=True, 
         physics=True, 
         nodeHighlightBehavior=True,
+        hierarchical=True,
+        direction='UD',
+        sortMethod='directed'
     )
 
     agraph(nodes=nodes, edges=edges, config=config)

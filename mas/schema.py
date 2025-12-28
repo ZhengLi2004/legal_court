@@ -45,7 +45,7 @@ class TargetRole(str, Enum):
     FACT_WORKER = "FactWorker"
     SELF = "Self"
 
-class ControllerIntent(str, Enum):
+class ControllerIntent(BaseModel):
     target: TargetRole = Field(..., description="指令接收方")
     content: str = Field(..., description="具体的查询指令（给Worker）或 思考备注（给Self）")
     def to_json(self) -> str: return self.model_dump_json(exclude_none=True, indent=2)
@@ -63,11 +63,11 @@ AGENT_ACTION_SCHEMA_DESC = """
    - `action_type` (必填):
      - "cite_fact": 引用事实（source_id=FACT_xxx）。若 target_id 为 null，则创建新观点。
      - "cite_law": 引用法条（source_id=LAW_xxx）。若 target_id 为 null，则创建新观点。
-     - "support_claim": 观点支持（target_id=CLAIM_xxx）。若 source_id 为 null，则创建新观点。
-     - "rebut_claim": 观点反驳（target_id=CLAIM_xxx）。若 source_id 为 null，则创建新观点。
+     - "support_claim": 观点支持（target_id=CLAIM_xxx）。【注意】若你要提出一个新的支持理由，务必将 source_id 设为 null！
+     - "rebut_claim": 观点反驳（target_id=CLAIM_xxx）。【注意】若你要提出一个新的反驳理由，务必将 source_id 设为 null！
    - `content` (必填): 动作的简短描述或新观点的内容。
    - `target_id`: 被支持或被攻击的目标节点ID。
-   - `source_id`: 证据/法条/前提的节点ID。
+   - `source_id`: 证据/法条/前提的节点ID。如果是创建新节点，请务必保持 null，切勿填入 target_id（否则会导致自环错误）。
    - `relation_type` (必填): "SUPPORT" 或 "CONFLICT"。
 
 3. **标准示例**:
