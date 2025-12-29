@@ -1,4 +1,4 @@
-from typing import List, Set
+from typing import List
 from .common import ShadowGraph, NodeStatus, EdgeType
 # 根据判决结果标记属性
 class BackPropagator:

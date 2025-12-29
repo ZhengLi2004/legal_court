@@ -27,7 +27,6 @@ class GraphExecutor:
 
             self.graph.touch_nodes([node_id], current_step)
             type_cn = {NodeType.FACT: "事实", NodeType.LAW: "法条", NodeType.CLAIM: "主张"}.get(node_type, "节点")
-            
             if is_new: return node_id, f"✅ [SUCCESS] 已添加新{type_cn}: {content} (ID: {node_id})"
             else: return node_id, f"⚠️ [NOTICE] 该{type_cn}已存在 (ID: {node_id})，已复用现有节点。"
                 

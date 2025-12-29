@@ -70,7 +70,7 @@ class DebateTeam:
             if self.verbose:
                 transcript.append({
                     "from": self.controller.name,
-                    "to": ctrl_msg.send_to or "GraphTool", # Assuming GraphTool is implied if no send_to
+                    "to": ctrl_msg.send_to or "GraphTool",
                     "content": ctrl_msg.content
                 })
 
@@ -84,6 +84,7 @@ class DebateTeam:
                         content=f"SYSTEM_FEEDBACK: 上次操作失败。{content}。请重新规划。",
                         role="System"
                     )
+
                     self.controller.rc.memory.add(feedback_msg)
                     if self.verbose: transcript.append({"from": "System", "to": self.controller.name, "content": feedback_msg.content})
                     continue
@@ -93,7 +94,7 @@ class DebateTeam:
                     break
             
             elif "query" in content and "graph_context" in content and ctrl_msg.send_to:
-                target_worker = self.fact_worker    # Default worker
+                target_worker = self.fact_worker
                 if "LawWorker" in ctrl_msg.send_to: target_worker = self.law_worker
                 logger.info(f"Routing to {target_worker.name}")
                 target_worker.rc.memory.add(ctrl_msg)

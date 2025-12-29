@@ -1,4 +1,4 @@
-from typing import Tuple, List, Any, Dict
+from typing import Tuple, List, Dict
 from .llm import GPTChat
 from .utils import EmbeddingFunc
 from .common import ShadowGraph, LegalMessage, NodeStatus

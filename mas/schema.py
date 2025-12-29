@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Optional, Literal, Union, Dict, Any
+from typing import Optional, Literal, Dict, Any
 from mas.common import EdgeType
 
 class MessageType(str, Enum):

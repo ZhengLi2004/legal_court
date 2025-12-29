@@ -1,8 +1,7 @@
 from abc import ABC
-from typing import Tuple, Dict, List
-import re
+from typing import Dict
 import asyncio
-from .common import ShadowGraph, NodeType, NodeStatus
+from .common import ShadowGraph, NodeStatus
 from .llm import GPTChat, Message
 from metagpt.logs import logger
 from prompts.common_prompts import JUDGE_EVALUATE_PROMPT, JUDGE_EXTRACT_VERDICT_PROMPT

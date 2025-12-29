@@ -85,7 +85,6 @@ class InsightsManager:
                 if case_id not in self.insights[idx].positive_cases: self.insights[idx].positive_cases.append(case_id)
             
             else:
-
                 new_insight = Insight(content=content, positive_cases=[case_id])
                 self.insights.append(new_insight)
             
