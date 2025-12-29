@@ -52,7 +52,7 @@ class VerifyAndDecide(Action):
         feedback_text = ""
 
         if feedback:
-            feedback_text = f"【⚠️ 警告：之前的尝试被拒绝】\n错误原因: {feedback}\n请务必避免犯同样的错误（例如：不要建立自环，不要重复添加已存在的边）。"
+            feedback_text = f"【⚠️ 警告：之前的尝试被拒绝】\n错误原因: {feedback}\n请务必避免犯同样的错误。"
 
         prompt = VERIFY_AND_DECIDE_PROMPT.format(
             role_name=role_name,

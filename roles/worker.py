@@ -5,7 +5,7 @@ from metagpt.logs import logger
 from metagpt.roles import Role
 from metagpt.schema import Message
 
-from actions.worker_actions import AnalyzeSearchResults, InjectLawsToGraph, SuggestPivot
+from actions.worker_actions import AnalyzeSearchResults, InjectLawsToGraph
 from mas.llm import GPTChat
 from mas.schema import WorkerInstruction, WorkerReport, WorkerReportStatus
 from tools.fact_es_tool import FactEsTool
@@ -27,7 +27,7 @@ class BaseWorker(Role):
         self.es_tool = es_tool
         self.threshold = threshold
         self.llm = llm
-        self.set_actions([AnalyzeSearchResults, SuggestPivot])
+        self.set_actions([AnalyzeSearchResults])
 
     async def _perform_search(self, query: str) -> str:
         raise NotImplementedError
@@ -104,7 +104,6 @@ class BaseWorker(Role):
 
                 advice = await action.run(
                     role_type=self.profile,
-                    graph_context=instruction.graph_context,
                     user_query=instruction.query,
                     search_result=search_text,
                 )
@@ -114,17 +113,11 @@ class BaseWorker(Role):
                 )
 
             else:
-                action = SuggestPivot()
-                action.llm = self.llm
-
-                pivot_advice = await action.run(
-                    graph_context=instruction.graph_context,
-                    user_query=instruction.query,
-                )
+                msg = f"未检索到与“{instruction.query}”具有足够相关性(Score: {max_score:.4f} < {self.threshold})的内容。"
 
                 report = WorkerReport(
                     status=WorkerReportStatus.NOT_FOUND,
-                    content=pivot_advice,
+                    content=msg,
                     max_score=max_score,
                 )
 

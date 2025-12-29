@@ -1,30 +1,16 @@
 from metagpt.actions import Action
 
-from prompts.common_prompts import ANALYZE_SEARCH_RESULTS_PROMPT, SUGGEST_PIVOT_PROMPT
+from prompts.common_prompts import ANALYZE_SEARCH_RESULTS_PROMPT
 
 
 class AnalyzeSearchResults(Action):
     name: str = "AnalyzeSearchResults"
 
-    async def run(
-        self, role_type: str, graph_context: str, user_query: str, search_result: str
-    ):
+    async def run(self, role_type: str, user_query: str, search_result: str):
         prompt = ANALYZE_SEARCH_RESULTS_PROMPT.format(
             role_type=role_type,
-            graph_context=graph_context,
             user_query=user_query,
             search_result=search_result,
-        )
-
-        return await self.llm.aask(prompt)
-
-
-class SuggestPivot(Action):
-    name: str = "SuggestPivot"
-
-    async def run(self, graph_context: str, user_query: str):
-        prompt = SUGGEST_PIVOT_PROMPT.format(
-            graph_context=graph_context, user_query=user_query
         )
 
         return await self.llm.aask(prompt)
@@ -46,10 +32,10 @@ class InjectLawsToGraph(Action):
             return "未检索到相关法条。"
 
         law_contents = []
+        injected_details = []
 
         for hit in hits:
             score = hit["_score"] - 1.0
-
             if score < threshold:
                 continue
 
@@ -57,8 +43,19 @@ class InjectLawsToGraph(Action):
             content = f"《{source.get('law_name')}》{source.get('article_id')}: {source.get('content')}"
             law_contents.append(content)
 
+            injected_details.append(
+                f"•《{source.get('law_name')}》{source.get('article_id')}: {source.get('content')[:50]}..."
+            )
+
         if not law_contents:
             return f"检索到法条但相似度均低于阈值 ({threshold})。"
 
-        log = graph_tool.inject_law_nodes(law_contents)
-        return f"✅ 检索完成。{log}\n内容示例: {law_contents[0][:20]}..."
+        graph_tool.inject_law_nodes(law_contents)
+
+        report = (
+            f"✅ 已成功将 {len(law_contents)} 条相关法条注入图谱。\n"
+            f"注入内容摘要：\n" + "\n".join(injected_details) + "\n"
+            f"这些法条为解决'{query}'提供了直接的法律依据。"
+        )
+
+        return report
