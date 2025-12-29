@@ -1,44 +1,41 @@
 from metagpt.actions import Action
 
 from mas.schema import AGENT_ACTION_SCHEMA_DESC
-from prompts.common_prompts import PLAN_TACTICS_PROMPT, VERIFY_AND_DECIDE_PROMPT
+from prompts.common_prompts import (
+    ASSESS_FACT_NEEDS_PROMPT,
+    ASSESS_LAW_NEEDS_PROMPT,
+    VERIFY_AND_DECIDE_PROMPT,
+)
 
 
-class PlanTactics(Action):
-    name: str = "PlanTactics"
+class AssessFactNeeds(Action):
+    name: str = "AssessFactNeeds"
 
-    async def run(
-        self,
-        role_name: str,
-        persona: object,
-        insights: str,
-        graph_context: str,
-        feedback: str = "",
-        history: str = "",
-    ):
-        feedback_text = ""
-
-        if feedback:
-            feedback_text = f"""
-                【⚠️ 上次尝试失败反馈】:
-                {feedback}
-                请分析失败原因，并重新规划。如果是指令错误，请修正格式；如果是逻辑错误，请调整策略。
-                """
-
-        history_text = history if history else "（暂无近期对话）"
-
-        prompt = PLAN_TACTICS_PROMPT.format(
+    async def run(self, role_name: str, persona: object, graph_context: str) -> str:
+        prompt = ASSESS_FACT_NEEDS_PROMPT.format(
             role_name=role_name,
-            style=persona.intention,
             belief=persona.belief,
-            strategic_focus=persona.initial_strategy,
-            insights=insights,
-            recent_history=history_text,
+            intention=persona.intention,
+            strategy=persona.initial_strategy,
             graph_context=graph_context,
-            feedback_section=feedback_text,
         )
 
-        return await self.llm.aask(prompt)
+        return await self.llm.aask(prompt, temperature=0.1)
+
+
+class AssessLawNeeds(Action):
+    name: str = "AssessLawNeeds"
+
+    async def run(self, role_name: str, persona: object, graph_context: str) -> str:
+        prompt = ASSESS_LAW_NEEDS_PROMPT.format(
+            role_name=role_name,
+            belief=persona.belief,
+            intention=persona.intention,
+            strategy=persona.initial_strategy,
+            graph_context=graph_context,
+        )
+
+        return await self.llm.aask(prompt, temperature=0.1)
 
 
 class VerifyAndDecide(Action):

@@ -1,40 +1,76 @@
-PLAN_TACTICS_PROMPT = """
+ASSESS_FACT_NEEDS_PROMPT = """
     你是【{role_name}】的辩护律师。
-    
-    【你的核心人设 (BDI)】:
-    - 风格: {style}
-    - 信念: {belief}
-    - 战略重心: {strategic_focus}
-    
-    【历史策略锦囊】:
-    {insights}
 
-    【近期团队对话】:
-    {recent_history}
+    【你的核心 BDI】:
+    - 信念 (Belief): {belief}
+    - 意图 (Intention): {intention}
+    - 战略 (Strategy): {strategy}
 
-    【当前战局】:
+    【当前战局 (Graph Context)】:
     {graph_context}
 
-    {feedback_section}
-    
-    【决策分析】
-    1. **审视目标**：为了推进你的主张，下一步最合乎逻辑的论点是什么？
-    2. **检查可用证据**：仔细查看上方的图谱总结。你是否拥有一个*已存在的、具体的、可引用的* `FACT_...` 或 `LAW_...` 节点ID来直接支持你的论点？
-    3. **评估风险**：在图谱中没有直接证据支持的情况下贸然行动是高风险的，很可能会被系统拒绝。如果你不是100%确定，寻求外部信息（调用Worker）是更明智的选择。
-    
-    【决策选项】:
-    1. **LawWorker**: 图谱中缺少支撑你观点的【法条节点】。填写法条检索需求。
-    2. **FactWorker**: 图谱中缺少【历史判例】或需要确认某些事实细节。填写事实检索需求。
-    3. **Self**: 图谱中已有足够的法条和事实，或者是时候发起攻击/总结了。简述你的论证思路。
-    
-    请严格按照以下 JSON 格式输出决策：
+    【任务】:
+    请审视图谱中的【FACT 节点】。
+    为了推进你的战略，你是否觉得缺少某些关键的客观证据？或者某些事实细节模糊不清？
+    请不要假设任何不在图谱中的事实。如果图谱里没有，而你又需要，你就必须回答 True。
+
+    请严格按照以下 JSON 格式输出：
+
     ```json
     {{
-        "target": "LawWorker" | "FactWorker" | "Self",
-        "content": "..."
+        "need": true,
+        "reasoning": "我需要证明被告违约，但图谱中只有借条，缺少逾期未还的直接证据...",
+        "query": "被告 逾期行为 证据"
     }}
     ```
-    """
+
+    或者：
+
+    ```json
+    {{
+        "need": false,
+        "reasoning": "图谱中的 FACT_123 和 FACT_456 已经足够证明我的观点。",
+        "query": null
+    }}
+    ```
+"""
+
+ASSESS_LAW_NEEDS_PROMPT = """
+    你是【{role_name}】的辩护律师。
+
+    【你的核心 BDI】:
+    - 信念 (Belief): {belief}
+    - 意图 (Intention): {intention}
+    - 战略 (Strategy): {strategy}
+
+    【当前战局 (Graph Context)】:
+    {graph_context}
+
+    【任务】:
+    请审视图谱中的【LAW (法条) 节点】。
+    为了支持你的主张，你是否拥有**直接对应**的法条节点？
+    严禁编造法条。如果图谱中没有，必须回答 True 申请检索。
+
+    请严格按照以下 JSON 格式输出：
+
+    ```json
+    {{
+        "need": true,
+        "reasoning": "我想主张合同无效，但图谱中缺少关于合同无效的具体法律条款节点...",
+        "query": "合同法 无效情形"
+    }}
+    ```
+
+    或者：
+
+    ```json
+    {{
+        "need": false,
+        "reasoning": "图谱中的 LAW_789 (民法典xxx条) 已经足以支持我的论点。",
+        "query": null
+    }}
+    ```
+"""
 
 VERIFY_AND_DECIDE_PROMPT = """
     你是【{role_name}】。你的参谋已完成任务并提交了报告。

@@ -1,9 +1,8 @@
+from typing import Set, Union
+
 from metagpt.logs import logger
 from metagpt.schema import Message
 
-from mas.action_parser import parse_agent_action_output
-from mas.schema import AGENT_ACTION_SCHEMA_DESC, AgentAction
-from prompts.common_prompts import FORCE_ACTION_PROMPT
 from roles.controller import ArgumentController
 from roles.worker import FactWorker, LawWorker
 from tools.fact_es_tool import FactEsTool
@@ -30,6 +29,7 @@ class DebateTeam:
         self.side = side
         self.persona = persona
         self.graph_tool = graph_tool
+        self.verbose = verbose
 
         self.controller = ArgumentController(
             name=f"{side}_Controller",
@@ -49,66 +49,71 @@ class DebateTeam:
 
         self.law_worker = LawWorker(name=f"{side}_LawWorker", es_tool=law_es, llm=llm)
         self.law_worker.graph_tool = graph_tool
-        self.max_micro_loops = 3
-        self.verbose = verbose
+        self.max_internal_steps = 15
 
-    async def run_turn(self, graph: ShadowGraph) -> str:
-        logger.info(f"\n{'=' * 10} Team {self.side} Turn Start {'=' * 10}")
+    def _get_target_worker(
+        self, send_to: Union[Set, str]
+    ) -> Union[FactWorker, LawWorker, None]:
+        if not send_to:
+            return None
+
+        targets = send_to if isinstance(send_to, set) else {send_to}
+
+        for t in targets:
+            if "FactWorker" in t:
+                return self.fact_worker
+
+            if "LawWorker" in t:
+                return self.law_worker
+
+        return None
+
+    async def run_turn(self, graph: ShadowGraph) -> dict:
+        logger.info(f"--- Team {self.side} Turn Start ---")
         self.graph_tool.set_current_graph(graph)
-        self.controller.rc.memory.add(Message(content="SYSTEM_START", role="System"))
+        start_msg = Message(content="SYSTEM_START", role="System")
+        self.controller.rc.memory.add(start_msg)
         transcript = []
-        loop_count = 0
         final_result = None
+        step_count = 0
 
-        while loop_count < self.max_micro_loops:
-            loop_count += 1
-            logger.info(f"--- Micro Loop {loop_count}/{self.max_micro_loops} ---")
+        while step_count < self.max_internal_steps:
+            step_count += 1
+            logger.debug(f"[{self.side}] Internal Step {step_count}")
             ctrl_msg = await self.controller._act()
+            content = str(ctrl_msg.content)
 
             if self.verbose:
                 transcript.append(
                     {
                         "from": self.controller.name,
-                        "to": ctrl_msg.send_to or "GraphTool",
-                        "content": ctrl_msg.content,
+                        "to": str(ctrl_msg.send_to) if ctrl_msg.send_to else "System",
+                        "content": content,
                     }
                 )
 
-            content = str(ctrl_msg.content)
+            if "EXECUTION_FAILURE" in content or "ERROR" in content:
+                logger.warning(
+                    f"[{self.side}] Controller Action Failed. Providing Feedback..."
+                )
 
-            if "Action Completed" in content or "EXECUTED:" in content:
-                if "ERROR" in content or "REJECT" in content:
-                    logger.warning(f"Controller action failed: {content}")
+                feedback_msg = Message(
+                    content=f"SYSTEM_FEEDBACK: 上一步操作失败。错误详情: {content}。请根据图谱现状和错误提示，修正你的动作。",
+                    role="System",
+                )
 
-                    feedback_msg = Message(
-                        content=f"SYSTEM_FEEDBACK: 上次操作失败。{content}。请重新规划。",
-                        role="System",
-                    )
+                self.controller.rc.memory.add(feedback_msg)
+                continue
 
-                    self.controller.rc.memory.add(feedback_msg)
+            if "Action Completed" in content:
+                final_result = content
+                logger.info(f"[{self.side}] Turn Successfully Completed.")
+                break
 
-                    if self.verbose:
-                        transcript.append(
-                            {
-                                "from": "System",
-                                "to": self.controller.name,
-                                "content": feedback_msg.content,
-                            }
-                        )
+            target_worker = self._get_target_worker(ctrl_msg.send_to)
 
-                    continue
-
-                else:
-                    final_result = content
-                    break
-
-            elif "query" in content and "graph_context" in content and ctrl_msg.send_to:
-                target_worker = self.fact_worker
-
-                if "LawWorker" in ctrl_msg.send_to:
-                    target_worker = self.law_worker
-
-                logger.info(f"Routing to {target_worker.name}")
+            if target_worker:
+                logger.info(f"[{self.side}] Routing to {target_worker.name}...")
                 target_worker.rc.memory.add(ctrl_msg)
                 worker_msg = await target_worker._act()
 
@@ -122,82 +127,20 @@ class DebateTeam:
                     )
 
                 self.controller.rc.memory.add(worker_msg)
-                continue
 
             else:
-                final_result = f"Controller produced unroutable output: {content}"
-                logger.warning(final_result)
-                break
+                logger.warning(f"[{self.side}] Unknown Controller Output: {content}")
+
+                feedback_msg = Message(
+                    content="SYSTEM_FEEDBACK: 你的输出无法被识别。请检查你是否处于正确的状态。",
+                    role="System",
+                )
+
+                self.controller.rc.memory.add(feedback_msg)
 
         if final_result is None:
-            logger.warning(
-                f"Team {self.side} loop exhausted. Entering FORCE ACTION phase."
+            final_result = (
+                f"Timeout: Internal steps exhausted ({self.max_internal_steps})."
             )
-
-            max_forced_attempts = 3
-            forced_count = 0
-            last_error = ""
-
-            while forced_count < max_forced_attempts:
-                forced_count += 1
-
-                force_prompt = FORCE_ACTION_PROMPT.format(
-                    latest_context=graph.latest_context,
-                    agent_action_schema_desc=AGENT_ACTION_SCHEMA_DESC,
-                )
-
-                if last_error:
-                    force_prompt += f"\n\n【⚠️ 上次失败反馈】:\n{last_error}\n请修正 ID 或 类型错误。"
-
-                intent_res = await self.controller.llm.aask(
-                    f"你是{self.controller.name}。{force_prompt}", max_tokens=8192
-                )
-
-                logger.info(
-                    f"LLM Response for Forced Action (Attempt {forced_count}): {intent_res[:200]}"
-                )
-
-                if self.verbose:
-                    transcript.append(
-                        {
-                            "from": "System (Force)",
-                            "to": self.controller.name,
-                            "content": f"Attempt {forced_count}: {intent_res}",
-                        }
-                    )
-
-                parsed_forced_actions = parse_agent_action_output(intent_res)
-
-                if isinstance(parsed_forced_actions, list) and all(
-                    isinstance(a, AgentAction) for a in parsed_forced_actions
-                ):
-                    exec_result = await self.graph_tool.process_intent(
-                        self.controller.name, parsed_forced_actions
-                    )
-
-                    if "REJECT" in exec_result or "ERROR" in exec_result:
-                        last_error = exec_result
-
-                        logger.warning(
-                            f"Forced action failed ({forced_count}/{max_forced_attempts}): {last_error}"
-                        )
-
-                        continue
-
-                    else:
-                        final_result = f"Forced Action Completed: {exec_result}"
-                        break
-
-                else:
-                    last_error = f"REJECT: 强制行动意图解析失败。LLM输出不是有效的 AgentAction JSON。错误信息: {parsed_forced_actions}"
-
-                    logger.warning(
-                        f"Forced action parsing failed ({forced_count}/{max_forced_attempts}): {last_error}"
-                    )
-
-                    continue
-
-            if final_result is None:
-                final_result = f"Turn Failed: Controller unable to produce valid action after {max_forced_attempts} forced attempts."
 
         return {"summary": final_result, "transcript": transcript}

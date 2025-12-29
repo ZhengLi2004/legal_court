@@ -13,8 +13,8 @@ class MessageType(str, Enum):
 
 class WorkerInstruction(BaseModel):
     message_type: MessageType = MessageType.INSTRUCTION
-    query: str = Field(..., description="自然语言查询指令")
-    graph_context: str = Field(..., description="当前的上下文文本")
+    query: str = Field(...)
+    graph_context: str = Field(...)
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True)
@@ -28,9 +28,9 @@ class WorkerReportStatus(str, Enum):
 
 class WorkerReport(BaseModel):
     message_type: MessageType = MessageType.REPORT
-    status: WorkerReportStatus = Field(..., description="搜索结果的状态")
-    content: str = Field(..., description="给指挥者的最终建议文本")
-    max_score: float = Field(default=0.0, description="本次检索的最高相似度得分")
+    status: WorkerReportStatus = Field(...)
+    content: str = Field(...)
+    max_score: float = Field(default=0.0)
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True)
@@ -44,41 +44,21 @@ class AgentActionType(str, Enum):
 
 
 class AgentAction(BaseModel):
-    action_type: AgentActionType = Field(..., description="智能体执行的动作类型")
-    content: str = Field(..., description="当创建新节点时必填，仅连线时做备注。")
-
-    target_id: Optional[str] = Field(
-        None, description="cite类若为空则创建新Target；logic类必填。"
-    )
-
-    source_id: Optional[str] = Field(
-        None, description="cite类必填；logic类若为空则创建新Source。"
-    )
-
-    relation_type: Optional[Literal[EdgeType.SUPPORT, EdgeType.CONFLICT]] = Field(
-        None, description="当操作涉及建立关系时，关系的类型"
-    )
-
-    metadata: Optional[Dict[str, Any]] = Field(
-        default_factory=dict, description="额外元数据"
-    )
+    action_type: AgentActionType = Field(...)
+    content: str = Field(...)
+    target_id: Optional[str] = Field(None)
+    source_id: Optional[str] = Field(None)
+    relation_type: Optional[Literal[EdgeType.SUPPORT, EdgeType.CONFLICT]] = Field(None)
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True, indent=2)
 
 
-class TargetRole(str, Enum):
-    LAW_WORKER = "LawWorker"
-    FACT_WORKER = "FactWorker"
-    SELF = "Self"
-
-
-class ControllerIntent(BaseModel):
-    target: TargetRole = Field(..., description="指令接收方")
-
-    content: str = Field(
-        ..., description="具体的查询指令（给Worker）或 思考备注（给Self）"
-    )
+class ResourceRequirement(BaseModel):
+    need: bool = Field(...)
+    reasoning: str = Field(...)
+    query: Optional[str] = Field(None)
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True, indent=2)
@@ -95,10 +75,10 @@ AGENT_ACTION_SCHEMA_DESC = """
 
 2. **字段定义**:
    - `action_type` (必填):
-     - "cite_fact": 引用事实（source_id=FACT_xxx）。若 target_id 为 null，则创建新观点。
-     - "cite_law": 引用法条（source_id=LAW_xxx）。若 target_id 为 null，则创建新观点。
-     - "support_claim": 观点支持（target_id=CLAIM_xxx）。【注意】若你要提出一个新的支持理由，务必将 source_id 设为 null！
-     - "rebut_claim": 观点反驳（target_id=CLAIM_xxx）。【注意】若你要提出一个新的反驳理由，务必将 source_id 设为 null！
+     - "cite_fact": 引用事实（source_id=FACT_xxx）。【警告】source_id 必须填入图谱中存在的 ID，严禁为 null！
+     - "cite_law": 引用法条（source_id=LAW_xxx）。【警告】source_id 必须填入图谱中存在的 ID，严禁为 null！
+     - "support_claim": 观点支持（target_id=CLAIM_xxx）。【警告】target_id 必须填入图谱中存在的 ID，严禁为 null！
+     - "rebut_claim": 观点反驳（target_id=CLAIM_xxx）。【警告】target_id 必须填入图谱中存在的 ID，严禁为 null！
    - `content` (必填): 动作的简短描述或新观点的内容。
    - `target_id`: 被支持或被攻击的目标节点ID。
    - `source_id`: 证据/法条/前提的节点ID。如果是创建新节点，请务必保持 null，切勿填入 target_id（否则会导致自环错误）。

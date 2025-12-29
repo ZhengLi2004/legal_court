@@ -115,7 +115,7 @@ class ShadowGraph:
             ]
         )
 
-        lookback_window = [current_step, current_step - 1]
+        lookback_window = [current_step - i for i in range(4)]
 
         for step in lookback_window:
             if step >= 0:

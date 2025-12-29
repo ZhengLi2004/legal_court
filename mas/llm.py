@@ -116,6 +116,7 @@ class GPTChat(LLM):
         prompt: str,
         system_msgs: Optional[List[str]] = None,
         max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         messages = []
 
@@ -127,7 +128,7 @@ class GPTChat(LLM):
         loop = asyncio.get_running_loop()
 
         return await loop.run_in_executor(
-            None, self.__call__, messages, None, max_tokens
+            None, self.__call__, messages, temperature, max_tokens
         )
 
 
