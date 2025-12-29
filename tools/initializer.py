@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List
 from mas.llm import GPTChat, Message
 from metagpt.logs import logger
+from tools.json_utils import extract_json_from_text
 
 @dataclass
 class AgentPersona:
@@ -103,11 +104,7 @@ class CaseInitializer:
         response = self.llm([Message(role="user", content=prompt)], temperature=0.0)
         
         try:
-            clean_json = response
-            match = re.search(r"```json\s*(\[.*?\])\s*```", response, re.DOTALL)
-            if match: clean_json = match.group(1)
-            else: clean_json = response.replace("```json", "").replace("```", "").strip()
-            claims_list = json.loads(clean_json)
+            claims_list = extract_json_from_text(response)
             if not isinstance(claims_list, list) or not all(isinstance(item, str) for item in claims_list): raise ValueError("LLM did not return a JSON array of strings.")
             return claims_list
         
@@ -136,13 +133,8 @@ class CaseInitializer:
         response = self.llm([Message(role="user", content=prompt)], temperature=0.7)    # 稍微增加创造性
 
         try:
-            clean_json = response
-            match = re.search(r"```json\s*(\{.*\}|\[.*\])\s*```", response, re.DOTALL)
-            if match:
-                clean_json = match.group(1)
-            else:
-                clean_json = response.replace("```json", "").replace("```", "").strip()
-            data = json.loads(clean_json)
+            data = extract_json_from_text(response)
+            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict): data = data[0]
 
             return AgentPersona(
                 role_name=role,

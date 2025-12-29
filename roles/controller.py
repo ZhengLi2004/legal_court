@@ -7,6 +7,7 @@ from mas.schema import WorkerInstruction, WorkerReport, WorkerReportStatus, Agen
 from mas.action_parser import parse_agent_action_output
 from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
+from tools.json_utils import extract_json_from_text
 from typing import List
 
 class ArgumentController(Role):
@@ -62,11 +63,8 @@ class ArgumentController(Role):
         )
 
         try:
-            clean_json = raw_intent.strip()
-            match = re.search(r"```json\s*(\{.*?\})\s*```", clean_json, re.DOTALL)
-            if match: clean_json = match.group(1)
-            else: clean_json = raw_intent[raw_intent.find("{"):raw_intent.rfind("}")+1]
-            intent = ControllerIntent.model_validate_json(clean_json)
+            data = extract_json_from_text(raw_intent)
+            intent = ControllerIntent.model_validate(data)
 
         except Exception as e:
             error_msg = f"Intent parsing failed for role {self.name}. Error: {e}. Raw LLM Output: '{raw_intent}'"
