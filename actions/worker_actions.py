@@ -66,17 +66,7 @@ class InjectLawsToGraph(Action):
     name: str = "InjectLawsToGraph"
 
     async def run(self, query: str, es_tool, graph_tool, threshold: float = 0.6, top_k: int = 3) -> str:
-        try:
-            query_vector = es_tool.embedding_func.embed_query(query)
-
-            hits = await es_tool._search(
-                index_name=es_tool.INDEX_NAME,
-                query_vector=query_vector,
-                vector_field=es_tool.VECTOR_FIELD,
-                source_fields=es_tool.SOURCE_FIELDS,
-                top_k=top_k
-            )
-        
+        try: hits = await es_tool.search_laws_raw(query, top_k=top_k)
         except Exception as e: return f"检索失败: {str(e)}"
         if not hits: return "未检索到相关法条。"
         law_contents = []

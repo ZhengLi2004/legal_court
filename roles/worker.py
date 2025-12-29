@@ -1,4 +1,5 @@
 import re
+from typing import Union
 from metagpt.roles import Role
 from metagpt.schema import Message
 from metagpt.logs import logger
@@ -29,26 +30,25 @@ class BaseWorker(Role):
         except Exception as e:
             logger.warning(f"Error extracting score: {e}")
             return 0.0
-
-    async def _act(self) -> Message:
-        logger.info(f"{self.name} is acting...")
-
+    
+    def _parse_instruction(self) -> Union[WorkerInstruction, Message]:
         try:
             memories = self.get_memories(k=1)
             if not memories: return Message(content="ERROR: No instruction received", role=self.profile)
             instruction_json = memories[0].content
-            if hasattr(instruction_json, 'content'):  instruction_json = instruction_json.content
-            instruction = WorkerInstruction.model_validate_json(instruction_json)
+            if hasattr(instruction_json, 'content'): instruction_json = instruction_json.content
+            return WorkerInstruction.model_validate_json(instruction_json)
 
         except Exception as e:
             logger.error(f"Failed to parse instruction: {e}")
-            
-            report = WorkerReport(
-                status=WorkerReportStatus.ERROR, 
-                content=f"Instruction parse error: {str(e)}"
-            )
-            
+            report = WorkerReport(status=WorkerReportStatus.ERROR, content=f"Instruction parse error: {str(e)}")
             return Message(content=report.to_json(), role=self.profile)
+
+    async def _act(self) -> Message:
+        logger.info(f"{self.name} is acting...")        
+        result = self._parse_instruction()
+        if isinstance(result, Message): return result
+        instruction = result
         
         try:
             search_text = await self._perform_search(instruction.query)
@@ -123,14 +123,9 @@ class LawWorker(BaseWorker):
     async def _act(self) -> Message:
         logger.info(f"{self.name} is acting (Injection Mode)...")
 
-        try:
-            memories = self.get_memories(k=1)
-            if not memories: return Message(content="ERROR: No instruction", role=self.profile)
-            instruction_json = memories[0].content
-            if hasattr(instruction_json, 'content'): instruction_json = instruction_json.content
-            instruction = WorkerInstruction.model_validate_json(instruction_json)
-        
-        except Exception as e: return Message(content=WorkerReport(status=WorkerReportStatus.ERROR, content=str(e)).to_json(), role=self.profile)
+        result = self._parse_instruction()
+        if isinstance(result, Message): return result
+        instruction = result
         if not self.graph_tool: return Message(content=WorkerReport(status=WorkerReportStatus.ERROR, content="System Error: GraphTool not bound to LawWorker").to_json(), role=self.profile)
 
         try:

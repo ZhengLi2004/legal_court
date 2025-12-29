@@ -3,6 +3,7 @@ from mas.legal_system import LegalSystem
 from mas.common import ShadowGraph, NodeType
 from mas.llm import LLMCallable
 from mas.schema import AgentAction
+from mas.graph_ops import GraphExecutor
 
 class GraphTool:
     def __init__(self, legal_system: LegalSystem, llm: LLMCallable):
@@ -34,23 +35,21 @@ class GraphTool:
     # LawWorker 专用
     def inject_law_nodes(self, law_contents: List[str]) -> str:
         if not self.current_graph: return "Error: Graph not set."
+        executor = GraphExecutor(self.current_graph, matcher=self.system.dedup_matcher)
         current_step = self.system.step_counter
         count = 0
-        ids = []
+        logs = []
 
         for content in law_contents:
-            node_id, is_new = self.current_graph.add_node(
+            node_id, log = executor._apply_add_node(
                 content=content,
                 node_type=NodeType.LAW,
-                agent_id="LawWorker"
+                agent_id="LawWorker",
+                current_step=current_step
             )
 
-            if is_new:
-                count += 1
-                ids.append(node_id)
+            logs.append(log)
+            if "✅" in log: count += 1
 
-        if ids:
-            self.current_graph.touch_nodes(ids, step_index=current_step) 
-            self.current_graph.refresh_context(current_step=current_step)
-
-        return f"已底层注入 {count} 条法条到图谱中。"
+        if count > 0: self.current_graph.refresh_context(current_step=current_step)
+        return f"已底层注入 {count} 条法条到图谱中。\n日志:\n" + "\n".join(logs)
