@@ -5,6 +5,7 @@ from typing import List
 from mas.llm import GPTChat, Message
 from metagpt.logs import logger
 from tools.json_utils import extract_json_from_text
+from prompts.common_prompts import DECOMPOSE_FACTS_PROMPT, GENERATE_ROOT_CLAIM_PROMPT, GENERATE_PERSONA_PROMPT
 
 @dataclass
 class AgentPersona:
@@ -57,23 +58,7 @@ class CaseInitializer:
         return facts
     
     async def _decompose_facts(self, text: str) -> List[str]:
-        prompt = f"""
-        你是一个数据预处理助手。请将以下【审理查明】的法律事实文本，拆解为多个独立的、原子的事实描述。
-    
-        每个事实应该包含时间、地点、人物或关键行为。
-    
-        【审理查明】：
-        {text}
-    
-        请直接输出一个编号列表，每个条目是一个独立的事实描述。
-
-        例如：
-        1. 2023年5月1日，张三与李四签订合同
-        2. ...
-
-        不要输出任何其他内容或 Markdown 标记外的文字。
-        """
-
+        prompt = DECOMPOSE_FACTS_PROMPT.format(text=text)
         response = self.llm([Message(role="user", content=prompt)], temperature=0.0)
 
         try: return await self._parse_numbered_list_to_agent_actions(response)
@@ -83,24 +68,7 @@ class CaseInitializer:
             return []
 
     async def _generate_root_claim(self, facts: str, cause: str) -> List[str]:
-        prompt = f"""
-        基于案由【{cause}】和以下事实，请提炼出原告的所有核心法律诉求。
-        诉求应具体明确（如，要求被告偿还本金XX元）。
-
-        【事实】：
-        {facts}
-
-        请直接输出一个 JSON 字符串数组，每个元素是一个诉求的文本描述。
-        例如：
-        ```json
-        [
-            "判令被告偿还借款本金10万元",
-            "判令被告支付逾期利息"
-        ]
-        ```
-        不要输出任何其他内容或 Markdown 标记外的文字。
-        """
-
+        prompt = GENERATE_ROOT_CLAIM_PROMPT.format(cause=cause, facts=facts)
         response = self.llm([Message(role="user", content=prompt)], temperature=0.0)
         
         try:
@@ -115,22 +83,8 @@ class CaseInitializer:
     async def _generate_persona(self, facts: str, cause: str, role: str) -> AgentPersona:
         role_cn = "原告" if role == "plaintiff" else "被告"
 
-        prompt = f"""
-        基于案由【{cause}】和事实，请为【{role_cn}】构建 BDI 画像和初始策略。
-
-        【事实】：
-        {facts}
-
-        请严格按照以下 JSON 格式输出（不要输出 Markdown 标记）：
-        {{
-            "belief": "简述信念...",
-            "desire": "简述愿望...",
-            "intention": "简述风格/意图...",
-            "strategy": "简述初始冷启动策略..."
-        }}
-        """
-
-        response = self.llm([Message(role="user", content=prompt)], temperature=0.7)    # 稍微增加创造性
+        prompt = GENERATE_PERSONA_PROMPT.format(cause=cause, role_cn=role_cn, facts=facts)
+        response = self.llm([Message(role="user", content=prompt)], temperature=0.7)
 
         try:
             data = extract_json_from_text(response)

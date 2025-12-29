@@ -7,6 +7,7 @@ from .common import ShadowGraph
 from .semantic_matcher import SemanticMatcher
 from .utils import file_lock, cosine_similarity
 from .config import SystemConfig
+from prompts.common_prompts import EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT
 
 @dataclass
 class Insight:
@@ -65,22 +66,11 @@ class InsightsManager:
                                      case_context: str,
                                      winning_graph: ShadowGraph, 
                                      losing_graph: ShadowGraph):
-        prompt = f"""
-        作为法理专家，请分析以下案件的辩论过程。
-        
-        【案情摘要】
-        {case_context}
-        
-        【被判决采纳的论证 (Winning Path)】
-        {winning_graph.to_json()}
-        
-        【被驳回的论证 (Defeated Path)】
-        {losing_graph.to_json()}
-        
-        请分析胜方为何成功（如：引用了更有力的法条、指出了证据漏洞等），并总结出一条通用的辩护策略。
-        只输出策略内容，不要解释。
-        格式: STRATEGY: <策略内容>
-        """
+        prompt = EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT.format(
+            case_context=case_context,
+            winning_graph_json=winning_graph.to_json(),
+            losing_graph_json=losing_graph.to_json()
+        )
 
         response = self.llm([Message(role="user", content=prompt)])
 

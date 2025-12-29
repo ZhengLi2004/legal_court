@@ -10,6 +10,7 @@ from .common import ShadowGraph
 from .llm import GPTChat
 from mas.schema import AgentAction, AGENT_ACTION_SCHEMA_DESC
 from mas.action_parser import parse_agent_action_output
+from prompts.common_prompts import FORCE_ACTION_PROMPT
 
 class DebateTeam:
     def __init__(
@@ -122,16 +123,10 @@ class DebateTeam:
             while forced_count < max_forced_attempts:
                 forced_count += 1
 
-                force_prompt = f"""
-                你已经消耗了所有思考轮次。现在进入【强制行动阶段】。
-                
-                【当前战局】:
-                {graph.latest_context}
-                
-                【任务】请生成有效的图谱操作 JSON。
-                
-                {AGENT_ACTION_SCHEMA_DESC}
-                """
+                force_prompt = FORCE_ACTION_PROMPT.format(
+                    latest_context=graph.latest_context,
+                    agent_action_schema_desc=AGENT_ACTION_SCHEMA_DESC
+                )
 
                 if last_error: force_prompt += f"\n\n【⚠️ 上次失败反馈】:\n{last_error}\n请修正 ID 或 类型错误。"
 

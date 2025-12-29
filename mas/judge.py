@@ -5,6 +5,7 @@ import asyncio
 from .common import ShadowGraph, NodeType, NodeStatus
 from .llm import GPTChat, Message
 from metagpt.logs import logger
+from prompts.common_prompts import JUDGE_EVALUATE_PROMPT, JUDGE_EXTRACT_VERDICT_PROMPT
 
 class BaseJudge(ABC):
     def evaluate(self, context: str, graph: ShadowGraph) -> str: pass
@@ -16,13 +17,7 @@ class LLMJudge(BaseJudge):
         self.extraction_llm = extraction_llm
 
     def evaluate(self, context: str, graph: ShadowGraph) -> str:
-        prompt = f"""
-        你是一名公正的法官。请根据以下案件事实，进行法律分析并给出判决结果。
-
-        【辩论记录】
-        {graph.to_recursive_text()}
-        """.strip()
-
+        prompt = JUDGE_EVALUATE_PROMPT.format(graph_text=graph.to_recursive_text()).strip()
         response = self.judge_llm([Message(role="user", content=prompt)], max_tokens=4096)
         return response
 
@@ -43,21 +38,12 @@ class LLMJudge(BaseJudge):
         extraction_tasks = []
         
         for claim_id, claim_content in all_root_claims.items():
-            extraction_prompt = f"""
-            以下是一份法官撰写的法律分析报告：
-            ---
-            {judgment_document}
-            ---
-            请根据这份报告的原文内容，判断以下原告诉求是否被法官明确地采纳（ACCEPTED）或驳回（REJECTED）。
-            如果报告中明确提到了该诉求并对其做出了“采纳”或“驳回”的判断，请给出相应的状态。
-            如果报告中没有明确提及或判断，请输出“UNMENTIONED”。
+            extraction_prompt = JUDGE_EXTRACT_VERDICT_PROMPT.format(
+                judgment_document=judgment_document,
+                claim_id=claim_id,
+                claim_content=claim_content
+            )
             
-            原告诉求 ID: {claim_id}
-            原告诉求内容: {claim_content}
-            
-            请严格按照以下格式输出你的判断：
-            STATUS: [ACCEPTED|REJECTED|UNMENTIONED]
-            """
             extraction_tasks.append(self.extraction_llm.aask(extraction_prompt, max_tokens=1024))
 
         extraction_responses = await asyncio.gather(*extraction_tasks)
