@@ -1,73 +1,102 @@
-from typing import List, Dict, Set
-from .common import ShadowGraph, NodeStatus, NodeType, ProjectionMetadata, LegalMessage
-from .semantic_matcher import SemanticMatcher
+from typing import Dict, List, Set
+
+from .common import LegalMessage, NodeStatus, NodeType, ProjectionMetadata, ShadowGraph
 from .config import SystemConfig
+from .semantic_matcher import SemanticMatcher
+
 
 class GraphProjector:
     def __init__(self, matcher: SemanticMatcher, config: SystemConfig = None):
         self.matcher = matcher
         self.cfg = config or SystemConfig()
 
-    def project(self, current_graph: ShadowGraph, history_messages: List[LegalMessage]) -> ShadowGraph:
+    def project(
+        self, current_graph: ShadowGraph, history_messages: List[LegalMessage]
+    ) -> ShadowGraph:
         anchors = [
-            (nid, data['content'])
-            for nid, data in current_graph.graph.nodes(data=True)
+            (nid, data["content"]) for nid, data in current_graph.graph.nodes(data=True)
         ]
 
-        if not anchors: return current_graph
-        for msg in history_messages: self._project_single_graph(current_graph, msg.shadow_graph, anchors, msg.case_id)
+        if not anchors:
+            return current_graph
+
+        for msg in history_messages:
+            self._project_single_graph(
+                current_graph, msg.shadow_graph, anchors, msg.case_id
+            )
+
         return current_graph
 
-    def _project_single_graph(self, target_graph: ShadowGraph, source_graph: ShadowGraph, anchors: List[tuple], case_id: str):
+    def _project_single_graph(
+        self,
+        target_graph: ShadowGraph,
+        source_graph: ShadowGraph,
+        anchors: List[tuple],
+        case_id: str,
+    ):
         source_candidates = [
-            (nid, data['content'])
-            for nid, data in source_graph.graph.nodes(data=True)
+            (nid, data["content"]) for nid, data in source_graph.graph.nodes(data=True)
         ]
 
         matched_pairs = []
 
         for tgt_id, tgt_content in anchors:
             src_id = self.matcher.find_match(tgt_content, source_candidates)
-            if src_id: matched_pairs.append((src_id, tgt_id))
 
-        if not matched_pairs: return
+            if src_id:
+                matched_pairs.append((src_id, tgt_id))
+
+        if not matched_pairs:
+            return
+
         id_map: Dict[str, str] = {src_id: tgt_id for src_id, tgt_id in matched_pairs}
         nodes_to_project_ids: Set[str] = set(id_map.keys())
         limit = self.cfg.retrieval.max_neighbors_per_anchor
 
         for src_id, _ in matched_pairs:
-            neighbors_to_process = set(source_graph.graph.successors(src_id)) | \
-                                   set(source_graph.graph.predecessors(src_id))
+            neighbors_to_process = set(source_graph.graph.successors(src_id)) | set(
+                source_graph.graph.predecessors(src_id)
+            )
 
             count = 0
 
             for neighbor_id in neighbors_to_process:
-                if count >= limit: break
+                if count >= limit:
+                    break
+
                 neighbor_data = source_graph.graph.nodes[neighbor_id]
-                node_type_val = neighbor_data.get('type')
-                if hasattr(node_type_val, 'value'): node_type_val = node_type_val.value
-                if str(node_type_val) == NodeType.FACT.value: continue
+                node_type_val = neighbor_data.get("type")
+
+                if hasattr(node_type_val, "value"):
+                    node_type_val = node_type_val.value
+
+                if str(node_type_val) == NodeType.FACT.value:
+                    continue
                 nodes_to_project_ids.add(neighbor_id)
                 count += 1
 
         for nid in nodes_to_project_ids:
-            if nid in id_map: continue
+            if nid in id_map:
+                continue
+
             data = source_graph.graph.nodes[nid]
-            hist_status = data.get('status', NodeStatus.HYPOTHETICAL)
-            if hasattr(hist_status, 'value'): hist_status = hist_status.value
+            hist_status = data.get("status", NodeStatus.HYPOTHETICAL)
+
+            if hasattr(hist_status, "value"):
+                hist_status = hist_status.value
 
             meta: ProjectionMetadata = {
                 "projected_from_case": case_id,
                 "historical_status": hist_status,
-                "projection_score": 1.0 
+                "projection_score": 1.0,
             }
 
             new_id, _ = target_graph.add_node(
-                content=data['content'],
-                node_type=data['type'],
+                content=data["content"],
+                node_type=data["type"],
                 agent_id=self.cfg.agent.projection_id,
                 matcher=self.matcher,
-                metadata=meta
+                metadata=meta,
             )
 
             id_map[nid] = new_id
@@ -76,8 +105,10 @@ class GraphProjector:
             if u in nodes_to_project_ids and v in nodes_to_project_ids:
                 new_u = id_map.get(u)
                 new_v = id_map.get(v)
-                if new_u == new_v: continue
+
+                if new_u == new_v:
+                    continue
 
                 if new_u and new_v and not target_graph.graph.has_edge(new_u, new_v):
-                    edge_type_val = data.get('type')
+                    edge_type_val = data.get("type")
                     target_graph.add_edge(new_u, new_v, edge_type=edge_type_val)

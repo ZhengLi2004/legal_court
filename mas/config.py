@@ -1,22 +1,33 @@
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
+
 from dotenv import load_dotenv
+
 load_dotenv(override=True)
+
 
 def get_env_strict(key: str) -> str:
     value = os.getenv(key)
-    if value is None: raise ValueError(f"❌ [Config Error] Environment variable '{key}' not found! Please check .env document.")
+
+    if value is None:
+        raise ValueError(
+            f"❌ [Config Error] Environment variable '{key}' not found! Please check .env document."
+        )
+
     return value
+
 
 @dataclass
 class ESConfig:
     host: str = get_env_strict("ES_HOST")
+
 
 @dataclass
 class AgentConfig:
     system_id: str = "system"
     projection_id: str = "projection"
     default_commander_id: str = "commander"
+
 
 @dataclass
 class PathConfig:
@@ -26,6 +37,7 @@ class PathConfig:
     file_query_graph: str = "case_graph.pkl"
     file_insight_graph: str = "legal_insights.json"
 
+
 @dataclass
 class LLMConfig:
     temperature: float = 0.1
@@ -34,12 +46,14 @@ class LLMConfig:
     api_key: str = get_env_strict("LEGAL_LLM_KEY")
     base_url: str = get_env_strict("LEGAL_LLM_URL")
 
+
 @dataclass
 class JudgeLLMConfig:
     temperature: float = 0.1
     model_name: str = "qwen3"
     base_url: str = get_env_strict("JUDGE_API_BASE")
     api_key: str = get_env_strict("JUDGE_API_KEY")
+
 
 @dataclass
 class ConvergenceConfig:
@@ -48,15 +62,18 @@ class ConvergenceConfig:
     window_size: int = 4
     min_rounds: int = 2
 
+
 @dataclass
 class MatcherConfig:
     projection_threshold: float = 0.60
     insight_threshold: float = 0.70
 
+
 @dataclass
 class DeduplicationConfig:
     fact_threshold: float = 0.95
     other_threshold: float = 0.90
+
 
 @dataclass
 class RetrievalConfig:
@@ -67,9 +84,11 @@ class RetrievalConfig:
     hop: int = 1
     max_neighbors_per_anchor: int = 10
 
+
 @dataclass
 class TopologyConfig:
     task_layer_threshold: float = 0.50
+
 
 @dataclass
 class InsightConfig:
@@ -78,6 +97,7 @@ class InsightConfig:
     reward_win: float = 1.0
     penalty_lose: float = 0.5
     reward_merge: float = 0.5
+
 
 @dataclass
 class SystemConfig:
@@ -94,4 +114,5 @@ class SystemConfig:
     convergence: ConvergenceConfig = ConvergenceConfig()
 
     def __post_init__(self):
-        if not os.path.exists(self.path.storage_root_dir): os.makedirs(self.path.storage_root_dir, exist_ok=True)
+        if not os.path.exists(self.path.storage_root_dir):
+            os.makedirs(self.path.storage_root_dir, exist_ok=True)
