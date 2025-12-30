@@ -1,9 +1,7 @@
 from enum import Enum
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
-
-from mas.common import EdgeType
 
 
 class MessageType(str, Enum):
@@ -48,7 +46,6 @@ class AgentAction(BaseModel):
     content: str = Field(...)
     target_id: Optional[str] = Field(None)
     source_id: Optional[str] = Field(None)
-    relation_type: Optional[Literal[EdgeType.SUPPORT, EdgeType.CONFLICT]] = Field(None)
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
     def to_json(self) -> str:
@@ -70,43 +67,39 @@ AGENT_ACTION_SCHEMA_DESC = """
 你的输出必须是一个 JSON 数组 `[...]`，其中每个对象代表一个动作。
 
 1. **核心拓扑规则**:
-   - **严禁造物**: 你不能创建 FACT 或 LAW 节点。
-   - **连接即创造**: 当你需要提出新观点时，请通过【留空】一端ID的方式，由系统自动创建。
+   - **严禁造物**: 你不能创建 FACT 或 LAW 节点，只能引用它们。
+   - **连接即创造**: 当你需要基于现有证据提出新观点时，请将 `target_id` (如果引用证据) 或 `source_id` (如果支持/反驳现有观点) 设为 `null`，系统将为你自动创建新节点。
 
 2. **字段定义**:
-   - `action_type` (必填):
-     - "cite_fact": 引用事实（source_id=FACT_xxx）。【警告】source_id 必须填入图谱中存在的 ID，严禁为 null！
-     - "cite_law": 引用法条（source_id=LAW_xxx）。【警告】source_id 必须填入图谱中存在的 ID，严禁为 null！
-     - "support_claim": 观点支持（target_id=CLAIM_xxx）。【警告】target_id 必须填入图谱中存在的 ID，严禁为 null！
-     - "rebut_claim": 观点反驳（target_id=CLAIM_xxx）。【警告】target_id 必须填入图谱中存在的 ID，严禁为 null！
-   - `content` (必填): 动作的简短描述或新观点的内容。
-   - `target_id`: 被支持或被攻击的目标节点ID。
-   - `source_id`: 证据/法条/前提的节点ID。如果是创建新节点，请务必保持 null，切勿填入 target_id（否则会导致自环错误）。
-   - `relation_type` (必填): "SUPPORT" 或 "CONFLICT"。
+   - `action_type` (必填): 动作类型。
+     - `"cite_fact"`: 引用一个事实来支撑一个新观点或现有观点。
+     - `"cite_law"`: 引用一条法条来支撑一个新观点或现有观点。
+     - `"support_claim"`: 提出一个新观点来支撑另一个现有观点。
+     - `"rebut_claim"`: 提出一个新观点来反驳另一个现有观点。
+   - `content` (必填): 动作的简短描述，或你新提出的观点内容。
+   - `target_id` (`string` 或 `null`): 动作的目标节点 ID。对于 `support_claim` 和 `rebut_claim`，这是被支持或被反驳的观点。对于 `cite_fact` 和 `cite_law`，如果想支持一个现有观点，请填入该观点 ID。
+   - `source_id` (`string` 或 `null`): 动作的源头节点 ID。对于 `cite_fact` 和 `cite_law`，这是你引用的事实或法条的 ID (【警告】必须填入图谱中已存在的 ID)。对于 `support_claim` 和 `rebut_claim`，如果你想用一个新观点去操作，请保持为 `null`。
 
 3. **标准示例**:
 ```json
 [
     {
         "action_type": "cite_fact",
-        "content": "基于事实提出新观点...",
+        "content": "基于借条事实，我认为被告有还款义务。",
         "source_id": "FACT_9e8c2d", 
-        "target_id": null,
-        "relation_type": "SUPPORT"
+        "target_id": null
     },
     {
         "action_type": "cite_law",
-        "content": "依据民法典支持旧观点...",
+        "content": "依据民法典支持我方关于利息的观点。",
         "source_id": "LAW_34da21",
-        "target_id": "CLAIM_ff562a",
-        "relation_type": "SUPPORT"
+        "target_id": "CLAIM_ff562a"
     },
     {
         "action_type": "rebut_claim",
-        "content": "提出新观点反驳...",
+        "content": "对方的观点忽略了合同中的附加条款，因此不成立。",
         "source_id": null, 
-        "target_id": "CLAIM_4eda56",
-        "relation_type": "CONFLICT"
+        "target_id": "CLAIM_4eda56"
     }
 ]
 ```
