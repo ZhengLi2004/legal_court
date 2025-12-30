@@ -5,7 +5,12 @@ from metagpt.logs import logger
 from metagpt.roles import Role
 from metagpt.schema import Message
 
-from actions.controller_actions import AssessFactNeeds, AssessLawNeeds, VerifyAndDecide
+from actions.controller_actions import (
+    AssessFactNeeds,
+    AssessLawNeeds,
+    AssessRecallNeeds,
+    VerifyAndDecide,
+)
 from mas.action_parser import parse_agent_action_output
 from mas.schema import (
     AgentAction,
@@ -24,6 +29,8 @@ class ControllerPipelineStep(Enum):
     WAIT_FACT_REPORT = auto()
     LAW_CHECK = auto()
     WAIT_LAW_REPORT = auto()
+    RECALL_CHECK = auto()
+    WAIT_RECALL_REPORT = auto()
     DECIDE = auto()
     DONE = auto()
 
@@ -43,7 +50,11 @@ class ArgumentController(Role):
         self.persona = persona
         self.graph_tool = graph_tool
         self.insights = insights
-        self.set_actions([AssessFactNeeds, AssessLawNeeds, VerifyAndDecide])
+
+        self.set_actions(
+            [AssessFactNeeds, AssessLawNeeds, AssessRecallNeeds, VerifyAndDecide]
+        )
+
         self.pipeline_step = ControllerPipelineStep.IDLE
         self.accumulated_reports: List[str] = []
 
@@ -85,12 +96,27 @@ class ArgumentController(Role):
         elif self.pipeline_step == ControllerPipelineStep.WAIT_LAW_REPORT:
             if "REPORT" in last_content or "{" in last_content:
                 self._handle_worker_report(last_msg, "LawWorker")
-                logger.info(f"[{self.name}] Received Law Report. Moving to DECIDE.")
-                self.pipeline_step = ControllerPipelineStep.DECIDE
+
+                logger.info(
+                    f"[{self.name}] Received Law Report. Moving to RECALL_CHECK."
+                )
+
+                self.pipeline_step = ControllerPipelineStep.RECALL_CHECK
 
             else:
                 logger.debug(
                     f"[{self.name}] Waiting for Law Report... (Ignored: {last_content[:20]})"
+                )
+
+        elif self.pipeline_step == ControllerPipelineStep.WAIT_RECALL_REPORT:
+            if "REPORT" in last_content or "{" in last_content:
+                self._handle_worker_report(last_msg, "RecallWorker")
+                logger.info(f"[{self.name}] Received Recall Report. Moving to DECIDE.")
+                self.pipeline_step = ControllerPipelineStep.DECIDE
+
+            else:
+                logger.debug(
+                    f"[{self.name}] Waiting for Recall Report... (Ignored: {last_content[:20]})"
                 )
 
         while True:
@@ -112,7 +138,9 @@ class ArgumentController(Role):
 
                 else:
                     logger.info(f"[{self.name}] Fact Check Skipped: {req.reasoning}")
+
                     self.pipeline_step = ControllerPipelineStep.LAW_CHECK
+
                     continue
 
             elif self.pipeline_step == ControllerPipelineStep.LAW_CHECK:
@@ -131,7 +159,28 @@ class ArgumentController(Role):
 
                 else:
                     logger.info(f"[{self.name}] Law Check Skipped: {req.reasoning}")
-                    self.pipeline_step = ControllerPipelineStep.DECIDE
+
+                    self.pipeline_step = ControllerPipelineStep.RECALL_CHECK
+
+                    continue
+
+            elif self.pipeline_step == ControllerPipelineStep.RECALL_CHECK:
+                logger.info(f"[{self.name}] Assessing Recall Needs...")
+                action = AssessRecallNeeds(llm=self.llm)
+                raw_resp = await action.run(self.name, self.persona, graph_context)
+                req = self._parse_requirement(raw_resp)
+
+                if req.need:
+                    logger.info(f"[{self.name}] Recall Check Needed: {req.query}")
+                    self.pipeline_step = ControllerPipelineStep.WAIT_RECALL_REPORT
+
+                    return self._create_instruction(
+                        req.query, graph_context, "RecallWorker"
+                    )
+
+                else:
+                    logger.info(f"[{self.name}] Recall Check Skipped: {req.reasoning}")
+                    self.pipeline_step = ControllerPipelineStep.DECIDE  # -> DECIDE
                     continue
 
             elif self.pipeline_step == ControllerPipelineStep.DECIDE:
@@ -140,6 +189,7 @@ class ArgumentController(Role):
 
                 if "SYSTEM_FEEDBACK" in last_content:
                     feedback = last_content
+
                     logger.warning(
                         f"[{self.name}] Retrying with feedback: {feedback[:50]}..."
                     )
@@ -201,6 +251,7 @@ class ArgumentController(Role):
             elif self.pipeline_step in [
                 ControllerPipelineStep.WAIT_FACT_REPORT,
                 ControllerPipelineStep.WAIT_LAW_REPORT,
+                ControllerPipelineStep.WAIT_RECALL_REPORT,
             ]:
                 return Message(
                     content=f"Waiting for Report... (Current Step: {self.pipeline_step})",

@@ -125,6 +125,7 @@ class DebateEngine:
             self.fact_es,
             self.law_es,
             agent_llm,
+            self.legal_sys,
             insights,
             verbose=verbose,
         )
@@ -136,6 +137,7 @@ class DebateEngine:
             self.fact_es,
             self.law_es,
             agent_llm,
+            self.legal_sys,
             insights,
             verbose=verbose,
         )

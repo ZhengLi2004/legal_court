@@ -62,45 +62,53 @@ class ResourceRequirement(BaseModel):
 
 
 AGENT_ACTION_SCHEMA_DESC = """
-【AgentAction JSON 输出规范】
+    【AgentAction JSON 输出规范】
 
-你的输出必须是一个 JSON 数组 `[...]`，其中每个对象代表一个动作。
+    你的输出必须是一个 JSON 数组 `[...]`，其中每个对象代表一个图谱操作。
 
-1. **核心拓扑规则**:
-   - **严禁造物**: 你不能创建 FACT 或 LAW 节点，只能引用它们。
-   - **连接即创造**: 当你需要基于现有证据提出新观点时，请将 `target_id` (如果引用证据) 或 `source_id` (如果支持/反驳现有观点) 设为 `null`，系统将为你自动创建新节点。
+    **核心字段**:
+    - `action_type` (string): 你的意图。必须是 "cite_fact", "cite_law", "support_claim", "rebut_claim" 之一。
+    - `content` (string): 你的观点内容。
+    - `source_id` (string | null): 动作的“来源”或“依据”。
+    - `target_id` (string | null): 动作的“目标”。
 
-2. **字段定义**:
-   - `action_type` (必填): 动作类型。
-     - `"cite_fact"`: 引用一个事实来支撑一个新观点或现有观点。
-     - `"cite_law"`: 引用一条法条来支撑一个新观点或现有观点。
-     - `"support_claim"`: 提出一个新观点来支撑另一个现有观点。
-     - `"rebut_claim"`: 提出一个新观点来反驳另一个现有观点。
-   - `content` (必填): 动作的简短描述，或你新提出的观点内容。
-   - `target_id` (`string` 或 `null`): 动作的目标节点 ID。对于 `support_claim` 和 `rebut_claim`，这是被支持或被反驳的观点。对于 `cite_fact` 和 `cite_law`，如果想支持一个现有观点，请填入该观点 ID。
-   - `source_id` (`string` 或 `null`): 动作的源头节点 ID。对于 `cite_fact` 和 `cite_law`，这是你引用的事实或法条的 ID (【警告】必须填入图谱中已存在的 ID)。对于 `support_claim` 和 `rebut_claim`，如果你想用一个新观点去操作，请保持为 `null`。
+    **【重要】规则按 `action_type` 定义**:
 
-3. **标准示例**:
-```json
-[
-    {
-        "action_type": "cite_fact",
-        "content": "基于借条事实，我认为被告有还款义务。",
-        "source_id": "FACT_9e8c2d", 
-        "target_id": null
-    },
-    {
-        "action_type": "cite_law",
-        "content": "依据民法典支持我方关于利息的观点。",
-        "source_id": "LAW_34da21",
-        "target_id": "CLAIM_ff562a"
-    },
-    {
-        "action_type": "rebut_claim",
-        "content": "对方的观点忽略了合同中的附加条款，因此不成立。",
-        "source_id": null, 
-        "target_id": "CLAIM_4eda56"
-    }
-]
-```
+    1.  **当 `action_type` 是 "cite_fact" 或 "cite_law" (引用证据/法条)**:
+        -   `source_id`: **必须**是图谱中一个已存在的 `FACT` 或 `LAW` 节点的ID。
+        -   `target_id`:
+            -   如果你想用这个证据支持一个**已存在的观点**，这里就填那个观点的ID。
+            -   如果你想用这个证据提出一个**新观点**，这里必须是 `null`。
+        -   `content`: 描述你基于该证据提出的观点。
+
+    2.  **当 `action_type` 是 `"support_claim"` 或 `"rebut_claim"` (支持/反驳观点)**:
+        -   `target_id`: **必须**是图谱中一个已存在的 `CLAIM` 节点的ID (即被你支持或反驳的目标)。
+        -   `source_id`:
+            -   如果你想用一个**已存在的观点**去支持/反驳目标，这里就填那个观点的ID。
+            -   如果你想提出一个**新观点**去支持/反驳目标，这里必须是 `null`。
+        -   `content`: 描述你的新观点。
+
+    **示例**:
+    ```json
+    [
+        {
+            "action_type": "cite_fact",
+            "content": "基于借条事实，我认为被告有还款义务。",
+            "source_id": "FACT_9e8c2d", 
+            "target_id": null
+        },
+        {
+            "action_type": "cite_law",
+            "content": "依据民法典支持我方关于利息的观点。",
+            "source_id": "LAW_34da21",
+            "target_id": "CLAIM_ff562a"
+        },
+        {
+            "action_type": "rebut_claim",
+            "content": "对方的观点忽略了合同中的附加条款，因此不成立。",
+            "source_id": null, 
+            "target_id": "CLAIM_4eda56"
+        }
+    ]
+    ```
 """

@@ -57,7 +57,7 @@ class LegalSystem:
         self._current_case_insights: List[str] = []
         self.step_counter = 0
 
-    def new_case(self, context: str) -> ShadowGraph:
+    def new_case(self, context: str) -> Tuple[ShadowGraph, List[str]]:
         self.step_counter = 0
         sg = ShadowGraph()
 
@@ -111,55 +111,6 @@ class LegalSystem:
         current_step = self.step_counter
         executor = GraphExecutor(graph, matcher=self.dedup_matcher)
         logs = executor.execute_batch(actions, agent_id, current_step=self.step_counter)
-        focus_nodes = graph.get_nodes_by_step(self.step_counter)
-        query_context = ""
-        retrieval_mode = ""
-
-        if focus_nodes:
-            query_context = graph.to_tactical_text(focus_nodes)
-            retrieval_mode = f"Tactical (Focus on {len(focus_nodes)} new nodes)"
-
-        else:
-            context_node_candidates = [
-                n
-                for n, d in graph.graph.nodes(data=True)
-                if d.get("agent_id") == self.cfg.agent.system_id
-            ]
-
-            if not context_node_candidates:
-                all_facts = [
-                    d["content"]
-                    for n, d in graph.graph.nodes(data=True)
-                    if str(d.get("type")) == "FACT"
-                ]
-
-                query_context = " ".join(all_facts)
-
-            else:
-                context_node = context_node_candidates[0]
-                query_context = graph.graph.nodes[context_node]["content"]
-
-            retrieval_mode = "Global Context"
-
-        if query_context:
-            try:
-                msgs, _ = self.memory.retrieve_memory(
-                    query_context, top_k=self.cfg.retrieval.initial_top_k
-                )
-
-                nodes_before = graph.graph.number_of_nodes()
-                self.projector.project(graph, msgs)
-                nodes_after = graph.graph.number_of_nodes()
-                added = nodes_after - nodes_before
-
-                if added > 0:
-                    logs.append(
-                        f"System auto-projected {added} nodes ({retrieval_mode})."
-                    )
-
-            except Exception as e:
-                logs.append(f"Error during projection: {e}")
-
         graph.refresh_context(current_step)
         return logs
 

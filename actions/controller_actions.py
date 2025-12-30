@@ -4,6 +4,7 @@ from mas.schema import AGENT_ACTION_SCHEMA_DESC
 from prompts.common_prompts import (
     ASSESS_FACT_NEEDS_PROMPT,
     ASSESS_LAW_NEEDS_PROMPT,
+    ASSESS_RECALL_NEEDS_PROMPT,
     VERIFY_AND_DECIDE_PROMPT,
 )
 
@@ -28,6 +29,21 @@ class AssessLawNeeds(Action):
 
     async def run(self, role_name: str, persona: object, graph_context: str) -> str:
         prompt = ASSESS_LAW_NEEDS_PROMPT.format(
+            role_name=role_name,
+            belief=persona.belief,
+            intention=persona.intention,
+            strategy=persona.initial_strategy,
+            graph_context=graph_context,
+        )
+
+        return await self.llm.aask(prompt, temperature=0.1)
+
+
+class AssessRecallNeeds(Action):
+    name: str = "AssessRecallNeeds"
+
+    async def run(self, role_name: str, persona: object, graph_context: str) -> str:
+        prompt = ASSESS_RECALL_NEEDS_PROMPT.format(
             role_name=role_name,
             belief=persona.belief,
             intention=persona.intention,

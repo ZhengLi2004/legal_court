@@ -1,6 +1,15 @@
-from metagpt.actions import Action
+from typing import List, Tuple
 
-from prompts.common_prompts import ANALYZE_SEARCH_RESULTS_PROMPT
+from metagpt.actions import Action
+from metagpt.logs import logger
+
+from mas.common import ShadowGraph
+from mas.legal_system import LegalSystem
+from mas.utils import cosine_similarity
+from prompts.common_prompts import (
+    ANALYZE_PROJECTION_PROMPT,
+    ANALYZE_SEARCH_RESULTS_PROMPT,
+)
 
 
 class AnalyzeSearchResults(Action):
@@ -56,6 +65,75 @@ class InjectLawsToGraph(Action):
             f"✅ 已成功将 {len(law_contents)} 条相关法条注入图谱。\n"
             f"注入内容摘要：\n" + "\n".join(injected_details) + "\n"
             f"这些法条为解决'{query}'提供了直接的法律依据。"
+        )
+
+        return report
+
+
+class ProjectAndAnalyze(Action):
+    name: str = "ProjectAndAnalyze"
+
+    async def run(
+        self,
+        query: str,
+        legal_system: LegalSystem,
+        current_graph: ShadowGraph,
+        top_k: int = 3,
+    ) -> str:
+        logger.info(f"Running memory projection for query: {query[:50]}...")
+
+        if current_graph.graph.number_of_nodes() == 0:
+            return "无法执行投影：当前图谱为空，没有可用的锚点。"
+
+        query_emb = legal_system.ef.embed_query(query)
+        candidates: List[Tuple[float, str]] = []
+
+        for nid, data in current_graph.graph.nodes(data=True):
+            content = data.get("content", "")
+
+            if not content:
+                continue
+
+            node_emb = legal_system.ef.embed_query(content)
+            sim = cosine_similarity(query_emb, node_emb)
+            candidates.append((sim, nid))
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        anchor_ids = [nid for sim, nid in candidates[:top_k]]
+
+        if not anchor_ids:
+            return f"未能根据查询 '{query}' 在当前图谱中找到足够相关的锚点以进行历史案例投影。"
+
+        logger.info(f"Found {len(anchor_ids)} anchor nodes: {anchor_ids}")
+        history_messages, _ = legal_system.memory.retrieve_memory(query, top_k=3)
+
+        if not history_messages:
+            return "根据你的查询，在记忆库中没有找到相关的历史案例可供借鉴。"
+
+        nodes_before = set(current_graph.graph.nodes())
+        legal_system.projector.project(current_graph, history_messages)
+        nodes_after = set(current_graph.graph.nodes())
+        new_node_ids = list(nodes_after - nodes_before)
+
+        if not new_node_ids:
+            return "检索到了历史案例，但其中没有与当前战局可关联的新论点被成功投影。"
+
+        logger.info(
+            f"Successfully projected {len(new_node_ids)} new nodes into the graph."
+        )
+
+        projection_context = current_graph.to_tactical_text(new_node_ids)
+
+        prompt = ANALYZE_PROJECTION_PROMPT.format(
+            user_query=query, projection_context=projection_context
+        )
+
+        advice = await self.llm.aask(prompt)
+
+        report = (
+            f"✅ 已成功从历史案例中投影了 {len(new_node_ids)} 个新论点。\n"
+            f"--- 战略建议 ---\n"
+            f"{advice}"
         )
 
         return report

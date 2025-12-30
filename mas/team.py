@@ -4,13 +4,14 @@ from metagpt.logs import logger
 from metagpt.schema import Message
 
 from roles.controller import ArgumentController
-from roles.worker import FactWorker, LawWorker
+from roles.worker import FactWorker, LawWorker, RecallWorker
 from tools.fact_es_tool import FactEsTool
 from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
 from tools.law_es_tool import LawEsTool
 
 from .common import ShadowGraph
+from .legal_system import LegalSystem
 from .llm import GPTChat
 
 
@@ -23,6 +24,7 @@ class DebateTeam:
         fact_es: FactEsTool,
         law_es: LawEsTool,
         llm: GPTChat,
+        legal_system: LegalSystem,
         insights: str = "",
         verbose: bool = False,
     ):
@@ -49,11 +51,17 @@ class DebateTeam:
 
         self.law_worker = LawWorker(name=f"{side}_LawWorker", es_tool=law_es, llm=llm)
         self.law_worker.graph_tool = graph_tool
+
+        self.recall_worker = RecallWorker(
+            name=f"{side}_RecallWorker", legal_system=legal_system, llm=llm
+        )
+
+        self.recall_worker.graph_tool = graph_tool
         self.max_internal_steps = 15
 
     def _get_target_worker(
         self, send_to: Union[Set, str]
-    ) -> Union[FactWorker, LawWorker, None]:
+    ) -> Union[FactWorker, LawWorker, RecallWorker, None]:
         if not send_to:
             return None
 
@@ -65,6 +73,9 @@ class DebateTeam:
 
             if "LawWorker" in t:
                 return self.law_worker
+
+            if "RecallWorker" in t:
+                return self.recall_worker
 
         return None
 

@@ -5,7 +5,12 @@ from metagpt.logs import logger
 from metagpt.roles import Role
 from metagpt.schema import Message
 
-from actions.worker_actions import AnalyzeSearchResults, InjectLawsToGraph
+from actions.worker_actions import (
+    AnalyzeSearchResults,
+    InjectLawsToGraph,
+    ProjectAndAnalyze,
+)
+from mas.legal_system import LegalSystem
 from mas.llm import GPTChat
 from mas.schema import WorkerInstruction, WorkerReport, WorkerReportStatus
 from tools.fact_es_tool import FactEsTool
@@ -19,8 +24,8 @@ class BaseWorker(Role):
         self,
         name: str,
         profile: str,
-        es_tool: object,
-        llm: GPTChat,
+        es_tool: object = None,
+        llm: GPTChat = None,
         threshold: float = 0.6,
     ):
         super().__init__(name=name, profile=profile)
@@ -196,6 +201,61 @@ class LawWorker(BaseWorker):
 
             report = WorkerReport(
                 status=WorkerReportStatus.ERROR, content=f"Injection failed: {e}"
+            )
+
+        return Message(content=report.to_json(), role=self.profile)
+
+
+class RecallWorker(BaseWorker):
+    def __init__(
+        self,
+        name: str = "RecallWorker",
+        legal_system: LegalSystem = None,
+        llm: GPTChat = None,
+    ):
+        super().__init__(name, "Memory & Strategy Researcher", es_tool=None, llm=llm)
+        self.legal_system = legal_system
+        self.graph_tool = None
+        self.set_actions([ProjectAndAnalyze])
+
+    async def _act(self) -> Message:
+        logger.info(f"{self.name} is acting...")
+        result = self._parse_instruction()
+
+        if isinstance(result, Message):
+            return result
+
+        instruction = result
+
+        if not self.legal_system or not self.graph_tool:
+            report = WorkerReport(
+                status=WorkerReportStatus.ERROR,
+                content="System Error: RecallWorker is not correctly bound to LegalSystem or GraphTool.",
+            )
+
+            return Message(content=report.to_json(), role=self.profile)
+
+        try:
+            action = ProjectAndAnalyze(llm=self.llm)
+
+            advice = await action.run(
+                query=instruction.query,
+                legal_system=self.legal_system,
+                current_graph=self.graph_tool.current_graph,
+            )
+
+            report = WorkerReport(
+                status=WorkerReportStatus.FOUND,
+                content=advice,
+                max_score=1.0,
+            )
+
+        except Exception as e:
+            logger.error(f"RecallWorker failed during projection and analysis: {e}")
+
+            report = WorkerReport(
+                status=WorkerReportStatus.ERROR,
+                content=f"执行历史案例借鉴时发生严重错误: {str(e)}",
             )
 
         return Message(content=report.to_json(), role=self.profile)
