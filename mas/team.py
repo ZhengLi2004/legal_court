@@ -206,25 +206,6 @@ class DebateTeam:
                     self.controller.rc.memory.add(feedback_msg)
                     continue
 
-            if ctrl_msg.send_to:
-                target_worker = self._get_worker_by_name(ctrl_msg.send_to)
-
-                if target_worker:
-                    target_worker.rc.memory.add(ctrl_msg)
-                    worker_msg = await target_worker._act()
-
-                    if self.verbose:
-                        transcript.append(
-                            {
-                                "from": target_worker.name,
-                                "to": self.controller.name,
-                                "content": worker_msg.content,
-                            }
-                        )
-
-                    self.controller.rc.memory.add(worker_msg)
-                    continue
-
             feedback_msg = Message(
                 content="SYSTEM_FEEDBACK: 你的输出无法被识别。请确保输出 batch_instructions JSON。",
                 role="System",

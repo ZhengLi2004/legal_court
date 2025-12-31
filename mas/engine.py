@@ -41,7 +41,21 @@ class DebateEngine:
         self.judgment_document: str = ""
         self.root_claims_status: Dict[str, NodeStatus] = {}
         self.convergence_history: List[float] = []
-        self.prev_stats: Dict[str, int] = {"nodes": 0, "conflict_edges": 0}
+        self.prev_stats: Dict[str, int] = {"claim_nodes": 0, "conflict_edges": 0}
+
+    def _count_claim_nodes(self) -> int:
+        if not self.graph or not self.graph.graph:
+            return 0
+
+        count = 0
+
+        for _, data in self.graph.graph.nodes(data=True):
+            n_type = data.get("type")
+
+            if n_type == NodeType.CLAIM or str(n_type) == "CLAIM":
+                count += 1
+
+        return count
 
     async def setup(
         self, case_data_path: str = None, case_data: Dict = None, verbose: bool = False
@@ -75,7 +89,7 @@ class DebateEngine:
         init_res = await initializer.initialize(self.raw_facts, cause)
         self.graph, insights = self.legal_sys.new_case(self.raw_facts)
         self.legal_sys.step_counter = 0
-        self.prev_stats["nodes"] = self.graph.graph.number_of_nodes()
+        self.prev_stats["claim_nodes"] = self._count_claim_nodes()
         self.prev_stats["conflict_edges"] = 0
         graph_tool.set_current_graph(self.graph)
         logger.info(">>> [System] Injecting immutable facts...")
@@ -116,7 +130,7 @@ class DebateEngine:
             self.graph.touch_nodes(claim_ids, step_index=0)
 
         logger.info(f">>> [System] Injected {len(claim_ids)} root claim nodes.")
-        self.prev_stats["nodes"] = self.graph.graph.number_of_nodes()
+        self.prev_stats["claim_nodes"] = self._count_claim_nodes()
 
         self.p_team = DebateTeam(
             "plaintiff",
@@ -151,7 +165,7 @@ class DebateEngine:
         }
 
     def _calculate_convergence(self) -> float:
-        current_nodes = self.graph.graph.number_of_nodes()
+        current_claim_nodes = self._count_claim_nodes()
         current_conflicts = 0
 
         for _, _, d in self.graph.graph.edges(data=True):
@@ -160,9 +174,14 @@ class DebateEngine:
             if str(e_type) == "CONFLICT" or e_type == EdgeType.CONFLICT:
                 current_conflicts += 1
 
-        delta_v = max(0, current_nodes - self.prev_stats["nodes"])
+        delta_v = max(0, current_claim_nodes - self.prev_stats["claim_nodes"])
         delta_e = max(0, current_conflicts - self.prev_stats["conflict_edges"])
-        self.prev_stats = {"nodes": current_nodes, "conflict_edges": current_conflicts}
+
+        self.prev_stats = {
+            "claim_nodes": current_claim_nodes,
+            "conflict_edges": current_conflicts,
+        }
+
         alpha = self.cfg.convergence.alpha
         delta_phi = (1 - alpha) * delta_v + alpha * delta_e
         return delta_phi
@@ -195,7 +214,7 @@ class DebateEngine:
         sma = sum(recent_history) / len(recent_history) if recent_history else 0.0
 
         logger.info(
-            f"[Convergence] Round {self.round_idx} | ΔΦ: {delta_phi:.4f} | SMA: {sma:.4f}"
+            f"[Convergence] Round {self.round_idx} | ΔΦ: {delta_phi:.4f} (Claims Δ: {delta_phi}, Conflicts Δ: ... ) | SMA: {sma:.4f}"
         )
 
         self.last_step_log = {
@@ -267,8 +286,15 @@ class DebateEngine:
             k: v.value for k, v in self.root_claims_status.items()
         }
 
-        p_memory = [m.model_dump() for m in self.p_team.controller.get_memories(k=5)]
-        d_memory = [m.model_dump() for m in self.d_team.controller.get_memories(k=5)]
+        p_mem = []
+
+        if self.p_team and self.p_team.controller:
+            p_mem = [m.model_dump() for m in self.p_team.controller.get_memories()]
+
+        d_mem = []
+
+        if self.d_team and self.d_team.controller:
+            d_mem = [m.model_dump() for m in self.d_team.controller.get_memories()]
 
         return {
             "shadow_graph": self.graph,
@@ -279,7 +305,7 @@ class DebateEngine:
             "winner": self.winner,
             "judgment_document": self.judgment_document,
             "root_claims_status": serializable_claims_status,
-            "agent_memories": {"plaintiff": p_memory, "defendant": d_memory},
+            "agent_memories": {"plaintiff": p_mem, "defendant": d_mem},
         }
 
     async def close_resources(self):

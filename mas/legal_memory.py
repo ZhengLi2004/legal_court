@@ -73,7 +73,13 @@ class LegalGMemory(MASMemoryBase):
     def retrieve_memory(
         self, query_context: str, top_k: int = 3
     ) -> Tuple[List[LegalMessage], List[str]]:
-        results = self.collection.query(query_texts=[query_context], n_results=top_k)
+        count = self.collection.count()
+
+        if count == 0:
+            return [], []
+
+        real_k = min(top_k, count)
+        results = self.collection.query(query_texts=[query_context], n_results=real_k)
         anchor_ids = results["ids"][0] if results["ids"] else []
 
         expanded_ids = self.task_layer.get_k_hop_neighbors(
@@ -90,11 +96,18 @@ class LegalGMemory(MASMemoryBase):
         messages = []
 
         for i in range(len(final_results["ids"])):
-            case_id = final_results["ids"][i]
-            context = final_results["documents"][i]
-            graph_json_str = final_results["metadatas"][i]["graph_json"]
-            sg = ShadowGraph.from_dict(json.loads(graph_json_str))
-            msg = LegalMessage(case_id=case_id, case_context=context, shadow_graph=sg)
-            messages.append(msg)
+            try:
+                case_id = final_results["ids"][i]
+                context = final_results["documents"][i]
+                graph_json_str = final_results["metadatas"][i]["graph_json"]
+                sg = ShadowGraph.from_dict(json.loads(graph_json_str))
+                msg = LegalMessage(
+                    case_id=case_id, case_context=context, shadow_graph=sg
+                )
+                messages.append(msg)
+
+            except Exception as e:
+                print(f"Error loading memory {final_results['ids'][i]}: {e}")
+                continue
 
         return messages, []
