@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Union
 
 from metagpt.logs import logger
@@ -76,7 +77,7 @@ class DebateTeam:
         return None
 
     async def run_turn(self, graph: ShadowGraph) -> dict:
-        logger.info(f"--- Team {self.side} Turn Start (Parallel Mode) ---")
+        logger.info(f"--- Team {self.side} Turn Start ---")
         self.graph_tool.set_current_graph(graph)
         start_msg = Message(content="SYSTEM_START", role="System")
         self.controller.rc.memory.add(start_msg)
@@ -163,6 +164,7 @@ class DebateTeam:
 
                     if tasks:
                         results = await asyncio.gather(*tasks)
+                        results_payload = []
 
                         for i, res_msg in enumerate(results):
                             w_name = worker_names[i]
@@ -176,16 +178,25 @@ class DebateTeam:
                                     }
                                 )
 
-                            res_msg.role = w_name
-                            self.controller.rc.memory.add(res_msg)
+                            results_payload.append(
+                                {"worker": w_name, "content": str(res_msg.content)}
+                            )
 
-                    logger.info(
-                        f"[{self.side}] All workers finished. Sending signal to Controller."
-                    )
+                        signal_packet = {
+                            "signal": "WORKERS_COMPLETED",
+                            "data": results_payload,
+                        }
 
-                    self.controller.rc.memory.add(
-                        Message(content="WORKERS_COMPLETED", role="System")
-                    )
+                        logger.info(
+                            f"[{self.side}] Workers finished. Sending aggregated payload to Controller."
+                        )
+
+                        self.controller.rc.memory.add(
+                            Message(
+                                content=json.dumps(signal_packet, ensure_ascii=False),
+                                role="System",
+                            )
+                        )
 
                     continue
 
@@ -202,12 +213,27 @@ class DebateTeam:
                     self.controller.rc.memory.add(feedback_msg)
                     continue
 
-            logger.warning(
-                f"[{self.side}] Unknown Controller Output: {content[:50]}..."
-            )
+            if ctrl_msg.send_to:
+                target_worker = self._get_worker_by_name(ctrl_msg.send_to)
+
+                if target_worker:
+                    target_worker.rc.memory.add(ctrl_msg)
+                    worker_msg = await target_worker._act()
+
+                    if self.verbose:
+                        transcript.append(
+                            {
+                                "from": target_worker.name,
+                                "to": self.controller.name,
+                                "content": worker_msg.content,
+                            }
+                        )
+
+                    self.controller.rc.memory.add(worker_msg)
+                    continue
 
             feedback_msg = Message(
-                content="SYSTEM_FEEDBACK: 你的输出无法被识别。请确保输出 batch_instructions JSON 或 Action Completed。",
+                content="SYSTEM_FEEDBACK: 你的输出无法被识别。请确保输出 batch_instructions JSON。",
                 role="System",
             )
 
