@@ -56,6 +56,17 @@ class ArgumentController(Role):
         self.investigation_buffer: Dict[str, str] = {}
         self.latest_summary: str = ""
 
+    def _truncate(self, text: str, length: str) -> str:
+        if not text:
+            return ""
+
+        text = text.strip()
+
+        if len(text) > length:
+            return text[:length] + "..."
+
+        return text
+
     def ingest_results(self, results_list: List[Dict[str, str]]):
         logger.info(
             f"[{self.name}] Ingesting {len(results_list)} worker results via direct call."
@@ -176,9 +187,8 @@ class ArgumentController(Role):
                 )
 
             else:
-                self.investigation_buffer["Fact"] = (
-                    f"✅ [无需事实检索]: {req_fact.reasoning}"
-                )
+                reasoning = self._truncate(req_fact.reasoning, 500)
+                self.investigation_buffer["Fact"] = f"✅ [无需事实检索]: {reasoning}"
 
             if req_law.need:
                 inst = WorkerInstruction(
@@ -192,9 +202,8 @@ class ArgumentController(Role):
                 self.investigation_buffer["Law"] = f"⏳ [正在检索法条]: {req_law.query}"
 
             else:
-                self.investigation_buffer["Law"] = (
-                    f"✅ [无法律检索]: {req_law.reasoning}"
-                )
+                reasoning = self._truncate(req_fact.reasoning, 500)
+                self.investigation_buffer["Law"] = f"✅ [无法律检索]: {reasoning}"
 
             if req_recall.need:
                 inst = WorkerInstruction(
@@ -210,9 +219,8 @@ class ArgumentController(Role):
                 )
 
             else:
-                self.investigation_buffer["Recall"] = (
-                    f"✅ [无案例借鉴]: {req_recall.reasoning}"
-                )
+                reasoning = self._truncate(req_fact.reasoning, 500)
+                self.investigation_buffer["Recall"] = f"✅ [无案例借鉴]: {reasoning}"
 
             if not instructions:
                 logger.info(

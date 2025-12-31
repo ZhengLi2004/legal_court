@@ -1,23 +1,19 @@
-from typing import List, Tuple
-
 from metagpt.actions import Action
 from metagpt.logs import logger
 
 from mas.common import ShadowGraph
 from mas.legal_system import LegalSystem
 from mas.utils import cosine_similarity
-from prompts.common_prompts import (
-    ANALYZE_PROJECTION_PROMPT,
-    ANALYZE_SEARCH_RESULTS_PROMPT,
-)
+from prompts.common_prompts import ANALYZE_RECALL_PROMPT
 
 
 class AnalyzeSearchResults(Action):
     name: str = "AnalyzeSearchResults"
 
-    async def run(self, role_type: str, user_query: str, search_result: str):
-        prompt = ANALYZE_SEARCH_RESULTS_PROMPT.format(
-            role_type=role_type,
+    async def run(
+        self, user_query: str, search_result: str, prompt_template: str
+    ) -> str:
+        prompt = prompt_template.format(
             user_query=user_query,
             search_result=search_result,
         )
@@ -45,6 +41,7 @@ class InjectLawsToGraph(Action):
 
         for hit in hits:
             score = hit["_score"] - 1.0
+
             if score < threshold:
                 continue
 
@@ -53,21 +50,14 @@ class InjectLawsToGraph(Action):
             law_contents.append(content)
 
             injected_details.append(
-                f"•《{source.get('law_name')}》{source.get('article_id')}: {source.get('content')[:50]}..."
+                f"•《{source.get('law_name')}》{source.get('article_id')}: {source.get('content')}"
             )
 
         if not law_contents:
             return f"检索到法条但相似度均低于阈值 ({threshold})。"
 
         graph_tool.inject_law_nodes(law_contents)
-
-        report = (
-            f"✅ 已成功将 {len(law_contents)} 条相关法条注入图谱。\n"
-            f"注入内容摘要：\n" + "\n".join(injected_details) + "\n"
-            f"这些法条为解决'{query}'提供了直接的法律依据。"
-        )
-
-        return report
+        return "\n".join(injected_details)
 
 
 class ProjectAndAnalyze(Action):
@@ -86,7 +76,7 @@ class ProjectAndAnalyze(Action):
             return "无法执行投影：当前图谱为空，没有可用的锚点。"
 
         query_emb = legal_system.ef.embed_query(query)
-        candidates: List[Tuple[float, str]] = []
+        candidates = []
 
         for nid, data in current_graph.graph.nodes(data=True):
             content = data.get("content", "")
@@ -99,12 +89,11 @@ class ProjectAndAnalyze(Action):
             candidates.append((sim, nid))
 
         candidates.sort(key=lambda x: x[0], reverse=True)
-        anchor_ids = [nid for sim, nid in candidates[:top_k]]
+        anchor_ids = [nid for _, nid in candidates[:top_k]]
 
         if not anchor_ids:
             return f"未能根据查询 '{query}' 在当前图谱中找到足够相关的锚点以进行历史案例投影。"
 
-        logger.info(f"Found {len(anchor_ids)} anchor nodes: {anchor_ids}")
         history_messages, _ = legal_system.memory.retrieve_memory(query, top_k=3)
 
         if not history_messages:
@@ -124,16 +113,8 @@ class ProjectAndAnalyze(Action):
 
         projection_context = current_graph.to_tactical_text(new_node_ids)
 
-        prompt = ANALYZE_PROJECTION_PROMPT.format(
+        prompt = ANALYZE_RECALL_PROMPT.format(
             user_query=query, projection_context=projection_context
         )
 
-        advice = await self.llm.aask(prompt)
-
-        report = (
-            f"✅ 已成功从历史案例中投影了 {len(new_node_ids)} 个新论点。\n"
-            f"--- 战略建议 ---\n"
-            f"{advice}"
-        )
-
-        return report
+        return await self.llm.aask(prompt)

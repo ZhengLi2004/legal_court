@@ -1,5 +1,7 @@
 import asyncio
+import datetime
 
+import pandas as pd
 import streamlit as st
 
 from data.loader import CaseDataLoader
@@ -50,8 +52,39 @@ def get_graph_stats(graph):
 def render_verdict_summary(adjudication_result):
     st.success("⚖️ **Verdict Rendered**")
 
-    with st.expander("📜 Read Full Judgment Document"):
-        st.markdown(adjudication_result.get("document", "No document."))
+    document_content = adjudication_result.get("document", "No document.")
+
+    paper_style = """
+    <div style="
+        background-color: #f9f9f9; 
+        padding: 40px; 
+        border: 1px solid #ddd; 
+        border-radius: 5px;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
+        font-family: 'Times New Roman', serif;
+        margin-bottom: 20px;
+    ">
+        <h2 style="text-align: center; color: #333; margin-bottom: 5px;">民 事 判 决 书</h2>
+        <p style="text-align: center; color: #666; font-size: 0.9em;">(AI Adjudication Draft)</p>
+        <hr style="border-top: 2px solid #333; margin-top: 10px; margin-bottom: 20px;">
+        <div style="font-size: 16px; line-height: 1.8; color: #222; text-align: justify;">
+            {content}
+        </div>
+        <br><br>
+        <div style="text-align: right; margin-top: 30px;">
+            <p><strong>本案 AI 审判员</strong></p>
+            <p>{date}</p>
+        </div>
+    </div>
+    """
+
+    formatted_html = paper_style.format(
+        content=document_content.replace("\n", "<br>"),
+        date=datetime.date.today().strftime("%Y年%m月%d日"),
+    )
+
+    with st.expander("📜 Read Full Judgment Document", expanded=False):
+        st.markdown(formatted_html, unsafe_allow_html=True)
 
     st.write("**Claim Adjudication Summary:**")
     claims_status = adjudication_result.get("claims_status", {})
@@ -84,42 +117,39 @@ def render_agent_memory(memory_list):
         st.info("Memory is empty.")
         return
 
-    for _, msg in enumerate(memory_list):
+    for i, msg in enumerate(memory_list):
         role = msg.get("role", "unknown")
         content = msg.get("content", "")
 
         if role == "System":
             avatar = "⚙️"
-            bg_color = "#f0f2f6"
+
         elif "Controller" in role or role == "user":
             avatar = "🧠"
-            bg_color = "#e8f0fe"
 
         elif "Worker" in role:
             avatar = "👷"
-            bg_color = "#fff8e1"
 
         else:
             avatar = "❓"
-            bg_color = "#ffffff"
 
         with st.container():
-            c1, c2 = st.columns([1, 10])
+            c1, c2 = st.columns([1, 15])
 
             with c1:
-                st.markdown(f"**{avatar} {role}**")
+                st.markdown(f"**{avatar}**")
 
             with c2:
+                st.caption(f"**{role}**")
+
                 if "=== 🕵️ 本轮调查综述" in content:
                     st.success(content)
 
-                elif "WORKERS_COMPLETED" in content:
-                    with st.expander(
-                        "📶 Signal: WORKERS_COMPLETED (Click to view payload)"
-                    ):
-                        st.code(content, language="json")
+                elif "Worker investigation finished" in content:
+                    st.caption(f"*{content}*")
+
                 else:
-                    st.info(content)
+                    st.text(content)
 
         st.divider()
 
@@ -131,7 +161,11 @@ st.markdown(
 <style>
     .stChatMessage { padding: 1rem; border-radius: 0.5rem; margin-bottom: 0.5rem; }
     .stChatMessage[data-testid="stChatMessage"] { background-color: #f0f2f6; }
-    div[data-testid="stMetric"] { background-color: #f0f2f6; border-radius: 0.5rem; padding: 10px; }
+    div[data-testid="stMetric"] {
+        background-color: #f0f2f6;
+        border-radius: 0.5rem;
+        padding: 10px;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -176,6 +210,8 @@ with st.sidebar:
 
         with st.expander("📝 Case Preview"):
             st.write(f"**Cause:** {selected_case.cause}")
+            st.write(f"**Plaintiff:** {selected_case.plaintiffs}")
+            st.write(f"**Defendant:** {selected_case.defendants}")
             st.caption(selected_case.fact_finding[:200] + "...")
 
         if st.button("🚀 Initialize System", type="primary", use_container_width=True):
@@ -195,7 +231,10 @@ with st.sidebar:
                     {
                         "role": "system",
                         "content": init_content,
-                        "details": {"action": "Case Loaded"},
+                        "details": {
+                            "action": "Case Loaded",
+                            "cause": selected_case.cause,
+                        },
                     }
                 )
 
@@ -225,8 +264,22 @@ with st.sidebar:
             if st.button(
                 f"▶️ Run {turn_name}'s Turn", type=btn_color, use_container_width=True
             ):
-                with st.spinner(f"Running {turn_name}'s turn..."):
+                with st.status(
+                    f"Processing {turn_name}'s Turn...", expanded=True
+                ) as status:
+                    st.write(
+                        "🧠 Controller is assessing needs & dispatching workers..."
+                    )
+
                     asyncio.run(engine.step())
+                    st.write("📝 Synthesizing results & Updating Graph...")
+
+                    status.update(
+                        label=f"✅ {turn_name}'s Turn Completed",
+                        state="complete",
+                        expanded=False,
+                    )
+
                     log = engine.get_snapshot().get("last_log", {})
                     just_finished = log.get("turn", "system")
 
@@ -275,26 +328,42 @@ if st.session_state.is_setup:
                 avatar, name = "🤖", "System / Judge"
 
             with st.chat_message(name, avatar=avatar):
-                if role in ["plaintiff", "defendant"]:
-                    st.markdown(f"**Action:** {content}")
+                if (
+                    role in ["plaintiff", "defendant"]
+                    and "dialogue" in details
+                    and details["dialogue"]
+                ):
+                    status_label = f"**Turn Summary:** {content}"
 
-                    if "dialogue" in details and details["dialogue"]:
-                        with st.expander(
-                            "🕵️ Worker Execution Logs (Parallel)", expanded=False
-                        ):
-                            for d_msg in details["dialogue"]:
-                                sender = d_msg.get("from", "?")
-                                receiver = d_msg.get("to", "?")
-                                st.caption(f"`{sender}` ➝ `{receiver}`")
+                    with st.status(status_label, expanded=True):
+                        st.write("##### 🕵️ Worker Execution Logs (Parallel):")
+
+                        for d_msg in details["dialogue"]:
+                            from_val = d_msg.get("from", "?")
+
+                            sender = (
+                                from_val.split("_")[-1]
+                                if isinstance(from_val, str)
+                                else str(from_val)
+                            )
+
+                            if "Worker" in sender:
                                 txt = d_msg.get("content", "")
+                                st.caption(f"**{sender}**:")
 
                                 if "🔎" in txt or "⚖️" in txt or "🧠" in txt:
                                     st.markdown(txt)
 
                                 else:
-                                    st.code(
-                                        txt, language="json" if "{" in txt else "text"
-                                    )
+                                    st.code(txt)
+
+                        st.markdown("---")
+                        st.write("##### ⚡ Action Log:")
+
+                        st.code(
+                            details.get("action", "No final action logged."),
+                            language="text",
+                        )
 
                 elif "adjudication_result" in details:
                     render_verdict_summary(details["adjudication_result"])
@@ -308,23 +377,50 @@ if st.session_state.is_setup:
         )
 
         with tab_graph:
+            st.subheader("Debate Graph")
+            st.caption("Legend: 🔵Fact 🟡Law 🟢Claim | 🟩Support 🟥Conflict")
+
             if snapshot.get("shadow_graph"):
                 render_graph(snapshot["shadow_graph"])
+
+            st.subheader("Statistics")
+
+            if snapshot.get("shadow_graph"):
                 stats = get_graph_stats(snapshot["shadow_graph"].graph)
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Facts", stats.get("facts", 0))
                 c2.metric("Laws", stats.get("laws", 0))
                 c3.metric("Claims", stats.get("claims", 0))
+                c1, c2 = st.columns(2)
+
+                c1.metric(
+                    "Support Edges", stats.get("support_edges", 0), delta_color="off"
+                )
+
+                c2.metric(
+                    "Conflict Edges", stats.get("conflict_edges", 0), delta_color="off"
+                )
+
+            if engine.convergence_history:
+                st.subheader("Convergence (ΔΦ)")
+
+                df_conv = pd.DataFrame(
+                    engine.convergence_history, columns=["Stability Delta"]
+                )
+
+                st.line_chart(df_conv)
+                st.caption("Based on Claim Node variation & Conflict Edge counts.")
 
         with tab_memory:
             render_global_memory(snapshot)
 
         with tab_agent_ctx:
-            st.caption("Real-time internal memory of the active agents.")
+            st.subheader("Active Agent Memory")
+            st.caption("Inspect the internal thought process and memory state.")
             last_turn = snapshot.get("last_log", {}).get("turn", "plaintiff")
 
             selected_agent = st.radio(
-                "Select Agent View:",
+                "Select Agent:",
                 ["plaintiff", "defendant"],
                 index=0 if last_turn == "plaintiff" else 1,
                 horizontal=True,
@@ -333,10 +429,6 @@ if st.session_state.is_setup:
             memories = snapshot.get("agent_memories", {}).get(selected_agent, [])
 
             if memories:
-                st.markdown(
-                    f"### {selected_agent.capitalize()} Controller Memory ({len(memories)} items)"
-                )
-
                 render_agent_memory(memories)
 
             else:
@@ -347,3 +439,13 @@ if st.session_state.is_setup:
 
 else:
     st.info("👈 Please select a case and click **Initialize System** to begin.")
+
+    st.markdown("""
+    ### System Architecture Overview
+    1. **Debate Engine:** Orchestrates rounds and checks for convergence.
+    2. **Shadow Graph:** A dynamic logical graph that evolves as agents make claims.
+    3. **Multi-Agent Teams:** 
+        - *Controller:* Strategist (Lawyer).
+        - *Workers:* Evidence and Law retrieval experts (Parallel Execution).
+    4. **AI Judge:** Adjudicates the final graph state once converged.
+    """)
