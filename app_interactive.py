@@ -1,6 +1,5 @@
 import asyncio
 
-import pandas as pd
 import streamlit as st
 
 from data.loader import CaseDataLoader
@@ -80,6 +79,51 @@ def render_verdict_summary(adjudication_result):
         st.divider()
 
 
+def render_agent_memory(memory_list):
+    if not memory_list:
+        st.info("Memory is empty.")
+        return
+
+    for _, msg in enumerate(memory_list):
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+
+        if role == "System":
+            avatar = "⚙️"
+            bg_color = "#f0f2f6"
+        elif "Controller" in role or role == "user":
+            avatar = "🧠"
+            bg_color = "#e8f0fe"
+
+        elif "Worker" in role:
+            avatar = "👷"
+            bg_color = "#fff8e1"
+
+        else:
+            avatar = "❓"
+            bg_color = "#ffffff"
+
+        with st.container():
+            c1, c2 = st.columns([1, 10])
+
+            with c1:
+                st.markdown(f"**{avatar} {role}**")
+
+            with c2:
+                if "=== 🕵️ 本轮调查综述" in content:
+                    st.success(content)
+
+                elif "WORKERS_COMPLETED" in content:
+                    with st.expander(
+                        "📶 Signal: WORKERS_COMPLETED (Click to view payload)"
+                    ):
+                        st.code(content, language="json")
+                else:
+                    st.info(content)
+
+        st.divider()
+
+
 st.set_page_config(layout="wide", page_title="Legal MAS Console")
 
 st.markdown(
@@ -87,11 +131,7 @@ st.markdown(
 <style>
     .stChatMessage { padding: 1rem; border-radius: 0.5rem; margin-bottom: 0.5rem; }
     .stChatMessage[data-testid="stChatMessage"] { background-color: #f0f2f6; }
-    div[data-testid="stMetric"] {
-        background-color: #f0f2f6;
-        border-radius: 0.5rem;
-        padding: 10px;
-    }
+    div[data-testid="stMetric"] { background-color: #f0f2f6; border-radius: 0.5rem; padding: 10px; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -136,8 +176,6 @@ with st.sidebar:
 
         with st.expander("📝 Case Preview"):
             st.write(f"**Cause:** {selected_case.cause}")
-            st.write(f"**Plaintiff:** {selected_case.plaintiffs}")
-            st.write(f"**Defendant:** {selected_case.defendants}")
             st.caption(selected_case.fact_finding[:200] + "...")
 
         if st.button("🚀 Initialize System", type="primary", use_container_width=True):
@@ -157,10 +195,7 @@ with st.sidebar:
                     {
                         "role": "system",
                         "content": init_content,
-                        "details": {
-                            "action": "Case Loaded",
-                            "cause": selected_case.cause,
-                        },
+                        "details": {"action": "Case Loaded"},
                     }
                 )
 
@@ -240,46 +275,26 @@ if st.session_state.is_setup:
                 avatar, name = "🤖", "System / Judge"
 
             with st.chat_message(name, avatar=avatar):
-                if (
-                    role in ["plaintiff", "defendant"]
-                    and "dialogue" in details
-                    and details["dialogue"]
-                ):
-                    status_label = f"**Turn Summary:** {content}"
+                if role in ["plaintiff", "defendant"]:
+                    st.markdown(f"**Action:** {content}")
 
-                    with st.status(status_label, expanded=True):
-                        st.write("##### 🕵️ Internal Dialogue & Actions:")
+                    if "dialogue" in details and details["dialogue"]:
+                        with st.expander(
+                            "🕵️ Worker Execution Logs (Parallel)", expanded=False
+                        ):
+                            for d_msg in details["dialogue"]:
+                                sender = d_msg.get("from", "?")
+                                receiver = d_msg.get("to", "?")
+                                st.caption(f"`{sender}` ➝ `{receiver}`")
+                                txt = d_msg.get("content", "")
 
-                        for d_msg in details["dialogue"]:
-                            from_val = d_msg.get("from", "?")
-                            to_val = d_msg.get("to", "?")
+                                if "🔎" in txt or "⚖️" in txt or "🧠" in txt:
+                                    st.markdown(txt)
 
-                            sender = (
-                                from_val.split("_")[-1]
-                                if isinstance(from_val, str)
-                                else str(from_val)
-                            )
-
-                            if isinstance(to_val, set):
-                                receiver = ", ".join(
-                                    [name.split("_")[-1] for name in to_val]
-                                )
-
-                            elif isinstance(to_val, str):
-                                receiver = to_val.split("_")[-1]
-
-                            else:
-                                receiver = "GraphTool"
-
-                            st.caption(f"`{sender}` ➝ `{receiver}`")
-                            st.code(d_msg.get("content", ""), language="json")
-
-                        st.markdown("---")
-                        st.write("##### ⚡ Final Executed Action Log:")
-                        st.code(
-                            details.get("action", "No final action logged."),
-                            language="text",
-                        )
+                                else:
+                                    st.code(
+                                        txt, language="json" if "{" in txt else "text"
+                                    )
 
                 elif "adjudication_result" in details:
                     render_verdict_summary(details["adjudication_result"])
@@ -288,85 +303,47 @@ if st.session_state.is_setup:
                     st.markdown(content)
 
     with col_context:
-        st.subheader("🕸️ Debate Graph")
-
-        if snapshot.get("shadow_graph"):
-            render_graph(snapshot["shadow_graph"])
-
-        st.subheader("📊 Graph Statistics")
-
-        if snapshot.get("shadow_graph"):
-            stats = get_graph_stats(snapshot["shadow_graph"].graph)
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Facts", stats.get("facts", 0))
-            c2.metric("Laws", stats.get("laws", 0))
-            c3.metric("Claims", stats.get("claims", 0))
-            c1, c2 = st.columns(2)
-            c1.metric("Support Edges", stats.get("support_edges", 0), delta_color="off")
-
-            c2.metric(
-                "Conflict Edges", stats.get("conflict_edges", 0), delta_color="off"
-            )
-
-        if engine.convergence_history:
-            st.subheader("📈 Debate Convergence (ΔΦ)")
-
-            df_conv = pd.DataFrame(
-                engine.convergence_history, columns=["Stability Delta"]
-            )
-
-            st.line_chart(df_conv)
-            st.caption("Lower ΔΦ (SMA) indicates consensus or argument exhaustion.")
-
-        st.markdown("---")
-
-        tab_facts, tab_memory, tab_raw = st.tabs(
-            ["📂 Evidence Base", "🧠 Global Memory", "📝 Raw Logs"]
+        tab_graph, tab_memory, tab_agent_ctx, tab_raw = st.tabs(
+            ["🕸️ Graph", "🧠 Global Memory", "🤖 Agent Context", "📝 Logs"]
         )
 
-        with tab_facts:
-            st.write(
-                "This tab shows all facts and laws currently established in the debate graph."
-            )
-
+        with tab_graph:
             if snapshot.get("shadow_graph"):
-                sg = snapshot["shadow_graph"].graph
-
-                facts = [
-                    d["content"]
-                    for _, d in sg.nodes(data=True)
-                    if d.get("type") == NodeType.FACT
-                ]
-
-                laws = [
-                    d["content"]
-                    for _, d in sg.nodes(data=True)
-                    if d.get("type") == NodeType.LAW
-                ]
-
-                with st.expander(f"Facts ({len(facts)})", expanded=True):
-                    for f in facts:
-                        st.info(f, icon="📄")
-
-                with st.expander(f"Laws ({len(laws)})", expanded=True):
-                    for l in laws:
-                        st.warning(l, icon="⚖️")
+                render_graph(snapshot["shadow_graph"])
+                stats = get_graph_stats(snapshot["shadow_graph"].graph)
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Facts", stats.get("facts", 0))
+                c2.metric("Laws", stats.get("laws", 0))
+                c3.metric("Claims", stats.get("claims", 0))
 
         with tab_memory:
             render_global_memory(snapshot)
+
+        with tab_agent_ctx:
+            st.caption("Real-time internal memory of the active agents.")
+            last_turn = snapshot.get("last_log", {}).get("turn", "plaintiff")
+
+            selected_agent = st.radio(
+                "Select Agent View:",
+                ["plaintiff", "defendant"],
+                index=0 if last_turn == "plaintiff" else 1,
+                horizontal=True,
+            )
+
+            memories = snapshot.get("agent_memories", {}).get(selected_agent, [])
+
+            if memories:
+                st.markdown(
+                    f"### {selected_agent.capitalize()} Controller Memory ({len(memories)} items)"
+                )
+
+                render_agent_memory(memories)
+
+            else:
+                st.info("No memory initialized for this agent.")
 
         with tab_raw:
             st.json(snapshot.get("last_log", {}))
 
 else:
     st.info("👈 Please select a case and click **Initialize System** to begin.")
-
-    st.markdown("""
-    ### System Architecture Overview
-    1. **Debate Engine:** Orchestrates rounds and checks for convergence.
-    2. **Shadow Graph:** A dynamic logical graph that evolves as agents make claims.
-    3. **Multi-Agent Teams:** 
-        - *Controller:* Strategist (Lawyer).
-        - *Workers:* Evidence and Law retrieval experts.
-    4. **AI Judge:** Adjudicates the final graph state once converged.
-    """)

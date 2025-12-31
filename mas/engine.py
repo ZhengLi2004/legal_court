@@ -267,6 +267,9 @@ class DebateEngine:
             k: v.value for k, v in self.root_claims_status.items()
         }
 
+        p_memory = [m.model_dump() for m in self.p_team.controller.get_memories(k=5)]
+        d_memory = [m.model_dump() for m in self.d_team.controller.get_memories(k=5)]
+
         return {
             "shadow_graph": self.graph,
             "insights_manager": self.legal_sys.insights,
@@ -276,6 +279,7 @@ class DebateEngine:
             "winner": self.winner,
             "judgment_document": self.judgment_document,
             "root_claims_status": serializable_claims_status,
+            "agent_memories": {"plaintiff": p_memory, "defendant": d_memory},
         }
 
     async def close_resources(self):

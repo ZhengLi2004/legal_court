@@ -1,5 +1,4 @@
 import asyncio
-import json
 from typing import Union
 
 from metagpt.logs import logger
@@ -128,13 +127,10 @@ class DebateTeam:
 
                     if not instructions_list:
                         logger.info(
-                            f"[{self.side}] No workers needed per Controller. Sending COMPLETED signal."
+                            f"[{self.side}] No workers needed. Triggering ingest with empty list."
                         )
 
-                        self.controller.rc.memory.add(
-                            Message(content="WORKERS_COMPLETED", role="System")
-                        )
-
+                        self.controller.ingest_results([])
                         continue
 
                     tasks = []
@@ -182,18 +178,15 @@ class DebateTeam:
                                 {"worker": w_name, "content": str(res_msg.content)}
                             )
 
-                        signal_packet = {
-                            "signal": "WORKERS_COMPLETED",
-                            "data": results_payload,
-                        }
-
                         logger.info(
-                            f"[{self.side}] Workers finished. Sending aggregated payload to Controller."
+                            f"[{self.side}] Workers finished. Calling ingest_results()."
                         )
+
+                        self.controller.ingest_results(results_payload)
 
                         self.controller.rc.memory.add(
                             Message(
-                                content=json.dumps(signal_packet, ensure_ascii=False),
+                                content="Worker investigation finished. Reviewing summary...",
                                 role="System",
                             )
                         )

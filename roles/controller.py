@@ -1,7 +1,7 @@
 import asyncio
 import json
 from enum import Enum, auto
-from typing import Dict
+from typing import Dict, List
 
 from metagpt.logs import logger
 from metagpt.roles import Role
@@ -56,6 +56,51 @@ class ArgumentController(Role):
         self.investigation_buffer: Dict[str, str] = {}
         self.latest_summary: str = ""
 
+    def ingest_results(self, results_list: List[Dict[str, str]]):
+        logger.info(
+            f"[{self.name}] Ingesting {len(results_list)} worker results via direct call."
+        )
+
+        try:
+            for item in results_list:
+                worker_name = item.get("worker", "")
+                raw_content = item.get("content", "")
+                clean_content = raw_content
+
+                if "{" in raw_content:
+                    json_part = extract_json_from_text(raw_content)
+
+                    if json_part and "content" in json_part:
+                        clean_content = json_part["content"]
+                        status = json_part.get("status", "UNKNOWN")
+
+                        if status == "NOT_FOUND":
+                            clean_content = f"（未找到）{clean_content}"
+
+                if "FactWorker" in worker_name:
+                    self.investigation_buffer["Fact"] = (
+                        f"🔎 [事实检索报告]: {clean_content}"
+                    )
+
+                elif "LawWorker" in worker_name:
+                    self.investigation_buffer["Law"] = (
+                        f"⚖️ [法条检索报告]: {clean_content}"
+                    )
+
+                elif "RecallWorker" in worker_name:
+                    self.investigation_buffer["Recall"] = (
+                        f"🧠 [历史策略参考]: {clean_content}"
+                    )
+
+        except Exception as e:
+            logger.error(f"[{self.name}] Failed to ingest results: {e}")
+            self.investigation_buffer["Error"] = f"Ingestion error: {e}"
+
+        finally:
+            self._generate_and_memorize_summary()
+            self.pipeline_step = ControllerPipelineStep.DECIDE
+            logger.info(f"[{self.name}] State transitioned to DECIDE.")
+
     async def _act(self) -> Message:
         memories = self.get_memories(k=5)
         last_msg = memories[-1] if memories else None
@@ -84,23 +129,6 @@ class ArgumentController(Role):
                 self.pipeline_step = ControllerPipelineStep.ASSESS_NEEDS
                 self.investigation_buffer = {}
                 self.latest_summary = ""
-
-        if self.pipeline_step == ControllerPipelineStep.WAIT_FOR_WORKERS:
-            signal_content = None
-
-            if "WORKERS_COMPLETED" in last_content:
-                signal_content = last_content
-
-            else:
-                for m in reversed(memories):
-                    if "WORKERS_COMPLETED" in str(m.content):
-                        signal_content = str(m.content)
-                        break
-
-            if signal_content:
-                logger.info(f"[{self.name}] Received WORKERS_COMPLETED signal.")
-                self._process_worker_results(signal_content)
-                self.pipeline_step = ControllerPipelineStep.DECIDE
 
         graph_context = self.graph_tool.current_graph.latest_context
 
@@ -261,48 +289,6 @@ class ArgumentController(Role):
 
         else:
             return Message(content="Controller IDLE", role=self.profile)
-
-    def _process_worker_results(self, signal_content: str):
-        try:
-            data = extract_json_from_text(signal_content)
-            results_list = data.get("data", [])
-
-            for item in results_list:
-                worker_name = item.get("worker", "")
-                raw_content = item.get("content", "")
-                clean_content = raw_content
-
-                if "{" in raw_content:
-                    json_part = extract_json_from_text(raw_content)
-
-                    if json_part and "content" in json_part:
-                        clean_content = json_part["content"]
-                        status = json_part.get("status", "UNKNOWN")
-
-                        if status == "NOT_FOUND":
-                            clean_content = f"（未找到）{clean_content}"
-
-                if "FactWorker" in worker_name:
-                    self.investigation_buffer["Fact"] = (
-                        f"🔎 [事实检索报告]: {clean_content}"
-                    )
-
-                elif "LawWorker" in worker_name:
-                    self.investigation_buffer["Law"] = (
-                        f"⚖️ [法条检索报告]: {clean_content}"
-                    )
-
-                elif "RecallWorker" in worker_name:
-                    self.investigation_buffer["Recall"] = (
-                        f"🧠 [历史策略参考]: {clean_content}"
-                    )
-
-        except Exception as e:
-            logger.error(f"[{self.name}] Failed to process worker results: {e}")
-            self.investigation_buffer["Error"] = f"Result processing error: {e}"
-
-        finally:
-            self._generate_and_memorize_summary()
 
     def _generate_and_memorize_summary(self):
         try:
