@@ -20,7 +20,6 @@ class Insight:
     negative_cases: List[str] = field(default_factory=list)
 
 
-# 法理策略 -> Insight Graph
 class InsightsManager:
     def __init__(
         self,

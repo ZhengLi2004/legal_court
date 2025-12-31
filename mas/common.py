@@ -223,7 +223,6 @@ class ShadowGraph:
         self.graph.add_node(node_id, **asdict(node))
         return node_id, True
 
-    # 查找内容完全一致的节点
     def _find_exact_match_node(
         self, content: str, node_type: NodeType
     ) -> Optional[str]:
