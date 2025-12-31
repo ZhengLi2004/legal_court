@@ -1,4 +1,5 @@
-from typing import Set, Union
+import asyncio
+from typing import Union
 
 from metagpt.logs import logger
 from metagpt.schema import Message
@@ -8,6 +9,7 @@ from roles.worker import FactWorker, LawWorker, RecallWorker
 from tools.fact_es_tool import FactEsTool
 from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
+from tools.json_utils import extract_json_from_text
 from tools.law_es_tool import LawEsTool
 
 from .common import ShadowGraph
@@ -59,28 +61,22 @@ class DebateTeam:
         self.recall_worker.graph_tool = graph_tool
         self.max_internal_steps = 15
 
-    def _get_target_worker(
-        self, send_to: Union[Set, str]
+    def _get_worker_by_name(
+        self, target_name: str
     ) -> Union[FactWorker, LawWorker, RecallWorker, None]:
-        if not send_to:
-            return None
+        if "FactWorker" in target_name:
+            return self.fact_worker
 
-        targets = send_to if isinstance(send_to, set) else {send_to}
+        if "LawWorker" in target_name:
+            return self.law_worker
 
-        for t in targets:
-            if "FactWorker" in t:
-                return self.fact_worker
-
-            if "LawWorker" in t:
-                return self.law_worker
-
-            if "RecallWorker" in t:
-                return self.recall_worker
+        if "RecallWorker" in target_name:
+            return self.recall_worker
 
         return None
 
     async def run_turn(self, graph: ShadowGraph) -> dict:
-        logger.info(f"--- Team {self.side} Turn Start ---")
+        logger.info(f"--- Team {self.side} Turn Start (Parallel Mode) ---")
         self.graph_tool.set_current_graph(graph)
         start_msg = Message(content="SYSTEM_START", role="System")
         self.controller.rc.memory.add(start_msg)
@@ -98,7 +94,7 @@ class DebateTeam:
                 transcript.append(
                     {
                         "from": self.controller.name,
-                        "to": str(ctrl_msg.send_to) if ctrl_msg.send_to else "System",
+                        "to": "Team/Workers",
                         "content": content,
                     }
                 )
@@ -121,33 +117,101 @@ class DebateTeam:
                 logger.info(f"[{self.side}] Turn Successfully Completed.")
                 break
 
-            target_worker = self._get_target_worker(ctrl_msg.send_to)
+            if "WAITING_FOR_PARALLEL_WORKERS" in content:
+                continue
 
-            if target_worker:
-                logger.info(f"[{self.side}] Routing to {target_worker.name}...")
-                target_worker.rc.memory.add(ctrl_msg)
-                worker_msg = await target_worker._act()
+            if "batch_instructions" in content:
+                try:
+                    data = extract_json_from_text(content)
+                    instructions_list = data.get("batch_instructions", [])
 
-                if self.verbose:
-                    transcript.append(
-                        {
-                            "from": target_worker.name,
-                            "to": self.controller.name,
-                            "content": worker_msg.content,
-                        }
+                    if not instructions_list:
+                        logger.info(
+                            f"[{self.side}] No workers needed per Controller. Sending COMPLETED signal."
+                        )
+
+                        self.controller.rc.memory.add(
+                            Message(content="WORKERS_COMPLETED", role="System")
+                        )
+
+                        continue
+
+                    tasks = []
+                    worker_names = []
+
+                    logger.info(
+                        f"[{self.side}] Dispatching {len(instructions_list)} parallel tasks..."
                     )
 
-                self.controller.rc.memory.add(worker_msg)
+                    for item in instructions_list:
+                        target_name = item.get("target")
+                        inst_json = item.get("instruction")
+                        worker = self._get_worker_by_name(target_name)
 
-            else:
-                logger.warning(f"[{self.side}] Unknown Controller Output: {content}")
+                        if worker:
+                            worker.rc.memory.add(
+                                Message(content=inst_json, role=self.controller.profile)
+                            )
 
-                feedback_msg = Message(
-                    content="SYSTEM_FEEDBACK: 你的输出无法被识别。请检查你是否处于正确的状态。",
-                    role="System",
-                )
+                            tasks.append(worker._act())
+                            worker_names.append(worker.name)
 
-                self.controller.rc.memory.add(feedback_msg)
+                        else:
+                            logger.warning(
+                                f"[{self.side}] Unknown target worker: {target_name}"
+                            )
+
+                    if tasks:
+                        results = await asyncio.gather(*tasks)
+
+                        for i, res_msg in enumerate(results):
+                            w_name = worker_names[i]
+
+                            if self.verbose:
+                                transcript.append(
+                                    {
+                                        "from": w_name,
+                                        "to": self.controller.name,
+                                        "content": res_msg.content,
+                                    }
+                                )
+
+                            res_msg.role = w_name
+                            self.controller.rc.memory.add(res_msg)
+
+                    logger.info(
+                        f"[{self.side}] All workers finished. Sending signal to Controller."
+                    )
+
+                    self.controller.rc.memory.add(
+                        Message(content="WORKERS_COMPLETED", role="System")
+                    )
+
+                    continue
+
+                except Exception as e:
+                    logger.error(
+                        f"[{self.side}] Failed to process batch instructions: {e}"
+                    )
+
+                    feedback_msg = Message(
+                        content=f"SYSTEM_FEEDBACK: 指令分发系统发生严重错误: {str(e)}",
+                        role="System",
+                    )
+
+                    self.controller.rc.memory.add(feedback_msg)
+                    continue
+
+            logger.warning(
+                f"[{self.side}] Unknown Controller Output: {content[:50]}..."
+            )
+
+            feedback_msg = Message(
+                content="SYSTEM_FEEDBACK: 你的输出无法被识别。请确保输出 batch_instructions JSON 或 Action Completed。",
+                role="System",
+            )
+
+            self.controller.rc.memory.add(feedback_msg)
 
         if final_result is None:
             final_result = (

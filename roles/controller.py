@@ -1,3 +1,5 @@
+import asyncio
+import json
 from enum import Enum, auto
 from typing import List
 
@@ -25,12 +27,8 @@ from tools.json_utils import extract_json_from_text
 
 class ControllerPipelineStep(Enum):
     IDLE = auto()
-    FACT_CHECK = auto()
-    WAIT_FACT_REPORT = auto()
-    LAW_CHECK = auto()
-    WAIT_LAW_REPORT = auto()
-    RECALL_CHECK = auto()
-    WAIT_RECALL_REPORT = auto()
+    ASSESS_NEEDS = auto()
+    WAIT_FOR_WORKERS = auto()
     DECIDE = auto()
     DONE = auto()
 
@@ -65,7 +63,7 @@ class ArgumentController(Role):
         last_role = str(last_msg.role) if last_msg else ""
 
         logger.debug(
-            f"[{self.name}] Latest Memory: [{last_role}] {last_content[:30]}..."
+            f"[{self.name}] State: {self.pipeline_step.name} | Latest Memory: [{last_role}] {last_content[:30]}..."
         )
 
         if last_role == "System" and "SYSTEM_START" in last_content:
@@ -73,201 +71,211 @@ class ArgumentController(Role):
                 ControllerPipelineStep.IDLE,
                 ControllerPipelineStep.DONE,
             ]:
-                logger.info(f"[{self.name}] Received START signal. Resetting Pipeline.")
-                self.pipeline_step = ControllerPipelineStep.FACT_CHECK
-                self.accumulated_reports = []
-
-            elif self.pipeline_step != ControllerPipelineStep.FACT_CHECK:
-                logger.info(f"[{self.name}] Force Restart triggered.")
-                self.pipeline_step = ControllerPipelineStep.FACT_CHECK
-                self.accumulated_reports = []
-
-        if self.pipeline_step == ControllerPipelineStep.WAIT_FACT_REPORT:
-            if "REPORT" in last_content or "{" in last_content:
-                self._handle_worker_report(last_msg, "FactWorker")
-                logger.info(f"[{self.name}] Received Fact Report. Moving to LAW_CHECK.")
-                self.pipeline_step = ControllerPipelineStep.LAW_CHECK
-
-            else:
-                logger.debug(
-                    f"[{self.name}] Waiting for Fact Report... (Ignored: {last_content[:20]})"
-                )
-
-        elif self.pipeline_step == ControllerPipelineStep.WAIT_LAW_REPORT:
-            if "REPORT" in last_content or "{" in last_content:
-                self._handle_worker_report(last_msg, "LawWorker")
-
                 logger.info(
-                    f"[{self.name}] Received Law Report. Moving to RECALL_CHECK."
+                    f"[{self.name}] Received START signal. Starting Assessment."
                 )
 
-                self.pipeline_step = ControllerPipelineStep.RECALL_CHECK
+                self.pipeline_step = ControllerPipelineStep.ASSESS_NEEDS
+                self.accumulated_reports = []
 
-            else:
-                logger.debug(
-                    f"[{self.name}] Waiting for Law Report... (Ignored: {last_content[:20]})"
+            elif self.pipeline_step != ControllerPipelineStep.ASSESS_NEEDS:
+                logger.info(f"[{self.name}] Force Restart triggered.")
+                self.pipeline_step = ControllerPipelineStep.ASSESS_NEEDS
+                self.accumulated_reports = []
+
+        if self.pipeline_step == ControllerPipelineStep.WAIT_FOR_WORKERS:
+            completed = False
+
+            for msg in reversed(memories):
+                if "WORKERS_COMPLETED" in str(msg.content):
+                    completed = True
+                    break
+
+            for msg in memories:
+                if "Worker" in str(msg.role):
+                    self._handle_worker_report(msg, str(msg.role))
+
+            if completed:
+                logger.info(
+                    f"[{self.name}] Parallel Workers Completed signal detected. Moving to DECIDE."
                 )
 
-        elif self.pipeline_step == ControllerPipelineStep.WAIT_RECALL_REPORT:
-            if "REPORT" in last_content or "{" in last_content:
-                self._handle_worker_report(last_msg, "RecallWorker")
-                logger.info(f"[{self.name}] Received Recall Report. Moving to DECIDE.")
                 self.pipeline_step = ControllerPipelineStep.DECIDE
 
+        graph_context = self.graph_tool.current_graph.latest_context
+
+        if self.pipeline_step == ControllerPipelineStep.ASSESS_NEEDS:
+            logger.info(
+                f"[{self.name}] Parallelly Assessing Needs (Fact, Law, Recall)..."
+            )
+
+            fact_task = AssessFactNeeds(llm=self.llm).run(
+                self.name, self.persona, graph_context
+            )
+
+            law_task = AssessLawNeeds(llm=self.llm).run(
+                self.name, self.persona, graph_context
+            )
+
+            recall_task = AssessRecallNeeds(llm=self.llm).run(
+                self.name, self.persona, graph_context
+            )
+
+            results = await asyncio.gather(fact_task, law_task, recall_task)
+            raw_fact, raw_law, raw_recall = results
+            req_fact = self._parse_requirement(raw_fact)
+            req_law = self._parse_requirement(raw_law)
+            req_recall = self._parse_requirement(raw_recall)
+            instructions = []
+
+            if req_fact.need:
+                logger.info(f"[{self.name}] + Need Fact: {req_fact.query}")
+
+                inst = WorkerInstruction(
+                    query=req_fact.query, graph_context=graph_context
+                )
+
+                instructions.append(
+                    {"target": "FactWorker", "instruction": inst.to_json()}
+                )
+
             else:
-                logger.debug(
-                    f"[{self.name}] Waiting for Recall Report... (Ignored: {last_content[:20]})"
+                logger.info(f"[{self.name}] - Skip Fact: {req_fact.reasoning[:30]}...")
+
+            if req_law.need:
+                logger.info(f"[{self.name}] + Need Law: {req_law.query}")
+
+                inst = WorkerInstruction(
+                    query=req_law.query, graph_context=graph_context
                 )
 
-        while True:
-            graph_context = self.graph_tool.current_graph.latest_context
-
-            if self.pipeline_step == ControllerPipelineStep.FACT_CHECK:
-                logger.info(f"[{self.name}] Assessing Fact Needs...")
-                action = AssessFactNeeds(llm=self.llm)
-                raw_resp = await action.run(self.name, self.persona, graph_context)
-                req = self._parse_requirement(raw_resp)
-
-                if req.need:
-                    logger.info(f"[{self.name}] Fact Check Needed: {req.query}")
-                    self.pipeline_step = ControllerPipelineStep.WAIT_FACT_REPORT
-
-                    return self._create_instruction(
-                        req.query, graph_context, "FactWorker"
-                    )
-
-                else:
-                    logger.info(f"[{self.name}] Fact Check Skipped: {req.reasoning}")
-
-                    self.pipeline_step = ControllerPipelineStep.LAW_CHECK
-
-                    continue
-
-            elif self.pipeline_step == ControllerPipelineStep.LAW_CHECK:
-                logger.info(f"[{self.name}] Assessing Law Needs...")
-                action = AssessLawNeeds(llm=self.llm)
-                raw_resp = await action.run(self.name, self.persona, graph_context)
-                req = self._parse_requirement(raw_resp)
-
-                if req.need:
-                    logger.info(f"[{self.name}] Law Check Needed: {req.query}")
-                    self.pipeline_step = ControllerPipelineStep.WAIT_LAW_REPORT
-
-                    return self._create_instruction(
-                        req.query, graph_context, "LawWorker"
-                    )
-
-                else:
-                    logger.info(f"[{self.name}] Law Check Skipped: {req.reasoning}")
-
-                    self.pipeline_step = ControllerPipelineStep.RECALL_CHECK
-
-                    continue
-
-            elif self.pipeline_step == ControllerPipelineStep.RECALL_CHECK:
-                logger.info(f"[{self.name}] Assessing Recall Needs...")
-                action = AssessRecallNeeds(llm=self.llm)
-                raw_resp = await action.run(self.name, self.persona, graph_context)
-                req = self._parse_requirement(raw_resp)
-
-                if req.need:
-                    logger.info(f"[{self.name}] Recall Check Needed: {req.query}")
-                    self.pipeline_step = ControllerPipelineStep.WAIT_RECALL_REPORT
-
-                    return self._create_instruction(
-                        req.query, graph_context, "RecallWorker"
-                    )
-
-                else:
-                    logger.info(f"[{self.name}] Recall Check Skipped: {req.reasoning}")
-                    self.pipeline_step = ControllerPipelineStep.DECIDE  # -> DECIDE
-                    continue
-
-            elif self.pipeline_step == ControllerPipelineStep.DECIDE:
-                logger.info(f"[{self.name}] Finalizing Decision...")
-                feedback = ""
-
-                if "SYSTEM_FEEDBACK" in last_content:
-                    feedback = last_content
-
-                    logger.warning(
-                        f"[{self.name}] Retrying with feedback: {feedback[:50]}..."
-                    )
-
-                combined_advice = (
-                    "\n".join(self.accumulated_reports)
-                    if self.accumulated_reports
-                    else "（本轮无额外检索报告）"
+                instructions.append(
+                    {"target": "LawWorker", "instruction": inst.to_json()}
                 )
 
-                action = VerifyAndDecide(llm=self.llm)
+            else:
+                logger.info(f"[{self.name}] - Skip Law: {req_law.reasoning[:30]}...")
 
-                decision_raw = await action.run(
-                    self.name,
-                    combined_advice,
-                    graph_context,
-                    self.persona.initial_strategy,
-                    feedback=feedback,
+            if req_recall.need:
+                logger.info(f"[{self.name}] + Need Recall: {req_recall.query}")
+
+                inst = WorkerInstruction(
+                    query=req_recall.query, graph_context=graph_context
                 )
 
-                parsed_actions = parse_agent_action_output(decision_raw)
+                instructions.append(
+                    {"target": "RecallWorker", "instruction": inst.to_json()}
+                )
 
-                if isinstance(parsed_actions, list) and all(
-                    isinstance(a, AgentAction) for a in parsed_actions
-                ):
-                    exec_msg = await self.graph_tool.process_intent(
-                        self.name, parsed_actions
-                    )
+            else:
+                logger.info(
+                    f"[{self.name}] - Skip Recall: {req_recall.reasoning[:30]}..."
+                )
 
-                    if "REJECT" in exec_msg or "Error" in exec_msg:
-                        logger.warning(
-                            f"[{self.name}] Action Execution Failed: {exec_msg}"
-                        )
+            if not instructions:
+                logger.info(
+                    f"[{self.name}] No workers needed. Jumping directly to DECIDE."
+                )
 
-                        return Message(
-                            content=f"EXECUTION_FAILURE: {exec_msg}", role=self.profile
-                        )
+                self.pipeline_step = ControllerPipelineStep.DECIDE
 
-                    else:
-                        self.pipeline_step = ControllerPipelineStep.DONE
+                return Message(
+                    content=json.dumps({"batch_instructions": []}), role=self.profile
+                )
 
-                        return Message(
-                            content=f"Action Completed: {exec_msg}", role=self.profile
-                        )
+            self.pipeline_step = ControllerPipelineStep.WAIT_FOR_WORKERS
 
-                else:
-                    error_msg = f"JSON Parsing Failed: {parsed_actions}"
-                    logger.warning(f"[{self.name}] {error_msg}")
+            batch_msg_content = json.dumps({"batch_instructions": instructions})
+            return Message(content=batch_msg_content, role=self.profile)
+
+        elif self.pipeline_step == ControllerPipelineStep.WAIT_FOR_WORKERS:
+            return Message(content="WAITING_FOR_PARALLEL_WORKERS", role=self.profile)
+
+        elif self.pipeline_step == ControllerPipelineStep.DECIDE:
+            logger.info(
+                f"[{self.name}] Finalizing Decision with {len(self.accumulated_reports)} reports..."
+            )
+
+            feedback = ""
+
+            if "SYSTEM_FEEDBACK" in last_content:
+                feedback = last_content
+
+                logger.warning(
+                    f"[{self.name}] Retrying with feedback: {feedback[:50]}..."
+                )
+
+            combined_advice = (
+                "\n".join(self.accumulated_reports)
+                if self.accumulated_reports
+                else "（本轮无额外检索报告）"
+            )
+
+            action = VerifyAndDecide(llm=self.llm)
+
+            decision_raw = await action.run(
+                self.name,
+                combined_advice,
+                graph_context,
+                self.persona.initial_strategy,
+                feedback=feedback,
+            )
+
+            parsed_actions = parse_agent_action_output(decision_raw)
+
+            if isinstance(parsed_actions, list) and all(
+                isinstance(a, AgentAction) for a in parsed_actions
+            ):
+                exec_msg = await self.graph_tool.process_intent(
+                    self.name, parsed_actions
+                )
+
+                if "REJECT" in exec_msg or "Error" in exec_msg:
+                    logger.warning(f"[{self.name}] Action Execution Failed: {exec_msg}")
 
                     return Message(
-                        content=f"EXECUTION_FAILURE: {error_msg}", role=self.profile
+                        content=f"EXECUTION_FAILURE: {exec_msg}", role=self.profile
                     )
 
-            elif self.pipeline_step == ControllerPipelineStep.DONE:
-                return Message(
-                    content="Action Completed: Pipeline Finished.", role=self.profile
-                )
+                else:
+                    self.pipeline_step = ControllerPipelineStep.DONE
 
-            elif self.pipeline_step in [
-                ControllerPipelineStep.WAIT_FACT_REPORT,
-                ControllerPipelineStep.WAIT_LAW_REPORT,
-                ControllerPipelineStep.WAIT_RECALL_REPORT,
-            ]:
-                return Message(
-                    content=f"Waiting for Report... (Current Step: {self.pipeline_step})",
-                    role=self.profile,
-                )
+                    return Message(
+                        content=f"Action Completed: {exec_msg}", role=self.profile
+                    )
 
             else:
-                return Message(content="Controller IDLE", role=self.profile)
+                error_msg = f"JSON Parsing Failed: {parsed_actions}"
+                logger.warning(f"[{self.name}] {error_msg}")
+
+                return Message(
+                    content=f"EXECUTION_FAILURE: {error_msg}", role=self.profile
+                )
+
+        elif self.pipeline_step == ControllerPipelineStep.DONE:
+            return Message(
+                content="Action Completed: Pipeline Finished.", role=self.profile
+            )
+
+        else:
+            return Message(content="Controller IDLE", role=self.profile)
 
     def _handle_worker_report(self, msg: Message, worker_name: str):
-        try:
-            content = str(msg.content)
+        content = str(msg.content)
 
+        try:
             if "{" in content and "}" in content:
-                report = WorkerReport.model_validate_json(content)
-                summary = f"【{worker_name} Report】({report.status}): {report.content}"
+                json_part = extract_json_from_text(content)
+
+                if json_part and "status" in json_part:
+                    report = WorkerReport.model_validate(json_part)
+
+                    summary = (
+                        f"【{worker_name} Report】({report.status}): {report.content}"
+                    )
+
+                else:
+                    summary = f"【{worker_name} Raw Msg】: {content}"
 
             else:
                 summary = f"【{worker_name} Raw Msg】: {content}"
@@ -276,9 +284,10 @@ class ArgumentController(Role):
             logger.info(f"[{self.name}] Stored report from {worker_name}")
 
         except Exception:
-            self.accumulated_reports.append(
-                f"【{worker_name} Error】: {str(msg.content)}"
-            )
+            if f"【{worker_name} Raw Msg】" not in str(self.accumulated_reports):
+                self.accumulated_reports.append(
+                    f"【{worker_name} Raw Msg (ParseError)】: {str(msg.content)[:100]}..."
+                )
 
     def _parse_requirement(self, raw_text: str) -> ResourceRequirement:
         try:
@@ -288,7 +297,3 @@ class ArgumentController(Role):
         except Exception as e:
             logger.warning(f"[{self.name}] Parse Error: {e}. Defaulting to NEED=False.")
             return ResourceRequirement(need=False, reasoning=f"Parse Error: {e}")
-
-    def _create_instruction(self, query: str, context: str, target: str) -> Message:
-        instruction = WorkerInstruction(query=query, graph_context=context)
-        return Message(content=instruction.to_json(), role=self.profile, send_to=target)
