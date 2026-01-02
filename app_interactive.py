@@ -26,24 +26,24 @@ def get_graph_stats(graph):
     }
 
     for _, data in graph.nodes(data=True):
-        node_type = data.get("type")
+        t = data.get("type")
 
-        if node_type == NodeType.FACT:
+        if t == NodeType.FACT:
             stats["facts"] += 1
 
-        elif node_type == NodeType.LAW:
+        elif t == NodeType.LAW:
             stats["laws"] += 1
 
-        elif node_type == NodeType.CLAIM:
+        elif t == NodeType.CLAIM:
             stats["claims"] += 1
 
     for _, _, data in graph.edges(data=True):
-        edge_type = data.get("type")
+        t = data.get("type")
 
-        if edge_type == EdgeType.SUPPORT:
+        if t == EdgeType.SUPPORT:
             stats["support_edges"] += 1
 
-        elif edge_type == EdgeType.CONFLICT:
+        elif t == EdgeType.CONFLICT:
             stats["conflict_edges"] += 1
 
     return stats
@@ -51,30 +51,16 @@ def get_graph_stats(graph):
 
 def render_verdict_summary(adjudication_result):
     st.success("⚖️ **Verdict Rendered**")
-
     document_content = adjudication_result.get("document", "No document.")
 
     paper_style = """
-    <div style="
-        background-color: #f9f9f9; 
-        padding: 40px; 
-        border: 1px solid #ddd; 
-        border-radius: 5px;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
-        font-family: 'Times New Roman', serif;
-        margin-bottom: 20px;
-    ">
+    <div style="background-color: #f9f9f9; padding: 40px; border: 1px solid #ddd; border-radius: 5px; box-shadow: 2px 2px 10px rgba(0,0,0,0.05); font-family: 'Times New Roman', serif; margin-bottom: 20px;">
         <h2 style="text-align: center; color: #333; margin-bottom: 5px;">民 事 判 决 书</h2>
         <p style="text-align: center; color: #666; font-size: 0.9em;">(AI Adjudication Draft)</p>
         <hr style="border-top: 2px solid #333; margin-top: 10px; margin-bottom: 20px;">
-        <div style="font-size: 16px; line-height: 1.8; color: #222; text-align: justify;">
-            {content}
-        </div>
+        <div style="font-size: 16px; line-height: 1.8; color: #222; text-align: justify;">{content}</div>
         <br><br>
-        <div style="text-align: right; margin-top: 30px;">
-            <p><strong>本案 AI 审判员</strong></p>
-            <p>{date}</p>
-        </div>
+        <div style="text-align: right; margin-top: 30px;"><p><strong>本案 AI 审判员</strong></p><p>{date}</p></div>
     </div>
     """
 
@@ -94,12 +80,12 @@ def render_verdict_summary(adjudication_result):
         return
 
     for claim_id, status in claims_status.items():
-        col1, col2 = st.columns([2, 1])
+        c1, c2 = st.columns([2, 1])
 
-        with col1:
+        with c1:
             st.caption(f"ID: {claim_id}")
 
-        with col2:
+        with c2:
             if status == "VALIDATED":
                 st.success(f"✔️ {status}", icon="✔️")
 
@@ -117,14 +103,14 @@ def render_agent_memory(memory_list):
         st.info("Memory is empty.")
         return
 
-    for i, msg in enumerate(memory_list):
+    for msg in memory_list:
         role = msg.get("role", "unknown")
         content = msg.get("content", "")
 
         if role == "System":
             avatar = "⚙️"
 
-        elif "Controller" in role or role == "user":
+        elif "Controller" in role:
             avatar = "🧠"
 
         elif "Worker" in role:
@@ -159,12 +145,31 @@ st.set_page_config(layout="wide", page_title="Legal MAS Console")
 st.markdown(
     """
 <style>
-    .stChatMessage { padding: 1rem; border-radius: 0.5rem; margin-bottom: 0.5rem; }
-    .stChatMessage[data-testid="stChatMessage"] { background-color: #f0f2f6; }
-    div[data-testid="stMetric"] {
-        background-color: #f0f2f6;
-        border-radius: 0.5rem;
-        padding: 10px;
+    .stChatMessage {
+        padding: 1rem;
+        border-radius: 15px;
+        margin-bottom: 1rem;
+        border: 1px solid rgba(0,0,0,0.05);
+        box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .stChatMessage[data-testid="stChatMessage"] {
+        background-color: #ffffff; /* 默认白色 */
+    }
+    
+    .chat-bubble-plaintiff {
+        background-color: #e3f2fd !important;
+        border-left: 5px solid #2196f3 !important;
+    }
+
+    .chat-bubble-defendant {
+        background-color: #ffebee !important;
+        border-left: 5px solid #f44336 !important;
+    }
+
+    .chat-bubble-system {
+        background-color: #f5f5f5 !important;
+        border-left: 5px solid #9e9e9e !important;
     }
 </style>
 """,
@@ -201,7 +206,7 @@ with st.sidebar:
         ]
 
         selected_idx = st.selectbox(
-            "Choose a case to debate:",
+            "Choose a case:",
             range(len(sample_titles)),
             format_func=lambda i: sample_titles[i],
         )
@@ -210,8 +215,6 @@ with st.sidebar:
 
         with st.expander("📝 Case Preview"):
             st.write(f"**Cause:** {selected_case.cause}")
-            st.write(f"**Plaintiff:** {selected_case.plaintiffs}")
-            st.write(f"**Defendant:** {selected_case.defendants}")
             st.caption(selected_case.fact_finding[:200] + "...")
 
         if st.button("🚀 Initialize System", type="primary", use_container_width=True):
@@ -231,10 +234,7 @@ with st.sidebar:
                     {
                         "role": "system",
                         "content": init_content,
-                        "details": {
-                            "action": "Case Loaded",
-                            "cause": selected_case.cause,
-                        },
+                        "details": {"action": "Case Loaded"},
                     }
                 )
 
@@ -250,7 +250,7 @@ with st.sidebar:
         conv_score = last_log.get("convergence", {}).get("sma", 0.0)
 
         with col_c:
-            st.metric("Convergence (SMA)", f"{conv_score:.4f}")
+            st.metric("Convergence", f"{conv_score:.4f}")
 
         st.markdown("---")
 
@@ -272,7 +272,7 @@ with st.sidebar:
                     )
 
                     asyncio.run(engine.step())
-                    st.write("📝 Synthesizing results & Updating Graph...")
+                    st.write("📝 Synthesizing Narrative & Updating Graph...")
 
                     status.update(
                         label=f"✅ {turn_name}'s Turn Completed",
@@ -296,7 +296,7 @@ with st.sidebar:
         else:
             st.success("🏁 Debate Adjudicated")
 
-        if st.button("🔄 Reset & Change Case", use_container_width=True):
+        if st.button("🔄 Reset", use_container_width=True):
             if isinstance(engine, DebateEngine):
                 asyncio.run(engine.close_resources())
 
@@ -315,55 +315,32 @@ if st.session_state.is_setup:
 
         for msg in st.session_state.chat_history:
             role = msg["role"]
-            content = msg["content"]
+            content = msg["content"]  # 默认内容 (Action Summary)
             details = msg.get("details", {})
+            narrative = details.get("narrative", "")  # 叙事内容
 
             if role == "plaintiff":
-                avatar, name = "🔵", "Plaintiff Team"
+                avatar, name = "🔵", "原告代理人 (Plaintiff)"
+                css_class = "chat-bubble-plaintiff"
 
             elif role == "defendant":
-                avatar, name = "🔴", "Defendant Team"
+                avatar, name = "🔴", "被告代理人 (Defendant)"
+                css_class = "chat-bubble-defendant"
 
             else:
                 avatar, name = "🤖", "System / Judge"
+                css_class = "chat-bubble-system"
 
             with st.chat_message(name, avatar=avatar):
-                if (
-                    role in ["plaintiff", "defendant"]
-                    and "dialogue" in details
-                    and details["dialogue"]
-                ):
-                    status_label = f"**Turn Summary:** {content}"
+                if narrative:
+                    if role == "plaintiff":
+                        st.info(narrative, icon="🗣️")
 
-                    with st.status(status_label, expanded=True):
-                        st.write("##### 🕵️ Worker Execution Logs (Parallel):")
+                    elif role == "defendant":
+                        st.error(narrative, icon="🗣️")  # 用 error 红色框代表被告
 
-                        for d_msg in details["dialogue"]:
-                            from_val = d_msg.get("from", "?")
-
-                            sender = (
-                                from_val.split("_")[-1]
-                                if isinstance(from_val, str)
-                                else str(from_val)
-                            )
-
-                            if "Worker" in sender:
-                                txt = d_msg.get("content", "")
-                                st.caption(f"**{sender}**:")
-
-                                if "🔎" in txt or "⚖️" in txt or "🧠" in txt:
-                                    st.markdown(txt)
-
-                                else:
-                                    st.code(txt)
-
-                        st.markdown("---")
-                        st.write("##### ⚡ Action Log:")
-
-                        st.code(
-                            details.get("action", "No final action logged."),
-                            language="text",
-                        )
+                    else:
+                        st.markdown(narrative)
 
                 elif "adjudication_result" in details:
                     render_verdict_summary(details["adjudication_result"])
@@ -371,52 +348,45 @@ if st.session_state.is_setup:
                 else:
                     st.markdown(content)
 
+                if role in ["plaintiff", "defendant"]:
+                    with st.expander(
+                        "🛠️ Technical Logs (Worker & Action)", expanded=False
+                    ):
+                        if "dialogue" in details and details["dialogue"]:
+                            st.caption("Worker Execution Logs:")
+
+                            for d_msg in details["dialogue"]:
+                                sender = d_msg.get("from", "").split("_")[-1]
+
+                                if "Worker" in sender:
+                                    txt = d_msg.get("content", "")
+                                    st.text(f"[{sender}]: {txt[:50]}...")
+
+                        st.caption("Graph Action:")
+                        st.code(content, language="text")
+
     with col_context:
         tab_graph, tab_memory, tab_agent_ctx, tab_raw = st.tabs(
-            ["🕸️ Graph", "🧠 Global Memory", "🤖 Agent Context", "📝 Logs"]
+            ["🕸️ Graph", "🧠 Memory", "🤖 Context", "📝 Logs"]
         )
 
         with tab_graph:
-            st.subheader("Debate Graph")
             st.caption("Legend: 🔵Fact 🟡Law 🟢Claim | 🟩Support 🟥Conflict")
 
             if snapshot.get("shadow_graph"):
                 render_graph(snapshot["shadow_graph"])
 
-            st.subheader("Statistics")
-
-            if snapshot.get("shadow_graph"):
-                stats = get_graph_stats(snapshot["shadow_graph"].graph)
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Facts", stats.get("facts", 0))
-                c2.metric("Laws", stats.get("laws", 0))
-                c3.metric("Claims", stats.get("claims", 0))
-                c1, c2 = st.columns(2)
-
-                c1.metric(
-                    "Support Edges", stats.get("support_edges", 0), delta_color="off"
-                )
-
-                c2.metric(
-                    "Conflict Edges", stats.get("conflict_edges", 0), delta_color="off"
-                )
-
             if engine.convergence_history:
-                st.subheader("Convergence (ΔΦ)")
-
-                df_conv = pd.DataFrame(
-                    engine.convergence_history, columns=["Stability Delta"]
-                )
-
-                st.line_chart(df_conv)
-                st.caption("Based on Claim Node variation & Conflict Edge counts.")
+                st.divider()
+                st.caption("Debate Convergence (SMA)")
+                df_conv = pd.DataFrame(engine.convergence_history, columns=["ΔΦ"])
+                st.line_chart(df_conv, height=150)
 
         with tab_memory:
             render_global_memory(snapshot)
 
         with tab_agent_ctx:
             st.subheader("Active Agent Memory")
-            st.caption("Inspect the internal thought process and memory state.")
             last_turn = snapshot.get("last_log", {}).get("turn", "plaintiff")
 
             selected_agent = st.radio(
@@ -432,7 +402,7 @@ if st.session_state.is_setup:
                 render_agent_memory(memories)
 
             else:
-                st.info("No memory initialized for this agent.")
+                st.info("No memory initialized.")
 
         with tab_raw:
             st.json(snapshot.get("last_log", {}))
@@ -441,11 +411,12 @@ else:
     st.info("👈 Please select a case and click **Initialize System** to begin.")
 
     st.markdown("""
-    ### System Architecture Overview
-    1. **Debate Engine:** Orchestrates rounds and checks for convergence.
-    2. **Shadow Graph:** A dynamic logical graph that evolves as agents make claims.
-    3. **Multi-Agent Teams:** 
-        - *Controller:* Strategist (Lawyer).
-        - *Workers:* Evidence and Law retrieval experts (Parallel Execution).
-    4. **AI Judge:** Adjudicates the final graph state once converged.
+    ### 🏛️ Legal MAS System
+    An advanced Neuro-Symbolic debate system.
+    
+    **Workflow:**
+    1.  **Parallel Investigation**: Fact/Law/Strategy workers run concurrently.
+    2.  **Narrative Construction**: Programmatic logic + LLM polishing creates readable transcripts.
+    3.  **Graph Evolution**: Explicit logic actions update the Shadow Graph.
+    4.  **Narrative Adjudication**: Judge reads the full transcript to render a verdict.
     """)

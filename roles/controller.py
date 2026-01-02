@@ -56,6 +56,7 @@ class ArgumentController(Role):
         self.investigation_buffer: Dict[str, str] = {}
         self.latest_summary: str = ""
         self.recent_errors: List[str] = []
+        self.last_executed_actions: List[AgentAction] = []
 
     def reset_turn_state(self):
         logger.info(f"[{self.name}] Resetting turn state (Buffer & Errors cleared).")
@@ -63,6 +64,7 @@ class ArgumentController(Role):
         self.investigation_buffer = {}
         self.latest_summary = ""
         self.recent_errors = []
+        self.last_executed_actions = []
 
     def ingest_results(self, results_list: List[Dict[str, str]]):
         logger.info(
@@ -279,6 +281,7 @@ class ArgumentController(Role):
                     )
 
                 else:
+                    self.last_executed_actions = parsed_actions
                     self.pipeline_step = ControllerPipelineStep.DONE
 
                     return Message(

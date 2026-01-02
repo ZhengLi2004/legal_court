@@ -1,6 +1,6 @@
 import asyncio
 from abc import ABC
-from typing import Dict
+from typing import Dict, List
 
 from metagpt.logs import logger
 
@@ -11,7 +11,7 @@ from .llm import GPTChat, Message
 
 
 class BaseJudge(ABC):
-    def evaluate(self, context: str, graph: ShadowGraph) -> str:
+    def evaluate(self, context: str, graph: ShadowGraph, transcript: List[str]) -> str:
         pass
 
     async def extract_verdict(
@@ -25,10 +25,38 @@ class LLMJudge(BaseJudge):
         self.judge_llm = judge_llm
         self.extraction_llm = extraction_llm
 
-    def evaluate(self, context: str, graph: ShadowGraph) -> str:
+    def evaluate(self, context: str, graph: ShadowGraph, transcript: List[str]) -> str:
+        root_claims = []
+
+        for _, data in graph.graph.nodes(data=True):
+            if data.get("metadata", {}).get("is_root_claim"):
+                root_claims.append(data.get("content", "未知诉求"))
+
+        if not root_claims:
+            issue_list_str = "（未检测到明确的根诉求，请根据庭审笔录自行归纳争议焦点）"
+            logger.warning("[Judge] No root claims found in graph metadata.")
+
+        else:
+            issue_list_str = "\n".join(
+                [f"{i + 1}. {content}" for i, content in enumerate(root_claims)]
+            )
+
+        if not transcript:
+            transcript_str = "（本案无庭审辩论记录）"
+
+            logger.warning(
+                "[Judge] Transcript is empty! Judgment might be hallucinated."
+            )
+
+        else:
+            transcript_str = "\n\n".join(transcript)
+            logger.info(f"[Judge] compiled transcript with {len(transcript)} segments.")
+
         prompt = JUDGE_EVALUATE_PROMPT.format(
-            graph_text=graph.to_recursive_text()
-        ).strip()
+            issue_list=issue_list_str, transcript=transcript_str
+        )
+
+        logger.info(">>> [Judge] Generating Judgment Document...")
 
         response = self.judge_llm(
             [Message(role="user", content=prompt)], max_tokens=4096
@@ -48,7 +76,6 @@ class LLMJudge(BaseJudge):
         }
 
         if not all_root_claims:
-            logger.info("No root claims found in the graph for extraction.")
             return {}
 
         extraction_tasks = []
@@ -78,15 +105,11 @@ class LLMJudge(BaseJudge):
             elif "STATUS: UNMENTIONED" in response:
                 root_claims_status[claim_id] = NodeStatus.HYPOTHETICAL
 
-                logger.info(
-                    f"Extraction LLM: Claim {claim_id} explicitly marked as UNMENTIONED."
-                )
-
             else:
                 root_claims_status[claim_id] = NodeStatus.HYPOTHETICAL
 
-                logger.warning(
-                    f"Extraction LLM returned unclear/unexpected status for claim {claim_id}: '{response}'. Marking as HYPOTHETICAL."
+                logger.debug(
+                    f"[Judge-Extract] Unclear status for {claim_id}: {response}"
                 )
 
         return root_claims_status

@@ -202,4 +202,8 @@ class DebateTeam:
                 f"Timeout: Internal steps exhausted ({self.max_internal_steps})."
             )
 
-        return {"summary": final_result, "transcript": transcript}
+        return {
+            "summary": final_result,
+            "transcript": transcript,
+            "actions": self.controller.last_executed_actions,
+        }

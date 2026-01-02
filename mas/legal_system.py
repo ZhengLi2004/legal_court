@@ -18,7 +18,7 @@ from .utils import EmbeddingFunc
 class LegalSystem:
     def __init__(self, persist_dir: str = None, config: SystemConfig = None):
         self.cfg = config or SystemConfig()
-        self.llm = GPTChat(model_name=self.cfg.llm.model_name)  # This is the agent LLM
+        self.llm = GPTChat(model_name=self.cfg.llm.model_name)
         self.ef = EmbeddingFunc(model_path=self.cfg.path.embedding_model_path)
 
         self.projection_matcher = SemanticMatcher(
@@ -115,9 +115,9 @@ class LegalSystem:
         return logs
 
     async def adjudicate(
-        self, context: str, graph: ShadowGraph
+        self, context: str, graph: ShadowGraph, transcript: List[str]
     ) -> Tuple[str, Dict[str, NodeStatus]]:
-        judgment_document = self.judge.evaluate(context, graph)
+        judgment_document = self.judge.evaluate(context, graph, transcript)
         root_claims_status = await self.judge.extract_verdict(judgment_document, graph)
         return judgment_document, root_claims_status
 

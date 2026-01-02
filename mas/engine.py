@@ -13,6 +13,7 @@ from .common import EdgeType, NodeStatus, NodeType, ShadowGraph
 from .config import SystemConfig
 from .legal_system import LegalSystem
 from .llm import GPTChat
+from .narrator import GraphNarrator
 from .team import DebateTeam
 
 
@@ -42,6 +43,8 @@ class DebateEngine:
         self.root_claims_status: Dict[str, NodeStatus] = {}
         self.convergence_history: List[float] = []
         self.prev_stats: Dict[str, int] = {"claim_nodes": 0, "conflict_edges": 0}
+        self.transcript: List[str] = []
+        self.narrator: GraphNarrator = None
 
     def _count_claim_nodes(self) -> int:
         if not self.graph or not self.graph.graph:
@@ -62,6 +65,7 @@ class DebateEngine:
     ):
         logger.info(">>> [Engine] Setting up...")
         agent_llm = GPTChat(model_name=self.cfg.llm.model_name)
+        self.narrator = GraphNarrator(llm=agent_llm)
         self.legal_sys = LegalSystem(config=self.cfg)
 
         self.fact_es = FactEsTool(
@@ -210,6 +214,7 @@ class DebateEngine:
             await self.open_resources()
             self.legal_sys.advance_step()
             is_plaintiff_turn = self.current_turn == Turn.PLAINTIFF
+            turn_name_str = "plaintiff" if is_plaintiff_turn else "defendant"
 
             if is_plaintiff_turn:
                 if self.round_idx == 0:
@@ -231,6 +236,27 @@ class DebateEngine:
                 next_turn = Turn.PLAINTIFF
 
             turn_result = await team_to_run.run_turn(self.graph)
+            executed_actions = turn_result.get("actions", [])
+            narrative_text = ""
+
+            if executed_actions:
+                logger.info(
+                    f">>> [Narrator] Generating transcript for {len(executed_actions)} actions..."
+                )
+
+                narrative_text = await self.narrator.generate_narrative(
+                    actions=executed_actions, graph=self.graph, turn=turn_name_str
+                )
+
+                if narrative_text:
+                    self.transcript.append(narrative_text)
+                    logger.info(f">>> [Transcript Updated]:\n{narrative_text}")
+
+            else:
+                logger.info(
+                    ">>> [Narrator] No actions executed this turn. Skipping narrative."
+                )
+
             delta_phi = self._calculate_convergence()
             self.convergence_history.append(delta_phi)
             window = self.cfg.convergence.window_size
@@ -246,6 +272,7 @@ class DebateEngine:
                 "round": self.round_idx,
                 "action": turn_result["summary"],
                 "dialogue": turn_result["transcript"],
+                "narrative": narrative_text,
                 "convergence": {
                     "delta_phi": delta_phi,
                     "sma": sma,
@@ -290,7 +317,11 @@ class DebateEngine:
                 (
                     self.judgment_document,
                     self.root_claims_status,
-                ) = await self.legal_sys.adjudicate(self.raw_facts, self.graph)
+                ) = await self.legal_sys.adjudicate(
+                    self.raw_facts,
+                    self.graph,
+                    transcript=self.transcript,  # 传递笔录
+                )
 
                 logger.info(
                     f">>> [Engine] root_claims_status: {self.root_claims_status}"
@@ -342,4 +373,5 @@ class DebateEngine:
             "judgment_document": self.judgment_document,
             "root_claims_status": serializable_claims_status,
             "agent_memories": {"plaintiff": p_mem, "defendant": d_mem},
+            "full_transcript": self.transcript,
         }
