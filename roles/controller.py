@@ -55,17 +55,14 @@ class ArgumentController(Role):
         self.pipeline_step = ControllerPipelineStep.IDLE
         self.investigation_buffer: Dict[str, str] = {}
         self.latest_summary: str = ""
+        self.recent_errors: List[str] = []
 
-    def _truncate(self, text: str, length: str) -> str:
-        if not text:
-            return ""
-
-        text = text.strip()
-
-        if len(text) > length:
-            return text[:length] + "..."
-
-        return text
+    def reset_turn_state(self):
+        logger.info(f"[{self.name}] Resetting turn state (Buffer & Errors cleared).")
+        self.pipeline_step = ControllerPipelineStep.IDLE
+        self.investigation_buffer = {}
+        self.latest_summary = ""
+        self.recent_errors = []
 
     def ingest_results(self, results_list: List[Dict[str, str]]):
         logger.info(
@@ -113,14 +110,10 @@ class ArgumentController(Role):
             logger.info(f"[{self.name}] State transitioned to DECIDE.")
 
     async def _act(self) -> Message:
-        memories = self.get_memories(k=5)
+        memories = self.get_memories(k=1)
         last_msg = memories[-1] if memories else None
         last_content = str(last_msg.content) if last_msg else ""
         last_role = str(last_msg.role) if last_msg else ""
-
-        logger.debug(
-            f"[{self.name}] State: {self.pipeline_step.name} | Latest Memory: [{last_role}] {last_content[:30]}..."
-        )
 
         if last_role == "System" and "SYSTEM_START" in last_content:
             if self.pipeline_step in [
@@ -132,14 +125,10 @@ class ArgumentController(Role):
                 )
 
                 self.pipeline_step = ControllerPipelineStep.ASSESS_NEEDS
-                self.investigation_buffer = {}
-                self.latest_summary = ""
 
             elif self.pipeline_step != ControllerPipelineStep.ASSESS_NEEDS:
                 logger.info(f"[{self.name}] Force Restart triggered.")
                 self.pipeline_step = ControllerPipelineStep.ASSESS_NEEDS
-                self.investigation_buffer = {}
-                self.latest_summary = ""
 
         graph_context = self.graph_tool.current_graph.latest_context
 
@@ -148,11 +137,9 @@ class ArgumentController(Role):
                 f"[{self.name}] Parallelly Assessing Needs (Fact, Law, Recall)..."
             )
 
-            self.investigation_buffer = {
-                "Fact": "（未评估）",
-                "Law": "（未评估）",
-                "Recall": "（未评估）",
-            }
+            for key in ["Fact", "Law", "Recall"]:
+                if key not in self.investigation_buffer:
+                    self.investigation_buffer[key] = "（未评估）"
 
             fact_task = AssessFactNeeds(llm=self.llm).run(
                 self.name, self.persona, graph_context
@@ -202,7 +189,7 @@ class ArgumentController(Role):
                 self.investigation_buffer["Law"] = f"⏳ [正在检索法条]: {req_law.query}"
 
             else:
-                reasoning = self._truncate(req_fact.reasoning, 500)
+                reasoning = self._truncate(req_law.reasoning, 500)
                 self.investigation_buffer["Law"] = f"✅ [无法律检索]: {reasoning}"
 
             if req_recall.need:
@@ -219,7 +206,7 @@ class ArgumentController(Role):
                 )
 
             else:
-                reasoning = self._truncate(req_fact.reasoning, 500)
+                reasoning = self._truncate(req_recall.reasoning, 500)
                 self.investigation_buffer["Recall"] = f"✅ [无案例借鉴]: {reasoning}"
 
             if not instructions:
@@ -242,11 +229,21 @@ class ArgumentController(Role):
             return Message(content="WAITING_FOR_PARALLEL_WORKERS", role=self.profile)
 
         elif self.pipeline_step == ControllerPipelineStep.DECIDE:
-            logger.info(f"[{self.name}] Finalizing Decision...")
-            feedback = ""
+            logger.info(
+                f"[{self.name}] Finalizing Decision... (Error History: {len(self.recent_errors)})"
+            )
 
-            if "SYSTEM_FEEDBACK" in last_content:
-                feedback = last_content
+            feedback_section = ""
+
+            if self.recent_errors:
+                error_log_str = "\n".join(self.recent_errors)
+
+                feedback_section = (
+                    f"【⚠️ 警告：之前的尝试执行失败】\n"
+                    f"请仔细分析以下报错信息，并修正你的图谱操作 JSON（检查 ID 是否存在、类型是否匹配）：\n"
+                    f"{error_log_str}\n"
+                    f"请不要重复犯同样的错误。"
+                )
 
             current_advice = self.latest_summary or "（本轮无额外信息）"
             action = VerifyAndDecide(llm=self.llm)
@@ -256,7 +253,7 @@ class ArgumentController(Role):
                 current_advice,
                 graph_context,
                 self.persona.initial_strategy,
-                feedback=feedback,
+                feedback=feedback_section,
             )
 
             parsed_actions = parse_agent_action_output(decision_raw)
@@ -270,9 +267,15 @@ class ArgumentController(Role):
 
                 if "REJECT" in exec_msg or "Error" in exec_msg:
                     logger.warning(f"[{self.name}] Action Execution Failed: {exec_msg}")
+                    error_entry = f"Attempt #{len(self.recent_errors) + 1}: {exec_msg}"
+                    self.recent_errors.append(error_entry)
+
+                    if len(self.recent_errors) > 5:
+                        self.recent_errors.pop(0)
 
                     return Message(
-                        content=f"EXECUTION_FAILURE: {exec_msg}", role=self.profile
+                        content=f"EXECUTION_FAILURE_RETRY: {exec_msg[:50]}...",
+                        role=self.profile,
                     )
 
                 else:
@@ -286,8 +289,15 @@ class ArgumentController(Role):
                 error_msg = f"JSON Parsing Failed: {parsed_actions}"
                 logger.warning(f"[{self.name}] {error_msg}")
 
+                self.recent_errors.append(
+                    f"Attempt #{len(self.recent_errors) + 1}: {error_msg}"
+                )
+
+                if len(self.recent_errors) > 5:
+                    self.recent_errors.pop(0)
+
                 return Message(
-                    content=f"EXECUTION_FAILURE: {error_msg}", role=self.profile
+                    content="EXECUTION_FAILURE_RETRY: JSON Error", role=self.profile
                 )
 
         elif self.pipeline_step == ControllerPipelineStep.DONE:
@@ -342,3 +352,14 @@ class ArgumentController(Role):
         except Exception as e:
             logger.warning(f"[{self.name}] Parse Error: {e}. Defaulting to NEED=False.")
             return ResourceRequirement(need=False, reasoning=f"Parse Error: {e}")
+
+    def _truncate(self, text: str, length: int) -> str:
+        if not text:
+            return ""
+
+        text = text.strip()
+
+        if len(text) > length:
+            return text[:length] + "..."
+
+        return text

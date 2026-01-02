@@ -186,97 +186,133 @@ class DebateEngine:
         delta_phi = (1 - alpha) * delta_v + alpha * delta_e
         return delta_phi
 
+    async def open_resources(self):
+        if self.fact_es:
+            await self.fact_es.open()
+
+        if self.law_es:
+            await self.law_es.open()
+
+    async def close_resources(self):
+        if self.fact_es:
+            await self.fact_es.close()
+            logger.info("[Engine] FactEsTool connection closed.")
+
+        if self.law_es:
+            await self.law_es.close()
+            logger.info("[Engine] LawEsTool connection closed.")
+
     async def step(self):
         if self.is_finished:
             return
 
-        self.legal_sys.advance_step()
-        is_plaintiff_turn = self.current_turn == Turn.PLAINTIFF
+        try:
+            await self.open_resources()
+            self.legal_sys.advance_step()
+            is_plaintiff_turn = self.current_turn == Turn.PLAINTIFF
 
-        if is_plaintiff_turn:
-            if self.round_idx == 0:
-                self.round_idx = 1
+            if is_plaintiff_turn:
+                if self.round_idx == 0:
+                    self.round_idx = 1
 
-            logger.info(f"\n>>> [Engine] Round {self.round_idx}, Plaintiff's Turn...")
-            team_to_run = self.p_team
-            next_turn = Turn.DEFENDANT
-
-        else:
-            logger.info(f"\n>>> [Engine] Round {self.round_idx}, Defendant's Turn...")
-            team_to_run = self.d_team
-            next_turn = Turn.PLAINTIFF
-
-        turn_result = await team_to_run.run_turn(self.graph)
-        delta_phi = self._calculate_convergence()
-        self.convergence_history.append(delta_phi)
-        window = self.cfg.convergence.window_size
-        recent_history = self.convergence_history[-window:]
-        sma = sum(recent_history) / len(recent_history) if recent_history else 0.0
-
-        logger.info(
-            f"[Convergence] Round {self.round_idx} | ΔΦ: {delta_phi:.4f} (Claims Δ: {delta_phi}, Conflicts Δ: ... ) | SMA: {sma:.4f}"
-        )
-
-        self.last_step_log = {
-            "turn": self.current_turn.value,
-            "round": self.round_idx,
-            "action": turn_result["summary"],
-            "dialogue": turn_result["transcript"],
-            "convergence": {
-                "delta_phi": delta_phi,
-                "sma": sma,
-                "is_converged": False,
-                "gc_removed": 0,
-            },
-        }
-
-        cond_max_rounds = self.round_idx >= self.max_rounds
-
-        cond_converged = (
-            self.round_idx >= self.cfg.convergence.min_rounds
-            and sma < self.cfg.convergence.epsilon
-        )
-
-        should_adjudicate = cond_max_rounds or cond_converged
-
-        if should_adjudicate:
-            reason = "Max Rounds Reached" if cond_max_rounds else "Convergence Reached"
-            logger.info(f">>> [Engine] Adjudication triggered. Reason: {reason}")
-            self.last_step_log["convergence"]["is_converged"] = True
-            logger.info(">>> [Engine] Running Pre-Adjudication Garbage Collection...")
-            removed_count = self.graph.garbage_collect()
-
-            if removed_count > 0:
                 logger.info(
-                    f"✅ [GC] Cleaned {removed_count} isolated nodes before adjudication."
+                    f"\n>>> [Engine] Round {self.round_idx}, Plaintiff's Turn..."
                 )
 
-                self.last_step_log["convergence"]["gc_removed"] = removed_count
+                team_to_run = self.p_team
+                next_turn = Turn.DEFENDANT
 
             else:
-                logger.info("✅ [GC] Graph is clean. No nodes removed.")
+                logger.info(
+                    f"\n>>> [Engine] Round {self.round_idx}, Defendant's Turn..."
+                )
 
-            (
-                self.judgment_document,
-                self.root_claims_status,
-            ) = await self.legal_sys.adjudicate(self.raw_facts, self.graph)
+                team_to_run = self.d_team
+                next_turn = Turn.PLAINTIFF
 
-            logger.info(f">>> [Engine] root_claims_status: {self.root_claims_status}")
+            turn_result = await team_to_run.run_turn(self.graph)
+            delta_phi = self._calculate_convergence()
+            self.convergence_history.append(delta_phi)
+            window = self.cfg.convergence.window_size
+            recent_history = self.convergence_history[-window:]
+            sma = sum(recent_history) / len(recent_history) if recent_history else 0.0
 
-            self.last_step_log["adjudication_result"] = {
-                "document": self.judgment_document,
-                "claims_status": {
-                    k: v.value for k, v in self.root_claims_status.items()
+            logger.info(
+                f"[Convergence] Round {self.round_idx} | ΔΦ: {delta_phi:.4f} | SMA: {sma:.4f}"
+            )
+
+            self.last_step_log = {
+                "turn": self.current_turn.value,
+                "round": self.round_idx,
+                "action": turn_result["summary"],
+                "dialogue": turn_result["transcript"],
+                "convergence": {
+                    "delta_phi": delta_phi,
+                    "sma": sma,
+                    "is_converged": False,
+                    "gc_removed": 0,
                 },
             }
 
-            self.is_finished = True
+            cond_max_rounds = self.round_idx >= self.max_rounds
 
-        if not self.is_finished:
-            self.current_turn = next_turn
+            cond_converged = (
+                self.round_idx >= self.cfg.convergence.min_rounds
+                and sma < self.cfg.convergence.epsilon
+            )
 
-            if not is_plaintiff_turn:
-                self.round_idx += 1
+            should_adjudicate = cond_max_rounds or cond_converged
+
+            if should_adjudicate:
+                reason = (
+                    "Max Rounds Reached" if cond_max_rounds else "Convergence Reached"
+                )
+
+                logger.info(f">>> [Engine] Adjudication triggered. Reason: {reason}")
+                self.last_step_log["convergence"]["is_converged"] = True
+
+                logger.info(
+                    ">>> [Engine] Running Pre-Adjudication Garbage Collection..."
+                )
+
+                removed_count = self.graph.garbage_collect()
+
+                if removed_count > 0:
+                    logger.info(
+                        f"✅ [GC] Cleaned {removed_count} isolated nodes before adjudication."
+                    )
+
+                    self.last_step_log["convergence"]["gc_removed"] = removed_count
+
+                else:
+                    logger.info("✅ [GC] Graph is clean. No nodes removed.")
+
+                (
+                    self.judgment_document,
+                    self.root_claims_status,
+                ) = await self.legal_sys.adjudicate(self.raw_facts, self.graph)
+
+                logger.info(
+                    f">>> [Engine] root_claims_status: {self.root_claims_status}"
+                )
+
+                self.last_step_log["adjudication_result"] = {
+                    "document": self.judgment_document,
+                    "claims_status": {
+                        k: v.value for k, v in self.root_claims_status.items()
+                    },
+                }
+
+                self.is_finished = True
+
+            if not self.is_finished:
+                self.current_turn = next_turn
+
+                if not is_plaintiff_turn:
+                    self.round_idx += 1
+
+        finally:
+            await self.close_resources()
 
     def get_snapshot(self) -> Dict[str, Any]:
         if not self.legal_sys:
@@ -307,12 +343,3 @@ class DebateEngine:
             "root_claims_status": serializable_claims_status,
             "agent_memories": {"plaintiff": p_mem, "defendant": d_mem},
         }
-
-    async def close_resources(self):
-        if self.fact_es:
-            await self.fact_es.close()
-            logger.info("[Engine] FactEsTool connection closed.")
-
-        if self.law_es:
-            await self.law_es.close()
-            logger.info("[Engine] LawEsTool connection closed.")

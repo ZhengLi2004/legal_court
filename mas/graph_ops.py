@@ -13,6 +13,99 @@ class GraphExecutor:
         self.graph = graph
         self.matcher = matcher
 
+    def _validate_action_static(self, action: AgentAction, index: int) -> Optional[str]:
+        errors = []
+        prefix = f"第 {index + 1} 个动作 ({action.action_type.value})"
+
+        if action.action_type in [AgentActionType.CITE_FACT, AgentActionType.CITE_LAW]:
+            required_src_type = (
+                NodeType.FACT
+                if action.action_type == AgentActionType.CITE_FACT
+                else NodeType.LAW
+            )
+
+            if not action.source_id:
+                errors.append(
+                    f"{prefix}: 缺少 'source_id'。引用动作必须指定一个已存在的依据节点(FACT/LAW)。"
+                )
+
+            elif not self.graph.graph.has_node(action.source_id):
+                errors.append(f"{prefix}: 源节点 '{action.source_id}' 不存在。")
+
+            else:
+                src_type = self.graph._get_node_type(action.source_id)
+
+                if src_type != required_src_type:
+                    errors.append(
+                        f"{prefix}: 源节点类型必须是 {required_src_type.value}，但实际是 {src_type.value}。"
+                    )
+
+            if action.target_id:
+                if not self.graph.graph.has_node(action.target_id):
+                    errors.append(f"{prefix}: 目标节点 '{action.target_id}' 不存在。")
+
+                else:
+                    tgt_type = self.graph._get_node_type(action.target_id)
+
+                    if tgt_type != NodeType.CLAIM:
+                        errors.append(
+                            f"{prefix}: 引用的目标必须是 CLAIM 节点，但实际是 {tgt_type.value}。"
+                        )
+
+            else:
+                if not action.content:
+                    errors.append(
+                        f"{prefix}: 当基于引用创建新观点时（未指定 target_id），'content' 字段不能为空。"
+                    )
+
+        elif action.action_type in [
+            AgentActionType.SUPPORT_CLAIM,
+            AgentActionType.REBUT_CLAIM,
+        ]:
+            if not action.target_id:
+                errors.append(
+                    f"{prefix}: 缺少 'target_id'。逻辑动作必须指向一个已存在的 CLAIM 节点。"
+                )
+
+            elif not self.graph.graph.has_node(action.target_id):
+                errors.append(f"{prefix}: 目标节点 '{action.target_id}' 不存在。")
+
+            else:
+                tgt_type = self.graph._get_node_type(action.target_id)
+
+                if tgt_type != NodeType.CLAIM:
+                    errors.append(
+                        f"{prefix}: 逻辑动作的目标必须是 CLAIM 节点，但实际是 {tgt_type.value}。"
+                    )
+
+            if action.source_id:
+                if not self.graph.graph.has_node(action.source_id):
+                    errors.append(f"{prefix}: 源节点 '{action.source_id}' 不存在。")
+
+                else:
+                    src_type = self.graph._get_node_type(action.source_id)
+
+                    if src_type != NodeType.CLAIM:
+                        errors.append(
+                            f"{prefix}: 逻辑动作的源节点必须是 CLAIM 节点，但实际是 {src_type.value}。"
+                        )
+
+                    if action.target_id and action.source_id == action.target_id:
+                        errors.append(
+                            f"{prefix}: 源节点和目标节点不能相同（禁止自环）。"
+                        )
+
+            else:
+                if not action.content:
+                    errors.append(
+                        f"{prefix}: 当提出新观点进行支持/反驳时（未指定 source_id），'content' 字段不能为空。"
+                    )
+
+        else:
+            errors.append(f"{prefix}: 未知的动作类型。")
+
+        return "; ".join(errors) if errors else None
+
     def _apply_add_node(
         self,
         content: str,
@@ -50,17 +143,17 @@ class GraphExecutor:
             if is_new:
                 return (
                     node_id,
-                    f"✅ [SUCCESS] 已添加新{type_cn}: {content} (ID: {node_id})",
+                    f"✅ [成功] 已添加新{type_cn}: {content[:20]}... (ID: {node_id})",
                 )
 
             else:
                 return (
                     node_id,
-                    f"⚠️ [NOTICE] 该{type_cn}已存在 (ID: {node_id})，已复用现有节点。",
+                    f"ℹ️ [提示] 该{type_cn}已存在 (ID: {node_id})，已复用现有节点。",
                 )
 
         except Exception as e:
-            return None, f"Error: 无法添加节点 ({node_type.value} - {content}): {e}"
+            return None, f"错误: 无法添加节点 ({node_type.value}): {e}"
 
     def _apply_add_edge(
         self,
@@ -70,99 +163,63 @@ class GraphExecutor:
         agent_id: str,
         current_step: int = 0,
     ) -> str:
-        if not self.graph.graph.has_node(source_id):
-            return f"Error: 源节点 '{source_id}' 未找到。"
-
-        if not self.graph.graph.has_node(target_id):
-            return f"Error: 目标节点 '{target_id}' 未找到。"
-
         try:
-            if self.graph._get_node_type(target_id) == NodeType.LAW:
-                return f"Error: 不能将关系连接到法条节点 '{target_id}'，法条是公理。"
-
-            if (
-                edge_type == EdgeType.CONFLICT
-                and self.graph._get_node_type(source_id) != NodeType.CLAIM
-            ):
-                return "Error: 只有 CLAIM 节点才能作为反驳关系的源节点。"
-
             result = self.graph.add_edge(source_id, target_id, edge_type)
             self.graph.touch_nodes([source_id, target_id], current_step)
 
             if result == EdgeAddResult.CREATED:
-                return f"✅ [SUCCESS] {edge_type.value} 关系已添加: {source_id} -> {target_id}"
+                return f"✅ [成功] {edge_type.value} 关系已添加: {source_id} -> {target_id}"
 
             elif result == EdgeAddResult.DUPLICATE:
-                return f"ℹ️ [NOTICE] 关系已存在: {source_id} -> {target_id} ({edge_type.value})，无需重复添加。"
+                return f"ℹ️ [提示] 关系已存在: {source_id} -> {target_id}"
 
             elif result == EdgeAddResult.TYPE_CLASH:
-                existing_data = self.graph.graph.get_edge_data(source_id, target_id)
-                old_type = existing_data.get("type") if existing_data else "UNKNOWN"
-                return f"❌ [REJECT] 关系冲突: {source_id} 与 {target_id} 之间已存在 {old_type} 关系，无法添加 {edge_type.value}。"
+                return f"❌ [拒绝] 关系冲突: {source_id} -> {target_id}"
 
             elif result == EdgeAddResult.SELF_LOOP:
-                return "⚠️ [NOTICE] Self-Loop operation ignored (Source == Target). This is likely caused by deduplication mapping a new node back to an existing one."
+                return "⚠️ [警告] 自环操作被忽略。"
 
             else:
-                return f"Error: 未知的边添加结果: {result}"
-
-        except ValueError as ve:
-            return f"Error: 添加 {edge_type.value} 关系失败: {ve}"
+                return f"错误: 未知的边添加结果: {result}"
 
         except Exception as e:
-            return f"Error: 添加 {edge_type.value} 关系时发生异常: {e}"
+            return f"错误: 添加关系异常: {e}"
 
     def execute_batch(
         self, actions_batch: List[AgentAction], agent_id: str, current_step: int = 0
     ) -> List[str]:
         logs = []
+        validation_errors = []
+
+        for i, action in enumerate(actions_batch):
+            error = self._validate_action_static(action, i)
+
+            if error:
+                validation_errors.append(error)
+
+        if validation_errors:
+            error_summary = "\n".join(validation_errors)
+            raise ValueError(f"批量操作校验失败，请修正以下错误:\n{error_summary}")
+
         original_nx_graph = copy.deepcopy(self.graph.graph)
-        current_error = None
 
         try:
             for action in actions_batch:
+                final_source_id = None
+                final_target_id = None
+                edge_type = EdgeType.SUPPORT
+
                 if action.action_type in [
                     AgentActionType.CITE_FACT,
                     AgentActionType.CITE_LAW,
                 ]:
-                    required_type = (
-                        NodeType.FACT
-                        if action.action_type == AgentActionType.CITE_FACT
-                        else NodeType.LAW
-                    )
+                    final_source_id = action.source_id
 
-                    if not action.source_id:
-                        current_error = ValueError(
-                            f"Error: {action.action_type} 必须提供 source_id。"
-                        )
+                    if action.target_id:
+                        final_target_id = action.target_id
 
-                        break
-
-                    if not self.graph.graph.has_node(action.source_id):
-                        current_error = ValueError(
-                            f"Error: 源节点 '{action.source_id}' 不存在。"
-                        )
-
-                        break
-
-                    if self.graph._get_node_type(action.source_id) != required_type:
-                        current_error = ValueError(
-                            f"Error: 源节点类型错误，要求 {required_type}。"
-                        )
-
-                        break
-
-                    target_id = action.target_id
-
-                    if not target_id:
-                        if not action.content:
-                            current_error = ValueError(
-                                f"Error: {action.action_type} 创建新观点时 content 不能为空。"
-                            )
-
-                            break
-
-                        target_id, log = self._apply_add_node(
+                    else:
+                        final_target_id, log = self._apply_add_node(
                             action.content,
                             NodeType.CLAIM,
                             agent_id,
@@ -172,69 +229,19 @@ class GraphExecutor:
 
                         logs.append(log)
 
-                    res = self._apply_add_edge(
-                        action.source_id,
-                        target_id,
-                        EdgeType.SUPPORT,
-                        agent_id,
-                        current_step,
-                    )
-
-                    if "Error" in res or "REJECT" in res:
-                        current_error = ValueError(res)
-                        break
-
-                    logs.append(res)
+                    edge_type = EdgeType.SUPPORT
 
                 elif action.action_type in [
                     AgentActionType.SUPPORT_CLAIM,
                     AgentActionType.REBUT_CLAIM,
                 ]:
-                    edge_type = (
-                        EdgeType.SUPPORT
-                        if action.action_type == AgentActionType.SUPPORT_CLAIM
-                        else EdgeType.CONFLICT
-                    )
+                    final_target_id = action.target_id
 
-                    if not action.target_id:
-                        current_error = ValueError(
-                            f"Error: {action.action_type} 必须提供 target_id。"
-                        )
+                    if action.source_id:
+                        final_source_id = action.source_id
 
-                        break
-
-                    if not self.graph.graph.has_node(action.target_id):
-                        current_error = ValueError(
-                            f"Error: 目标节点 '{action.target_id}' 不存在。"
-                        )
-
-                        break
-
-                    if self.graph._get_node_type(action.target_id) != NodeType.CLAIM:
-                        current_error = ValueError(
-                            "Error: 逻辑操作的目标必须是 CLAIM。"
-                        )
-
-                        break
-
-                    source_id = action.source_id
-
-                    if source_id and source_id == action.target_id:
-                        source_id = None
-
-                        logs.append(
-                            f"⚠️ [AUTO-FIX] Detected Self-Loop for {action.action_type} on {action.target_id}. Converted to New Node creation."
-                        )
-
-                    if not source_id:
-                        if not action.content:
-                            current_error = ValueError(
-                                f"Error: {action.action_type} 创建新观点时 content 不能为空。"
-                            )
-
-                            break
-
-                        source_id, log = self._apply_add_node(
+                    else:
+                        final_source_id, log = self._apply_add_node(
                             action.content,
                             NodeType.CLAIM,
                             agent_id,
@@ -244,40 +251,34 @@ class GraphExecutor:
 
                         logs.append(log)
 
-                    else:
-                        if not self.graph.graph.has_node(source_id):
-                            current_error = ValueError(
-                                f"Error: 源节点 '{source_id}' 不存在。"
-                            )
-
-                            break
-
-                        if self.graph._get_node_type(source_id) != NodeType.CLAIM:
-                            current_error = ValueError(
-                                "Error: 逻辑操作的源节点必须是 CLAIM。"
-                            )
-
-                            break
-
-                    res = self._apply_add_edge(
-                        source_id, action.target_id, edge_type, agent_id, current_step
+                    edge_type = (
+                        EdgeType.CONFLICT
+                        if action.action_type == AgentActionType.REBUT_CLAIM
+                        else EdgeType.SUPPORT
                     )
 
-                    if "Error" in res or "REJECT" in res:
-                        current_error = ValueError(res)
-                        break
+                if final_source_id and final_target_id:
+                    if final_source_id == final_target_id:
+                        logs.append(
+                            f"⚠️ [注意] 节点去重导致了自环 (ID: {final_source_id})，该连边操作已跳过。"
+                        )
 
-                    logs.append(res)
+                    else:
+                        res = self._apply_add_edge(
+                            final_source_id,
+                            final_target_id,
+                            edge_type,
+                            agent_id,
+                            current_step,
+                        )
+
+                        logs.append(res)
 
                 else:
-                    current_error = ValueError(f"Error: 未知动作 {action.action_type}")
-                    break
-
-            if current_error:
-                raise current_error
+                    raise ValueError(f"无法解析动作所需的 ID: {action.action_type}")
 
             return logs
 
         except Exception as e:
             self.graph.graph = original_nx_graph
-            return [f"Error: 批量执行回滚: {str(e)}"]
+            raise ValueError(f"运行时执行错误 (已回滚): {str(e)}")

@@ -4,7 +4,7 @@ from typing import Union
 from metagpt.logs import logger
 from metagpt.schema import Message
 
-from roles.controller import ArgumentController
+from roles.controller import ArgumentController, ControllerPipelineStep
 from roles.worker import FactWorker, LawWorker, RecallWorker
 from tools.fact_es_tool import FactEsTool
 from tools.graph_tool import GraphTool
@@ -78,8 +78,8 @@ class DebateTeam:
     async def run_turn(self, graph: ShadowGraph) -> dict:
         logger.info(f"--- Team {self.side} Turn Start ---")
         self.graph_tool.set_current_graph(graph)
-        start_msg = Message(content="SYSTEM_START", role="System")
-        self.controller.rc.memory.add(start_msg)
+        self.controller.reset_turn_state()
+        self.controller.pipeline_step = ControllerPipelineStep.ASSESS_NEEDS
         transcript = []
         final_result = None
         step_count = 0
@@ -99,25 +99,16 @@ class DebateTeam:
                     }
                 )
 
-            if "EXECUTION_FAILURE" in content or "ERROR" in content:
-                logger.warning(
-                    f"[{self.side}] Controller Action Failed. Providing Feedback..."
-                )
-
-                feedback_msg = Message(
-                    content=f"SYSTEM_FEEDBACK: 上一步操作失败。错误详情: {content}。请根据图谱现状和错误提示，修正你的动作。",
-                    role="System",
-                )
-
-                self.controller.rc.memory.add(feedback_msg)
-                continue
-
             if "Action Completed" in content:
                 final_result = content
                 logger.info(f"[{self.side}] Turn Successfully Completed.")
                 break
 
-            if "WAITING_FOR_PARALLEL_WORKERS" in content:
+            if "EXECUTION_FAILURE_RETRY" in content:
+                logger.warning(
+                    f"[{self.side}] Action failed. Controller will retry with internal error history."
+                )
+
                 continue
 
             if "batch_instructions" in content:
@@ -183,13 +174,6 @@ class DebateTeam:
                         )
 
                         self.controller.ingest_results(results_payload)
-
-                        self.controller.rc.memory.add(
-                            Message(
-                                content="Worker investigation finished. Reviewing summary...",
-                                role="System",
-                            )
-                        )
 
                     continue
 

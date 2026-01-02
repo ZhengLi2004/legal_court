@@ -9,7 +9,11 @@ class BaseEsTool:
     def __init__(self, es_host: str, embedding_func: EmbeddingFunc):
         self.es_host = es_host
         self.embedding_func = embedding_func
-        self.client = AsyncElasticsearch(self.es_host)
+        self.client = None
+
+    async def open(self):
+        if self.client is None:
+            self.client = AsyncElasticsearch(self.es_host)
 
     async def _search(
         self,
@@ -19,6 +23,9 @@ class BaseEsTool:
         source_fields: List[str],
         top_k: int = 3,
     ) -> List[Dict[str, Any]]:
+        if self.client is None:
+            await self.open()
+
         search_body = {
             "size": top_k,
             "query": {
@@ -47,3 +54,4 @@ class BaseEsTool:
     async def close(self):
         if self.client:
             await self.client.close()
+            self.client = None
