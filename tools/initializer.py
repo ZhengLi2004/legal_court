@@ -76,7 +76,7 @@ class CaseInitializer:
 
     async def _decompose_facts(self, text: str) -> List[str]:
         prompt = DECOMPOSE_FACTS_PROMPT.format(text=text)
-        response = self.llm([Message(role="user", content=prompt)], temperature=0.0)
+        response = self.llm([Message(role="user", content=prompt)])
 
         try:
             return await self._parse_numbered_list_to_agent_actions(response)
@@ -90,7 +90,7 @@ class CaseInitializer:
 
     async def _generate_root_claim(self, facts: str, cause: str) -> List[str]:
         prompt = GENERATE_ROOT_CLAIM_PROMPT.format(cause=cause, facts=facts)
-        response = self.llm([Message(role="user", content=prompt)], temperature=0.0)
+        response = self.llm([Message(role="user", content=prompt)])
 
         try:
             claims_list = extract_json_from_text(response)

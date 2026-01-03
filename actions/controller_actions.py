@@ -21,7 +21,7 @@ class AssessFactNeeds(Action):
             graph_context=graph_context,
         )
 
-        return await self.llm.aask(prompt, temperature=0.1)
+        return await self.llm.aask(prompt)
 
 
 class AssessLawNeeds(Action):
@@ -36,7 +36,7 @@ class AssessLawNeeds(Action):
             graph_context=graph_context,
         )
 
-        return await self.llm.aask(prompt, temperature=0.1)
+        return await self.llm.aask(prompt)
 
 
 class AssessRecallNeeds(Action):
@@ -51,7 +51,7 @@ class AssessRecallNeeds(Action):
             graph_context=graph_context,
         )
 
-        return await self.llm.aask(prompt, temperature=0.1)
+        return await self.llm.aask(prompt)
 
 
 class VerifyAndDecide(Action):

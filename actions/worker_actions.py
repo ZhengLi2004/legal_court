@@ -67,13 +67,17 @@ class ProjectAndAnalyze(Action):
             f"Running historical projection retrieval (cached) for intent: {query[:50]}..."
         )
 
-        if current_graph.graph.number_of_nodes() == 0:
-            return "无法执行历史映射：当前图谱为空，没有可用的锚点。"
+        current_step = legal_system.step_counter
+        focus_node_ids = current_graph._calculate_focus_nodes(current_step)
+        tactical_subgraph = current_graph.get_subgraph(focus_node_ids)
+
+        if tactical_subgraph.graph.number_of_nodes() == 0:
+            return "无法执行历史映射：当前战术视图为空，没有可用的锚点。"
 
         query_emb = legal_system.ef.embed_query(query)
         candidates = []
 
-        for nid, data in current_graph.graph.nodes(data=True):
+        for nid, data in tactical_subgraph.graph.nodes(data=True):
             content = data.get("content", "")
 
             if not content:
@@ -84,12 +88,10 @@ class ProjectAndAnalyze(Action):
             candidates.append((sim, nid))
 
         candidates.sort(key=lambda x: x[0], reverse=True)
-        focus_node_ids = [nid for _, nid in candidates[:top_k]]
+        anchor_node_ids = [nid for _, nid in candidates[:top_k]]
 
-        if not focus_node_ids:
-            return (
-                f"未能根据意图 '{query}' 在当前图谱中找到足够相关的节点作为映射锚点。"
-            )
+        if not anchor_node_ids:
+            return f"未能根据意图 '{query}' 在当前战术视图中找到足够相关的节点作为映射锚点。"
 
         history_messages = legal_system.active_history_cases
 
@@ -98,7 +100,7 @@ class ProjectAndAnalyze(Action):
 
         historical_context_text = legal_system.projector.retrieve_historical_context(
             current_graph=current_graph,
-            focus_node_ids=focus_node_ids,
+            focus_node_ids=anchor_node_ids,
             history_messages=history_messages,
         )
 
@@ -111,4 +113,4 @@ class ProjectAndAnalyze(Action):
             user_query=query, projection_context=historical_context_text
         )
 
-        return await self.llm.aask(prompt)
+        return await self.llm.aask(prompt, temperature=0.5)

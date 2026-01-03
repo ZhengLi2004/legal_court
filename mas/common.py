@@ -100,7 +100,7 @@ class ShadowGraph:
 
         return "\n".join(lines)
 
-    def refresh_context(self, current_step: int):
+    def _calculate_focus_nodes(self, current_step: int) -> List[str]:
         focus_nodes = set(
             [
                 nid
@@ -115,6 +115,11 @@ class ShadowGraph:
             if step >= 0:
                 step_nodes = self.get_nodes_by_step(step)
                 focus_nodes.update(step_nodes)
+
+        return list(focus_nodes)
+
+    def refresh_context(self, current_step: int):
+        focus_nodes = self._calculate_focus_nodes(current_step)
 
         if focus_nodes:
             self.latest_context = self.to_tactical_text(focus_nodes)
