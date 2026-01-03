@@ -25,25 +25,3 @@ class LawEsTool(BaseEsTool):
             source_fields=self.SOURCE_FIELDS,
             top_k=top_k,
         )
-
-    async def search_laws(self, query_text: str, top_k: int = 3) -> str:
-        results = await self.search_laws_raw(query_text, top_k)
-
-        if not results:
-            return "未找到相关法律条款。"
-
-        formatted_results = ["### 相关法律条款参考："]
-
-        for i, hit in enumerate(results):
-            source = hit["_source"]
-            score = hit["_score"] - 1.0
-            law_name = source.get("law_name", "")
-            article_id = source.get("article_id", "")
-            content = source.get("content", "").strip().replace("\n", " ")[:150]
-
-            formatted_results.append(
-                f"{i + 1}. [相似度: {score:.4f}] {law_name} - {article_id}\n"
-                f"   [内容]: {content}..."
-            )
-
-        return "\n".join(formatted_results)

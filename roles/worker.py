@@ -13,6 +13,7 @@ from actions.worker_actions import (
 from mas.legal_system import LegalSystem
 from mas.llm import GPTChat
 from mas.schema import WorkerInstruction, WorkerReport, WorkerReportStatus
+from mas.utils import deduplicate_and_rerank
 from prompts.common_prompts import (
     ANALYZE_FACT_PROMPT,
     ANALYZE_LAW_PROMPT,
@@ -90,29 +91,6 @@ class FactWorker(BaseWorker):
         self.threshold = threshold
         self.set_actions([FormulateSearchQueries, AnalyzeSearchResults])
 
-    def _deduplicate_and_rerank(
-        self, all_hits_list: List[List[Dict[str, Any]]], top_k: int = 3
-    ) -> List[Dict[str, Any]]:
-        unique_map = {}
-
-        for hits in all_hits_list:
-            for hit in hits:
-                source = hit.get("_source", {})
-                key = source.get("case_title", "unknown")
-                score = hit.get("_score", 0.0)
-
-                if key not in unique_map:
-                    unique_map[key] = hit
-
-                else:
-                    if score > unique_map[key].get("_score", 0.0):
-                        unique_map[key] = hit
-
-        all_unique_hits = list(unique_map.values())
-        all_unique_hits.sort(key=lambda x: x.get("_score", 0.0), reverse=True)
-
-        return all_unique_hits[:top_k]
-
     def _format_hits(self, hits: List[Dict[str, Any]]) -> str:
         if not hits:
             return "未找到相关案例。"
@@ -149,7 +127,13 @@ class FactWorker(BaseWorker):
             logger.info(f"[{self.name}] Formulated {len(queries)} queries: {queries}")
             search_tasks = [self.es_tool.search_cases_raw(q, top_k=3) for q in queries]
             search_results_list = await asyncio.gather(*search_tasks)
-            final_top_hits = self._deduplicate_and_rerank(search_results_list, top_k=3)
+
+            final_top_hits = deduplicate_and_rerank(
+                search_results_list,
+                key_extractor=lambda hit, src: src.get("case_title", hit.get("_id")),
+                top_k=3,
+            )
+
             max_score = 0.0
 
             if final_top_hits:
@@ -208,30 +192,6 @@ class LawWorker(BaseWorker):
         self.graph_tool = None
         self.set_actions([FormulateSearchQueries, AnalyzeSearchResults])
 
-    def _deduplicate_and_rerank(
-        self, all_hits_list: List[List[Dict[str, Any]]], top_k: int = 3
-    ) -> List[Dict[str, Any]]:
-        unique_map = {}
-
-        for hits in all_hits_list:
-            for hit in hits:
-                source = hit.get("_source", {})
-                name = source.get("law_name", "unknown")
-                article = source.get("article_id", "unknown")
-                key = f"{name}_{article}"
-                score = hit.get("_score", 0.0)
-
-                if key not in unique_map:
-                    unique_map[key] = hit
-
-                else:
-                    if score > unique_map[key].get("_score", 0.0):
-                        unique_map[key] = hit
-
-        all_unique_hits = list(unique_map.values())
-        all_unique_hits.sort(key=lambda x: x.get("_score", 0.0), reverse=True)
-        return all_unique_hits[:top_k]
-
     async def _act(self) -> Message:
         logger.info(
             f"{self.name} is acting (Plan -> Parallel Search -> Rerank -> Inject -> Analyze)..."
@@ -263,7 +223,14 @@ class LawWorker(BaseWorker):
             logger.info(f"[{self.name}] Formulated {len(queries)} queries: {queries}")
             search_tasks = [self.es_tool.search_laws_raw(q, top_k=3) for q in queries]
             search_results_list = await asyncio.gather(*search_tasks)
-            final_top_hits = self._deduplicate_and_rerank(search_results_list, top_k=3)
+
+            final_top_hits = deduplicate_and_rerank(
+                search_results_list,
+                key_extractor=lambda hit,
+                src: f"{src.get('law_name')}_{src.get('article_id')}",
+                top_k=3,
+            )
+
             max_score = 0.0
 
             if final_top_hits:

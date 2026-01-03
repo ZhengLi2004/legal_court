@@ -4,7 +4,7 @@ import math
 import os
 import random
 from dataclasses import dataclass
-from typing import Any, List, Union
+from typing import Any, Callable, Dict, List, Union
 
 import numpy as np
 import portalocker
@@ -74,6 +74,32 @@ def cosine_similarity(
         return 0.0
 
     return float(np.dot(vec1, vec2) / (norm1 * norm2))
+
+
+def deduplicate_and_rerank(
+    all_hits_list: List[List[Dict[str, Any]]],
+    key_extractor: Callable[[Dict[str, Any], Dict[str, Any]], str],
+    top_k: int = 3,
+) -> List[Dict[str, Any]]:
+    unique_map = {}
+
+    for hits in all_hits_list:
+        for hit in hits:
+            source = hit.get("_source", {})
+            key = key_extractor(hit, source)
+            score = hit.get("_score", 0.0)
+
+            if key not in unique_map:
+                unique_map[key] = hit
+
+            else:
+                if score > unique_map[key].get("_score", 0.0):
+                    unique_map[key] = hit
+
+    all_unique_hits = list(unique_map.values())
+    all_unique_hits.sort(key=lambda x: x.get("_score", 0.0), reverse=True)
+
+    return all_unique_hits[:top_k]
 
 
 _EMBEDDING_MODEL_CACHE = {}
