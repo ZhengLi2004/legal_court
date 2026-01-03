@@ -1,5 +1,5 @@
-import re
-from typing import Union
+import asyncio
+from typing import Any, Dict, List, Union
 
 from metagpt.logs import logger
 from metagpt.roles import Role
@@ -7,7 +7,7 @@ from metagpt.schema import Message
 
 from actions.worker_actions import (
     AnalyzeSearchResults,
-    InjectLawsToGraph,
+    FormulateSearchQueries,
     ProjectAndAnalyze,
 )
 from mas.legal_system import LegalSystem
@@ -16,6 +16,7 @@ from mas.schema import WorkerInstruction, WorkerReport, WorkerReportStatus
 from prompts.common_prompts import (
     ANALYZE_FACT_PROMPT,
     ANALYZE_LAW_PROMPT,
+    DECOMPOSE_LAW_INTENT_PROMPT,
 )
 from tools.fact_es_tool import FactEsTool
 from tools.law_es_tool import LawEsTool
@@ -87,10 +88,54 @@ class FactWorker(BaseWorker):
         super().__init__(name, "Fact Researcher", llm)
         self.es_tool = es_tool
         self.threshold = threshold
-        self.set_actions([AnalyzeSearchResults])
+        self.set_actions([FormulateSearchQueries, AnalyzeSearchResults])
+
+    def _deduplicate_and_rerank(
+        self, all_hits_list: List[List[Dict[str, Any]]], top_k: int = 3
+    ) -> List[Dict[str, Any]]:
+        unique_map = {}
+
+        for hits in all_hits_list:
+            for hit in hits:
+                source = hit.get("_source", {})
+                key = source.get("case_title", "unknown")
+                score = hit.get("_score", 0.0)
+
+                if key not in unique_map:
+                    unique_map[key] = hit
+
+                else:
+                    if score > unique_map[key].get("_score", 0.0):
+                        unique_map[key] = hit
+
+        all_unique_hits = list(unique_map.values())
+        all_unique_hits.sort(key=lambda x: x.get("_score", 0.0), reverse=True)
+
+        return all_unique_hits[:top_k]
+
+    def _format_hits(self, hits: List[Dict[str, Any]]) -> str:
+        if not hits:
+            return "未找到相关案例。"
+
+        lines = []
+
+        for i, hit in enumerate(hits):
+            source = hit.get("_source", {})
+            score = hit.get("_score", 1.0) - 1.0
+            title = source.get("case_title", "无标题")
+            analysis = source.get("analysis", "").strip().replace("\n", " ")[:150]
+
+            lines.append(
+                f"案例 {i + 1} [相似度: {score:.4f}] 《{title}》\n摘要: {analysis}..."
+            )
+
+        return "\n\n".join(lines)
 
     async def _act(self) -> Message:
-        logger.info(f"{self.name} is acting (Evidence Analysis)...")
+        logger.info(
+            f"{self.name} is acting (Plan -> Parallel Search -> Rerank -> Analyze)..."
+        )
+
         result = self._parse_instruction()
 
         if isinstance(result, Message):
@@ -99,32 +144,38 @@ class FactWorker(BaseWorker):
         instruction = result
 
         try:
-            search_text = await self.es_tool.search_cases(instruction.query)
+            formulate_action = FormulateSearchQueries(llm=self.llm)
+            queries = await formulate_action.run(instruction.intent)
+            logger.info(f"[{self.name}] Formulated {len(queries)} queries: {queries}")
+            search_tasks = [self.es_tool.search_cases_raw(q, top_k=3) for q in queries]
+            search_results_list = await asyncio.gather(*search_tasks)
+            final_top_hits = self._deduplicate_and_rerank(search_results_list, top_k=3)
             max_score = 0.0
-            scores = re.findall(r"\[相似度: (0\.\d+)\]", search_text)
 
-            if scores:
-                max_score = max([float(s) for s in scores])
+            if final_top_hits:
+                max_score = final_top_hits[0].get("_score", 1.0) - 1.0
 
-            if max_score < self.threshold:
+            if not final_top_hits or max_score < self.threshold:
                 return Message(
                     content=WorkerReport(
                         status=WorkerReportStatus.NOT_FOUND,
-                        content=f"未检索到相关历史案例 (Score: {max_score:.2f} < {self.threshold})",
+                        content=f"经过多角度检索与重排序，仍未找到符合阈值的历史案例 (Max Score: {max_score:.2f} < {self.threshold})。\n尝试的查询：{queries}",
                         max_score=max_score,
                     ).to_json(),
                     role=self.profile,
                 )
 
-            action = AnalyzeSearchResults(llm=self.llm)
+            formatted_context = self._format_hits(final_top_hits)
+            logger.info(f"[{self.name}] Reranked Top-3 Results Selected.")
+            analyze_action = AnalyzeSearchResults(llm=self.llm)
 
-            advice = await action.run(
-                user_query=instruction.query,
-                search_result=search_text,
+            advice = await analyze_action.run(
+                user_query=instruction.intent,
+                search_result=formatted_context,
                 prompt_template=ANALYZE_FACT_PROMPT,
             )
 
-            advice = truncate_text(advice, 500)
+            advice = truncate_text(advice, 600)
 
             report = WorkerReport(
                 status=WorkerReportStatus.FOUND, content=advice, max_score=max_score
@@ -155,10 +206,37 @@ class LawWorker(BaseWorker):
         self.es_tool = es_tool
         self.threshold = threshold
         self.graph_tool = None
-        self.set_actions([InjectLawsToGraph, AnalyzeSearchResults])
+        self.set_actions([FormulateSearchQueries, AnalyzeSearchResults])
+
+    def _deduplicate_and_rerank(
+        self, all_hits_list: List[List[Dict[str, Any]]], top_k: int = 3
+    ) -> List[Dict[str, Any]]:
+        unique_map = {}
+
+        for hits in all_hits_list:
+            for hit in hits:
+                source = hit.get("_source", {})
+                name = source.get("law_name", "unknown")
+                article = source.get("article_id", "unknown")
+                key = f"{name}_{article}"
+                score = hit.get("_score", 0.0)
+
+                if key not in unique_map:
+                    unique_map[key] = hit
+
+                else:
+                    if score > unique_map[key].get("_score", 0.0):
+                        unique_map[key] = hit
+
+        all_unique_hits = list(unique_map.values())
+        all_unique_hits.sort(key=lambda x: x.get("_score", 0.0), reverse=True)
+        return all_unique_hits[:top_k]
 
     async def _act(self) -> Message:
-        logger.info(f"{self.name} is acting (Inject -> Analyze)...")
+        logger.info(
+            f"{self.name} is acting (Plan -> Parallel Search -> Rerank -> Inject -> Analyze)..."
+        )
+
         result = self._parse_instruction()
 
         if isinstance(result, Message):
@@ -176,42 +254,64 @@ class LawWorker(BaseWorker):
             )
 
         try:
-            inject_action = InjectLawsToGraph()
+            formulate_action = FormulateSearchQueries(llm=self.llm)
 
-            injected_details = await inject_action.run(
-                query=instruction.query,
-                es_tool=self.es_tool,
-                graph_tool=self.graph_tool,
-                threshold=self.threshold,
+            queries = await formulate_action.run(
+                instruction.intent, prompt_template=DECOMPOSE_LAW_INTENT_PROMPT
             )
 
-            if (
-                "未检索到" in injected_details
-                or "低于阈值" in injected_details
-                or "检索失败" in injected_details
-            ):
+            logger.info(f"[{self.name}] Formulated {len(queries)} queries: {queries}")
+            search_tasks = [self.es_tool.search_laws_raw(q, top_k=3) for q in queries]
+            search_results_list = await asyncio.gather(*search_tasks)
+            final_top_hits = self._deduplicate_and_rerank(search_results_list, top_k=3)
+            max_score = 0.0
+
+            if final_top_hits:
+                max_score = final_top_hits[0].get("_score", 1.0) - 1.0
+
+            if not final_top_hits or max_score < self.threshold:
                 return Message(
                     content=WorkerReport(
-                        status=WorkerReportStatus.NOT_FOUND, content=injected_details
+                        status=WorkerReportStatus.NOT_FOUND,
+                        content=f"未检索到符合阈值的法条 (Max Score: {max_score:.2f})",
+                        max_score=max_score,
                     ).to_json(),
                     role=self.profile,
                 )
 
+            law_contents_for_injection = []
+            formatted_context_for_analysis = ""
+
+            for i, hit in enumerate(final_top_hits):
+                source = hit.get("_source", {})
+                content = f"《{source.get('law_name')}》{source.get('article_id')}: {source.get('content')}"
+                law_contents_for_injection.append(content)
+                score = hit.get("_score", 1.0) - 1.0
+
+                formatted_context_for_analysis += (
+                    f"{i + 1}. [Sim: {score:.4f}] {content[:100]}...\n"
+                )
+
+            injection_log = self.graph_tool.inject_law_nodes(law_contents_for_injection)
+            logger.info(f"[{self.name}] Injection Log: {injection_log}")
             analyze_action = AnalyzeSearchResults(llm=self.llm)
 
             analysis = await analyze_action.run(
-                user_query=instruction.query,
-                search_result=injected_details,
+                user_query=instruction.intent,
+                search_result=formatted_context_for_analysis,
                 prompt_template=ANALYZE_LAW_PROMPT,
             )
 
-            final_content = f"已注入相关法条。\n{analysis}"
+            final_content = (
+                f"已注入 {len(law_contents_for_injection)} 条相关法条。\n{analysis}"
+            )
+
             final_content = truncate_text(final_content, 500)
 
             report = WorkerReport(
                 status=WorkerReportStatus.FOUND,
                 content=final_content,
-                max_score=1.0,
+                max_score=max_score,
             )
 
             return Message(content=report.to_json(), role=self.profile)
@@ -261,7 +361,7 @@ class RecallWorker(BaseWorker):
             action = ProjectAndAnalyze(llm=self.llm)
 
             advice = await action.run(
-                query=instruction.query,
+                query=instruction.intent,
                 legal_system=self.legal_system,
                 current_graph=self.graph_tool.current_graph,
             )

@@ -1,3 +1,5 @@
+from typing import Any, Dict, List
+
 from mas.utils import EmbeddingFunc
 
 from .base_es_tool import BaseEsTool
@@ -11,31 +13,15 @@ class FactEsTool(BaseEsTool):
     def __init__(self, es_host: str, embedding_func: EmbeddingFunc):
         super().__init__(es_host, embedding_func)
 
-    async def search_cases(self, query_text: str, top_k: int = 3) -> str:
+    async def search_cases_raw(
+        self, query_text: str, top_k: int = 3
+    ) -> List[Dict[str, Any]]:
         query_vector = self.embedding_func.embed_query(query_text)
 
-        results = await self._search(
+        return await self._search(
             index_name=self.INDEX_NAME,
             query_vector=query_vector,
             vector_field=self.VECTOR_FIELD,
             source_fields=self.SOURCE_FIELDS,
             top_k=top_k,
         )
-
-        if not results:
-            return "未找到相关历史案例。"
-
-        formatted_results = ["### 相关历史案例参考："]
-
-        for i, hit in enumerate(results):
-            source = hit["_source"]
-            score = hit["_score"] - 1.0
-            title = source.get("case_title", "无标题")
-            analysis = source.get("analysis", "").strip().replace("\n", " ")[:100]
-
-            formatted_results.append(
-                f"{i + 1}. [相似度: {score:.4f}] 标题: {title}\n"
-                f"   [案情摘要]: {analysis}..."
-            )
-
-        return "\n".join(formatted_results)

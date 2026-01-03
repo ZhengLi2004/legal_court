@@ -11,8 +11,7 @@ class MessageType(str, Enum):
 
 class WorkerInstruction(BaseModel):
     message_type: MessageType = MessageType.INSTRUCTION
-    query: str = Field(...)
-    graph_context: str = Field(...)
+    intent: str = Field(...)
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True)
@@ -55,7 +54,7 @@ class AgentAction(BaseModel):
 class ResourceRequirement(BaseModel):
     need: bool = Field(...)
     reasoning: str = Field(...)
-    query: Optional[str] = Field(None)
+    intent: Optional[str] = Field(None)
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True, indent=2)

@@ -163,49 +163,75 @@ class ArgumentController(Role):
             instructions = []
 
             if req_fact.need:
-                inst = WorkerInstruction(
-                    query=req_fact.query, graph_context=graph_context
-                )
+                if not req_fact.intent:
+                    logger.error(
+                        f"[{self.name}] Fact Need is True but Intent is missing! Aborting instruction generation for FactWorker."
+                    )
 
-                instructions.append(
-                    {"target": "FactWorker", "instruction": inst.to_json()}
-                )
+                    self.investigation_buffer["Fact"] = (
+                        "⚠️ [指令错误]: AI 认为需要事实检索，但未提供意图描述。"
+                    )
 
-                self.investigation_buffer["Fact"] = (
-                    f"⏳ [正在检索事实]: {req_fact.query}"
-                )
+                else:
+                    inst = WorkerInstruction(intent=req_fact.intent)
+
+                    instructions.append(
+                        {"target": "FactWorker", "instruction": inst.to_json()}
+                    )
+
+                    self.investigation_buffer["Fact"] = (
+                        f"⏳ [正在检索事实]: {req_fact.intent}"
+                    )
 
             else:
                 reasoning = self._truncate(req_fact.reasoning, 500)
                 self.investigation_buffer["Fact"] = f"✅ [无需事实检索]: {reasoning}"
 
             if req_law.need:
-                inst = WorkerInstruction(
-                    query=req_law.query, graph_context=graph_context
-                )
+                if not req_law.intent:
+                    logger.error(
+                        f"[{self.name}] Law Need is True but Intent is missing! Aborting instruction generation for LawWorker."
+                    )
 
-                instructions.append(
-                    {"target": "LawWorker", "instruction": inst.to_json()}
-                )
+                    self.investigation_buffer["Law"] = (
+                        "⚠️ [指令错误]: AI 认为需要法条检索，但未提供意图描述。"
+                    )
 
-                self.investigation_buffer["Law"] = f"⏳ [正在检索法条]: {req_law.query}"
+                else:
+                    inst = WorkerInstruction(intent=req_law.intent)
+
+                    instructions.append(
+                        {"target": "LawWorker", "instruction": inst.to_json()}
+                    )
+
+                    self.investigation_buffer["Law"] = (
+                        f"⏳ [正在检索法条]: {req_law.intent}"
+                    )
 
             else:
                 reasoning = self._truncate(req_law.reasoning, 500)
                 self.investigation_buffer["Law"] = f"✅ [无法律检索]: {reasoning}"
 
             if req_recall.need:
-                inst = WorkerInstruction(
-                    query=req_recall.query, graph_context=graph_context
-                )
+                if not req_recall.intent:
+                    logger.error(
+                        f"[{self.name}] Recall Need is True but Intent is missing! Aborting instruction generation for RecallWorker."
+                    )
 
-                instructions.append(
-                    {"target": "RecallWorker", "instruction": inst.to_json()}
-                )
+                    self.investigation_buffer["Recall"] = (
+                        "⚠️ [指令错误]: AI 认为需要案例策略，但未提供意图描述。"
+                    )
 
-                self.investigation_buffer["Recall"] = (
-                    f"⏳ [正在检索案例]: {req_recall.query}"
-                )
+                else:
+                    inst = WorkerInstruction(intent=req_recall.intent)
+
+                    instructions.append(
+                        {"target": "RecallWorker", "instruction": inst.to_json()}
+                    )
+
+                    self.investigation_buffer["Recall"] = (
+                        f"⏳ [正在检索案例]: {req_recall.intent}"
+                    )
 
             else:
                 reasoning = self._truncate(req_recall.reasoning, 500)

@@ -1,10 +1,16 @@
+from typing import List
+
 from metagpt.actions import Action
 from metagpt.logs import logger
 
 from mas.common import ShadowGraph
 from mas.legal_system import LegalSystem
 from mas.utils import cosine_similarity
-from prompts.common_prompts import ANALYZE_RECALL_PROMPT
+from prompts.common_prompts import (
+    ANALYZE_RECALL_PROMPT,
+    DECOMPOSE_SEARCH_INTENT_PROMPT,
+)
+from tools.json_utils import extract_json_from_text
 
 
 class AnalyzeSearchResults(Action):
@@ -21,43 +27,30 @@ class AnalyzeSearchResults(Action):
         return await self.llm.aask(prompt)
 
 
-class InjectLawsToGraph(Action):
-    name: str = "InjectLawsToGraph"
+class FormulateSearchQueries(Action):
+    name: str = "FormulateSearchQueries"
 
     async def run(
-        self, query: str, es_tool, graph_tool, threshold: float = 0.6, top_k: int = 3
-    ) -> str:
+        self, intent: str, prompt_template: str = DECOMPOSE_SEARCH_INTENT_PROMPT
+    ) -> List[str]:
+        prompt = prompt_template.format(intent=intent)
+
         try:
-            hits = await es_tool.search_laws_raw(query, top_k=top_k)
+            response = await self.llm.aask(prompt, temperature=0.5)
+            queries = extract_json_from_text(response)
 
-        except Exception as e:
-            return f"检索失败: {str(e)}"
+            if isinstance(queries, list) and all(isinstance(q, str) for q in queries):
+                return queries
 
-        if not hits:
-            return "未检索到相关法条。"
-
-        law_contents = []
-        injected_details = []
-
-        for hit in hits:
-            score = hit["_score"] - 1.0
-
-            if score < threshold:
-                continue
-
-            source = hit["_source"]
-            content = f"《{source.get('law_name')}》{source.get('article_id')}: {source.get('content')}"
-            law_contents.append(content)
-
-            injected_details.append(
-                f"•《{source.get('law_name')}》{source.get('article_id')}: {source.get('content')}"
+            logger.warning(
+                "[FormulateSearchQueries] Output format invalid. Fallback to intent."
             )
 
-        if not law_contents:
-            return f"检索到法条但相似度均低于阈值 ({threshold})。"
+            return [intent]
 
-        graph_tool.inject_law_nodes(law_contents)
-        return "\n".join(injected_details)
+        except Exception as e:
+            logger.error(f"[FormulateSearchQueries] Failed: {e}")
+            return [intent]
 
 
 class ProjectAndAnalyze(Action):
