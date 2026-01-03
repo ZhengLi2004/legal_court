@@ -63,10 +63,12 @@ class ProjectAndAnalyze(Action):
         current_graph: ShadowGraph,
         top_k: int = 3,
     ) -> str:
-        logger.info(f"Running memory projection for query: {query[:50]}...")
+        logger.info(
+            f"Running historical projection retrieval (cached) for intent: {query[:50]}..."
+        )
 
         if current_graph.graph.number_of_nodes() == 0:
-            return "无法执行投影：当前图谱为空，没有可用的锚点。"
+            return "无法执行历史映射：当前图谱为空，没有可用的锚点。"
 
         query_emb = legal_system.ef.embed_query(query)
         candidates = []
@@ -82,32 +84,31 @@ class ProjectAndAnalyze(Action):
             candidates.append((sim, nid))
 
         candidates.sort(key=lambda x: x[0], reverse=True)
-        anchor_ids = [nid for _, nid in candidates[:top_k]]
+        focus_node_ids = [nid for _, nid in candidates[:top_k]]
 
-        if not anchor_ids:
-            return f"未能根据查询 '{query}' 在当前图谱中找到足够相关的锚点以进行历史案例投影。"
+        if not focus_node_ids:
+            return (
+                f"未能根据意图 '{query}' 在当前图谱中找到足够相关的节点作为映射锚点。"
+            )
 
-        history_messages, _ = legal_system.memory.retrieve_memory(query, top_k=3)
+        history_messages = legal_system.active_history_cases
 
         if not history_messages:
-            return "根据你的查询，在记忆库中没有找到相关的历史案例可供借鉴。"
+            return "系统初始化时未检索到相关历史案例，暂无经验可供借鉴。"
 
-        nodes_before = set(current_graph.graph.nodes())
-        legal_system.projector.project(current_graph, history_messages)
-        nodes_after = set(current_graph.graph.nodes())
-        new_node_ids = list(nodes_after - nodes_before)
-
-        if not new_node_ids:
-            return "检索到了历史案例，但其中没有与当前战局可关联的新论点被成功投影。"
-
-        logger.info(
-            f"Successfully projected {len(new_node_ids)} new nodes into the graph."
+        historical_context_text = legal_system.projector.retrieve_historical_context(
+            current_graph=current_graph,
+            focus_node_ids=focus_node_ids,
+            history_messages=history_messages,
         )
 
-        projection_context = current_graph.to_tactical_text(new_node_ids)
+        if "未找到" in historical_context_text or not historical_context_text.strip():
+            return "在预加载的历史案例中，未找到与当前锚点结构相似的论点路径。"
+
+        logger.info("Successfully retrieved historical context text from cache.")
 
         prompt = ANALYZE_RECALL_PROMPT.format(
-            user_query=query, projection_context=projection_context
+            user_query=query, projection_context=historical_context_text
         )
 
         return await self.llm.aask(prompt)

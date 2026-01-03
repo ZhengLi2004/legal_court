@@ -20,13 +20,7 @@ class ClaimMetadata(BaseMetadata, total=False):
     verdict_status: str
 
 
-class ProjectionMetadata(BaseMetadata, total=False):
-    projected_from_case: str
-    historical_status: str
-    projection_score: str
-
-
-NodeMetadata = Union[BaseMetadata, ClaimMetadata, ProjectionMetadata]
+NodeMetadata = Union[BaseMetadata, ClaimMetadata]
 
 
 class NodeType(str, Enum):
@@ -477,22 +471,9 @@ class ShadowGraph:
         }
 
         current_status_str = status_map.get(data.get("status"), "")
-        hist_status_str = ""
-        meta = data.get("metadata", {})
-
-        if "historical_status" in meta:
-            h_status = meta["historical_status"]
-            h_val = str(h_status.value) if hasattr(h_status, "value") else str(h_status)
-
-            if h_val == NodeStatus.VALIDATED.value:
-                hist_status_str = " (历史经验: 曾被采信)"
-
-            elif h_val == NodeStatus.DEFEATED.value:
-                hist_status_str = " (历史教训: 曾被驳回)"
-
         type_map = {NodeType.FACT: "事实", NodeType.LAW: "法条", NodeType.CLAIM: "观点"}
         type_cn = type_map.get(data["type"], data["type"].value)
-        content = f"[{node_id}] [{type_cn}] {data['content']}{current_status_str}{hist_status_str}"
+        content = f"[{node_id}] [{type_cn}] {data['content']}{current_status_str}"
         preds = sorted(list(self.graph.predecessors(node_id)))
         supporting_texts = []
         conflicting_texts = []

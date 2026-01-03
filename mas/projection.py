@@ -1,6 +1,6 @@
-from typing import Dict, List, Set
+from typing import List
 
-from .common import LegalMessage, NodeStatus, NodeType, ProjectionMetadata, ShadowGraph
+from .common import LegalMessage, NodeType, ShadowGraph
 from .config import SystemConfig
 from .semantic_matcher import SemanticMatcher
 
@@ -10,105 +10,79 @@ class GraphProjector:
         self.matcher = matcher
         self.cfg = config or SystemConfig()
 
-    def project(
-        self, current_graph: ShadowGraph, history_messages: List[LegalMessage]
-    ) -> ShadowGraph:
-        anchors = [
-            (nid, data["content"]) for nid, data in current_graph.graph.nodes(data=True)
-        ]
+    def retrieve_historical_context(
+        self,
+        current_graph: ShadowGraph,
+        focus_node_ids: List[str],
+        history_messages: List[LegalMessage],
+    ) -> str:
+        if not focus_node_ids:
+            return "（无选定锚点，无法进行映射）"
 
-        if not anchors:
-            return current_graph
+        anchors_content = []
+
+        for nid in focus_node_ids:
+            if current_graph.graph.has_node(nid):
+                anchors_content.append(
+                    current_graph.graph.nodes[nid].get("content", "")
+                )
+
+        if not anchors_content:
+            return "（锚点内容为空）"
+
+        context_texts = []
 
         for msg in history_messages:
-            self._project_single_graph(
-                current_graph, msg.shadow_graph, anchors, msg.case_id
+            hist_text = self._extract_context_from_single_history(
+                msg.shadow_graph, anchors_content, msg.case_id
             )
 
-        return current_graph
+            if hist_text:
+                context_texts.append(
+                    f"\n>>> 历史案例 [{msg.case_id[:8]}] 参考:\n{hist_text}"
+                )
 
-    def _project_single_graph(
+        if not context_texts:
+            return "（在历史案例中未找到与当前锚点足够相似的对应论点）"
+
+        return "\n".join(context_texts)
+
+    def _extract_context_from_single_history(
         self,
-        target_graph: ShadowGraph,
-        source_graph: ShadowGraph,
-        anchors: List[tuple],
+        history_graph: ShadowGraph,
+        target_contents: List[str],
         case_id: str,
-    ):
+    ) -> str:
         source_candidates = [
-            (nid, data["content"]) for nid, data in source_graph.graph.nodes(data=True)
+            (nid, data["content"]) for nid, data in history_graph.graph.nodes(data=True)
         ]
 
-        matched_pairs = []
+        matched_history_ids = set()
 
-        for tgt_id, tgt_content in anchors:
-            src_id = self.matcher.find_match(tgt_content, source_candidates)
+        for tgt_content in target_contents:
+            hist_id = self.matcher.find_match(tgt_content, source_candidates)
 
-            if src_id:
-                matched_pairs.append((src_id, tgt_id))
+            if hist_id:
+                matched_history_ids.add(hist_id)
 
-        if not matched_pairs:
-            return
+        if not matched_history_ids:
+            return ""
 
-        id_map: Dict[str, str] = {src_id: tgt_id for src_id, tgt_id in matched_pairs}
-        nodes_to_project_ids: Set[str] = set(id_map.keys())
+        nodes_to_serialize = set(matched_history_ids)
         limit = self.cfg.retrieval.max_neighbors_per_anchor
 
-        for src_id, _ in matched_pairs:
-            neighbors_to_process = set(source_graph.graph.successors(src_id)) | set(
-                source_graph.graph.predecessors(src_id)
-            )
-
+        for hist_id in matched_history_ids:
+            predecessors = list(history_graph.graph.predecessors(hist_id))
+            successors = list(history_graph.graph.successors(hist_id))
+            neighbors = predecessors + successors
             count = 0
 
-            for neighbor_id in neighbors_to_process:
+            for nid in neighbors:
                 if count >= limit:
                     break
 
-                neighbor_data = source_graph.graph.nodes[neighbor_id]
-                node_type_val = neighbor_data.get("type")
-
-                if hasattr(node_type_val, "value"):
-                    node_type_val = node_type_val.value
-
-                if str(node_type_val) == NodeType.FACT.value:
-                    continue
-                nodes_to_project_ids.add(neighbor_id)
+                nodes_to_serialize.add(nid)
                 count += 1
 
-        for nid in nodes_to_project_ids:
-            if nid in id_map:
-                continue
-
-            data = source_graph.graph.nodes[nid]
-            hist_status = data.get("status", NodeStatus.HYPOTHETICAL)
-
-            if hasattr(hist_status, "value"):
-                hist_status = hist_status.value
-
-            meta: ProjectionMetadata = {
-                "projected_from_case": case_id,
-                "historical_status": hist_status,
-                "projection_score": 1.0,
-            }
-
-            new_id, _ = target_graph.add_node(
-                content=data["content"],
-                node_type=data["type"],
-                agent_id=self.cfg.agent.projection_id,
-                matcher=self.matcher,
-                metadata=meta,
-            )
-
-            id_map[nid] = new_id
-
-        for u, v, data in source_graph.graph.edges(data=True):
-            if u in nodes_to_project_ids and v in nodes_to_project_ids:
-                new_u = id_map.get(u)
-                new_v = id_map.get(v)
-
-                if new_u == new_v:
-                    continue
-
-                if new_u and new_v and not target_graph.graph.has_edge(new_u, new_v):
-                    edge_type_val = data.get("type")
-                    target_graph.add_edge(new_u, new_v, edge_type=edge_type_val)
+        subgraph = history_graph.get_subgraph(list(nodes_to_serialize))
+        return subgraph.to_recursive_text()

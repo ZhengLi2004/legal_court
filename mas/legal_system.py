@@ -56,6 +56,7 @@ class LegalSystem:
         self.backprop = BackPropagator()
         self._current_case_insights: List[str] = []
         self.step_counter = 0
+        self.active_history_cases: List[LegalMessage] = []
 
     def new_case(self, context: str) -> Tuple[ShadowGraph, List[str]]:
         self.step_counter = 0
@@ -97,8 +98,13 @@ class LegalSystem:
 
                         corrective_msgs.append(msg)
 
-        all_msgs = list({m.case_id: m for m in initial_msgs + corrective_msgs}.values())
-        self.projector.project(sg, all_msgs)
+        unique_msgs = {}
+
+        for m in initial_msgs + corrective_msgs:
+            if m.case_id not in unique_msgs:
+                unique_msgs[m.case_id] = m
+
+        self.active_history_cases = list(unique_msgs.values())
         sg.refresh_context(0)
         return sg, relevant_strategies
 
