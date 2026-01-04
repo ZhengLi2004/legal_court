@@ -91,15 +91,6 @@ class TopologyConfig:
 
 
 @dataclass
-class InsightConfig:
-    weight_relevance: float = 1.0
-    weight_utility: float = 0.1
-    reward_win: float = 1.0
-    penalty_lose: float = 0.5
-    reward_merge: float = 0.5
-
-
-@dataclass
 class SystemConfig:
     agent: AgentConfig = AgentConfig()
     path: PathConfig = PathConfig()
@@ -108,7 +99,6 @@ class SystemConfig:
     matcher: MatcherConfig = MatcherConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
     topology: TopologyConfig = TopologyConfig()
-    insight: InsightConfig = InsightConfig()
     dedup: DeduplicationConfig = DeduplicationConfig()
     es: ESConfig = ESConfig()
     convergence: ConvergenceConfig = ConvergenceConfig()

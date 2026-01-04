@@ -130,14 +130,6 @@ class LegalSystem:
     def learn(
         self, context: str, current_graph: ShadowGraph, winner: str, case_id: str
     ):
-        was_successful = winner == "plaintiff"
-
-        self.insights.update_scores_from_verdict(
-            case_id=case_id,
-            used_insights=self._current_case_insights,
-            was_successful=was_successful,
-        )
-
         final_graph = self.backprop.propagate(current_graph, winner)
 
         msg = LegalMessage(

@@ -15,9 +15,7 @@ from .utils import cosine_similarity, file_lock
 @dataclass
 class Insight:
     content: str
-    score: float = 1.0
-    positive_cases: List[str] = field(default_factory=list)
-    negative_cases: List[str] = field(default_factory=list)
+    cases: List[str] = field(default_factory=list)
 
 
 class InsightsManager:
@@ -44,16 +42,22 @@ class InsightsManager:
         with open(self.file_path, "r", encoding="utf-8") as f:
             try:
                 data = json.load(f)
+                loaded_insights = []
 
-                return [
-                    Insight(
-                        content=item["content"],
-                        score=item.get("score", 1.0),
-                        positive_cases=list(set(item.get("positive_cases", []))),
-                        negative_cases=list(set(item.get("negative_cases", []))),
+                for item in data:
+                    cases = list(
+                        set(
+                            item.get("cases", [])
+                            + item.get("positive_cases", [])
+                            + item.get("negative_cases", [])
+                        )
                     )
-                    for item in data
-                ]
+
+                    loaded_insights.append(
+                        Insight(content=item["content"], cases=cases)
+                    )
+
+                return loaded_insights
 
             except (json.JSONDecodeError, TypeError):
                 return []
@@ -62,7 +66,6 @@ class InsightsManager:
         lock_file = self.file_path + ".lock"
 
         with file_lock(lock_file):
-            self.insights = [inst for inst in self.insights if inst.score > 0]
             data = [inst.__dict__ for inst in self.insights]
 
             with open(self.file_path, "w", encoding="utf-8") as f:
@@ -103,39 +106,15 @@ class InsightsManager:
 
             if match_idx_str:
                 idx = int(match_idx_str)
-                self.insights[idx].score += self.cfg.insight.reward_merge
 
-                if case_id not in self.insights[idx].positive_cases:
-                    self.insights[idx].positive_cases.append(case_id)
+                if case_id not in self.insights[idx].cases:
+                    self.insights[idx].cases.append(case_id)
 
             else:
-                new_insight = Insight(content=content, positive_cases=[case_id])
+                new_insight = Insight(content=content, cases=[case_id])
                 self.insights.append(new_insight)
 
             self._save_insights()
-
-    def update_scores_from_verdict(
-        self, case_id: str, used_insights: List[str], was_successful: bool
-    ):
-        for content in used_insights:
-            for inst in self.insights:
-                if inst.content == content:
-                    if was_successful:
-                        inst.score += self.cfg.insight.reward_win
-
-                        if case_id not in inst.positive_cases:
-                            inst.positive_cases.append(case_id)
-
-                        if case_id in inst.negative_cases:
-                            inst.negative_cases.remove(case_id)
-
-                    else:
-                        inst.score -= self.cfg.insight.penalty_lose
-
-                        if case_id not in inst.negative_cases:
-                            inst.negative_cases.append(case_id)
-
-        self._save_insights()
 
     def get_relevant_insights(self, context: str, top_k: int = 3) -> List[str]:
         if not self._insight_index:
@@ -143,12 +122,10 @@ class InsightsManager:
 
         query_emb = self.matcher.embedding_func.embed_query(context)
         candidates = []
-        cfg = SystemConfig().insight
 
         for emb, inst in self._insight_index:
             sim = cosine_similarity(query_emb, emb)
-            final_score = cfg.weight_relevance * sim + cfg.weight_utility * inst.score
-            candidates.append((final_score, inst))
+            candidates.append((sim, inst))
 
         candidates.sort(key=lambda x: x[0], reverse=True)
         return [c[1].content for c in candidates[:top_k]]
@@ -178,6 +155,6 @@ class InsightsManager:
                 return []
 
         if target_insight:
-            return target_insight.positive_cases[-top_k:]
+            return target_insight.cases[-top_k:]
 
         return []
