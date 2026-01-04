@@ -6,7 +6,7 @@ from typing import List, Tuple
 import chromadb
 from chromadb.utils import embedding_functions
 
-from .common import LegalMessage, ShadowGraph
+from .common import LegalMessage, NodeStatus, NodeType, ShadowGraph
 from .config import SystemConfig
 from .memory_base import MASMemoryBase
 from .task_layer import TaskLayer
@@ -42,10 +42,28 @@ class LegalGMemory(MASMemoryBase):
         )
 
     def add_memory(self, message: LegalMessage) -> None:
+        cited_laws = []
+
+        if message.shadow_graph and message.shadow_graph.graph:
+            for _, data in message.shadow_graph.graph.nodes(data=True):
+                if (
+                    data.get("type") == NodeType.LAW
+                    and data.get("status") == NodeStatus.VALIDATED
+                ):
+                    content = data.get("content", "").strip()
+
+                    if content:
+                        cited_laws.append(content)
+
+        cited_laws_str = "|||".join(cited_laws) if cited_laws else ""
+
         self.collection.add(
             documents=[message.case_context],
             metadatas=[
-                {"graph_json": json.dumps(ShadowGraph.to_dict(message.shadow_graph))}
+                {
+                    "graph_json": json.dumps(ShadowGraph.to_dict(message.shadow_graph)),
+                    "cited_laws": cited_laws_str,
+                }
             ],
             ids=[message.case_id],
         )
@@ -89,11 +107,28 @@ class LegalGMemory(MASMemoryBase):
         if not expanded_ids:
             return [], []
 
-        final_results = self.collection.get(
-            ids=expanded_ids, include=["metadatas", "documents"]
-        )
+        return self._fetch_messages_by_ids(expanded_ids), []
 
+    def retrieve_cases_by_law_codes(
+        self, law_contents: List[str]
+    ) -> List[LegalMessage]:
+        if not law_contents:
+            return []
+
+        combined_query = " ".join(law_contents)
+        results = self.collection.query(query_texts=[combined_query], n_results=5)
+        found_ids = results["ids"][0] if results["ids"] else []
+        return self._fetch_messages_by_ids(found_ids)
+
+    def _fetch_messages_by_ids(self, ids: List[str]) -> List[LegalMessage]:
+        if not ids:
+            return []
+
+        final_results = self.collection.get(ids=ids, include=["metadatas", "documents"])
         messages = []
+
+        if not final_results["ids"]:
+            return []
 
         for i in range(len(final_results["ids"])):
             try:
@@ -101,13 +136,15 @@ class LegalGMemory(MASMemoryBase):
                 context = final_results["documents"][i]
                 graph_json_str = final_results["metadatas"][i]["graph_json"]
                 sg = ShadowGraph.from_dict(json.loads(graph_json_str))
+
                 msg = LegalMessage(
                     case_id=case_id, case_context=context, shadow_graph=sg
                 )
+
                 messages.append(msg)
 
             except Exception as e:
                 print(f"Error loading memory {final_results['ids'][i]}: {e}")
                 continue
 
-        return messages, []
+        return messages

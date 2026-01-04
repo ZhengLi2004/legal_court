@@ -184,12 +184,14 @@ class LawWorker(BaseWorker):
         name: str = "LawWorker",
         es_tool: LawEsTool = None,
         llm: GPTChat = None,
+        legal_system: LegalSystem = None,
         threshold: float = 0.6,
     ):
         super().__init__(name, "Law Researcher", llm)
         self.es_tool = es_tool
         self.threshold = threshold
         self.graph_tool = None
+        self.legal_system = legal_system
         self.set_actions([FormulateSearchQueries, AnalyzeSearchResults])
 
     async def _act(self) -> Message:
@@ -260,6 +262,12 @@ class LawWorker(BaseWorker):
                 )
 
             injection_log = self.graph_tool.inject_law_nodes(law_contents_for_injection)
+
+            if self.legal_system and law_contents_for_injection:
+                self.legal_system.inject_jurisprudential_context(
+                    law_contents_for_injection
+                )
+
             logger.info(f"[{self.name}] Injection Log: {injection_log}")
             analyze_action = AnalyzeSearchResults(llm=self.llm)
 

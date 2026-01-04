@@ -1,5 +1,7 @@
 from typing import Dict, List, Tuple
 
+from metagpt.logs import logger
+
 from mas.schema import AgentAction
 
 from .backprop import BackPropagator
@@ -58,8 +60,24 @@ class LegalSystem:
         self.step_counter = 0
         self.active_history_cases: List[LegalMessage] = []
 
+    def _merge_history_cases(self, candidates: List[LegalMessage]) -> int:
+        if not candidates:
+            return 0
+
+        existing_ids = {c.case_id for c in self.active_history_cases}
+        new_added_count = 0
+
+        for case in candidates:
+            if case.case_id not in existing_ids:
+                self.active_history_cases.append(case)
+                existing_ids.add(case.case_id)
+                new_added_count += 1
+
+        return new_added_count
+
     def new_case(self, context: str) -> Tuple[ShadowGraph, List[str]]:
         self.step_counter = 0
+        self.active_history_cases = []
         sg = ShadowGraph()
 
         relevant_strategies = self.insights.get_relevant_insights(
@@ -71,6 +89,8 @@ class LegalSystem:
         initial_msgs, _ = self.memory.retrieve_memory(
             context, top_k=self.cfg.retrieval.initial_top_k
         )
+
+        self._merge_history_cases(initial_msgs)
 
         corrective_msgs = []
 
@@ -98,15 +118,28 @@ class LegalSystem:
 
                         corrective_msgs.append(msg)
 
-        unique_msgs = {}
-
-        for m in initial_msgs + corrective_msgs:
-            if m.case_id not in unique_msgs:
-                unique_msgs[m.case_id] = m
-
-        self.active_history_cases = list(unique_msgs.values())
+        self._merge_history_cases(corrective_msgs)
         sg.refresh_context(0)
         return sg, relevant_strategies
+
+    def inject_jurisprudential_context(self, law_contents: List[str]):
+        if not law_contents:
+            return
+
+        logger.info(
+            f"[LegalSystem] Triggering dynamic retrieval for {len(law_contents)} laws..."
+        )
+
+        juris_cases = self.memory.retrieve_cases_by_law_codes(law_contents)
+        added_count = self._merge_history_cases(juris_cases)
+
+        if added_count > 0:
+            logger.info(
+                f"✅ [Dynamic Context] Added {added_count} new cases based on jurisprudential relevance."
+            )
+
+        else:
+            logger.info("ℹ️ [Dynamic Context] No new unique cases found.")
 
     def advance_step(self):
         self.step_counter += 1

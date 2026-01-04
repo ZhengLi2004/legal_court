@@ -51,7 +51,10 @@ class DebateTeam:
             name=f"{side}_FactWorker", es_tool=fact_es, llm=llm
         )
 
-        self.law_worker = LawWorker(name=f"{side}_LawWorker", es_tool=law_es, llm=llm)
+        self.law_worker = LawWorker(
+            name=f"{side}_LawWorker", es_tool=law_es, llm=llm, legal_system=legal_system
+        )
+
         self.law_worker.graph_tool = graph_tool
 
         self.recall_worker = RecallWorker(
