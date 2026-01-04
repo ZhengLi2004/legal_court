@@ -1,7 +1,7 @@
 import os
 import pickle
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List
 
 import networkx as nx
 
@@ -11,8 +11,7 @@ from .utils import file_lock
 @dataclass
 class TaskLayer:
     working_dir: str
-    similarity_threshold: float = 0.5
-    filename: str = "case_graph.pkl"
+    filename: str = "case_reference_graph.pkl"
 
     def __post_init__(self):
         self._graph_path = os.path.join(self.working_dir, self.filename)
@@ -20,8 +19,12 @@ class TaskLayer:
 
     def _load_graph(self):
         if os.path.exists(self._graph_path):
-            with open(self._graph_path, "rb") as f:
-                self.graph = pickle.load(f)
+            try:
+                with open(self._graph_path, "rb") as f:
+                    self.graph = pickle.load(f)
+
+            except Exception:
+                self.graph = nx.Graph()
 
         else:
             self.graph = nx.Graph()
@@ -33,33 +36,53 @@ class TaskLayer:
             with open(self._graph_path, "wb") as f:
                 pickle.dump(self.graph, f)
 
-    def update_topology(
-        self, new_case_id: str, neighbors: List[Tuple[str, float]]
-    ) -> None:
-        if new_case_id not in self.graph:
-            self.graph.add_node(new_case_id)
+    def add_node(self, case_id: str):
+        if case_id not in self.graph:
+            self.graph.add_node(case_id)
+            self._save_graph()
 
-        for neighbor_id, score in neighbors:
-            if neighbor_id == new_case_id:
-                continue
+    def add_link(self, case_a: str, case_b: str):
+        if case_a == case_b:
+            return
 
-            if score >= self.similarity_threshold:
-                if neighbor_id not in self.graph:
-                    self.graph.add_node(neighbor_id)
+        if not self.graph.has_node(case_a):
+            self.graph.add_node(case_a)
 
-                self.graph.add_edge(new_case_id, neighbor_id, weight=score)
+        if not self.graph.has_node(case_b):
+            self.graph.add_node(case_b)
 
-        self._save_graph()
+        if not self.graph.has_edge(case_a, case_b):
+            self.graph.add_edge(case_a, case_b)
+            self._save_graph()
 
-    def get_k_hop_neighbors(self, anchor_ids: List[str], hop: int = 1) -> List[str]:
-        result_set = set(anchor_ids)
+    def get_subgraph_components(self, case_ids: List[str]) -> List[List[str]]:
+        if not case_ids:
+            return []
 
-        for anchor in anchor_ids:
-            if anchor in self.graph:
-                neighbors = nx.single_source_shortest_path_length(
-                    self.graph, anchor, cutoff=hop
-                ).keys()
+        valid_nodes = [n for n in case_ids if self.graph.has_node(n)]
 
-                result_set.update(neighbors)
+        if not valid_nodes:
+            return [[n] for n in case_ids]
 
-        return list(result_set)
+        subgraph = self.graph.subgraph(valid_nodes)
+        components = list(nx.connected_components(subgraph))
+        return [list(comp) for comp in components]
+
+    def get_central_node(self, component_nodes: List[str]) -> str:
+        if not component_nodes:
+            return None
+
+        if len(component_nodes) == 1:
+            return component_nodes[0]
+
+        subgraph = self.graph.subgraph(component_nodes)
+        degrees = dict(subgraph.degree())
+
+        central_node = max(
+            degrees.items(),
+            key=lambda x: (x[1], x[0] * -1 if isinstance(x[0], int) else x[0]),
+        )[0]
+
+        central_node = max(degrees.items(), key=lambda x: (x[1], x[0]))[0]
+
+        return central_node

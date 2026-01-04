@@ -69,7 +69,6 @@ class GraphProjector:
             return ""
 
         nodes_to_serialize = set(matched_history_ids)
-        limit = self.cfg.retrieval.max_neighbors_per_anchor
 
         for hist_id in matched_history_ids:
             predecessors = list(history_graph.graph.predecessors(hist_id))
@@ -78,9 +77,6 @@ class GraphProjector:
             count = 0
 
             for nid in neighbors:
-                if count >= limit:
-                    break
-
                 nodes_to_serialize.add(nid)
                 count += 1
 

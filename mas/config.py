@@ -77,12 +77,11 @@ class DeduplicationConfig:
 
 @dataclass
 class RetrievalConfig:
-    initial_top_k: int = 2
-    corrective_top_k: int = 2
+    initial_top_k: int = 3
+    corrective_top_k: int = 3
     insight_top_k: int = 3
-    chroma_n_results: int = 5
+    chroma_n_results: int = 3
     hop: int = 1
-    max_neighbors_per_anchor: int = 10
 
 
 @dataclass

@@ -263,9 +263,9 @@ class LawWorker(BaseWorker):
 
             injection_log = self.graph_tool.inject_law_nodes(law_contents_for_injection)
 
-            if self.legal_system and law_contents_for_injection:
+            if self.legal_system and self.graph_tool.current_graph:
                 self.legal_system.inject_jurisprudential_context(
-                    law_contents_for_injection
+                    self.graph_tool.current_graph
                 )
 
             logger.info(f"[{self.name}] Injection Log: {injection_log}")

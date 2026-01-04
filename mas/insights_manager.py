@@ -1,11 +1,10 @@
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import Any, Dict, List
 
 from prompts.common_prompts import EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT
 
-from .common import ShadowGraph
 from .config import SystemConfig
 from .llm import GPTChat, Message
 from .semantic_matcher import SemanticMatcher
@@ -16,6 +15,7 @@ from .utils import cosine_similarity, file_lock
 class Insight:
     content: str
     cases: List[str] = field(default_factory=list)
+    representatives: List[str] = field(default_factory=list)
 
 
 class InsightsManager:
@@ -53,8 +53,15 @@ class InsightsManager:
                         )
                     )
 
+                    reps = item.get("representatives", [])
+
+                    if cases and not reps:
+                        reps = cases
+
                     loaded_insights.append(
-                        Insight(content=item["content"], cases=cases)
+                        Insight(
+                            content=item["content"], cases=cases, representatives=reps
+                        )
                     )
 
                 return loaded_insights
@@ -84,37 +91,66 @@ class InsightsManager:
         self,
         case_id: str,
         case_context: str,
-        winning_graph: ShadowGraph,
-        losing_graph: ShadowGraph,
-    ):
+        transcript: List[str],
+        root_claims_status: Dict[str, str],
+    ) -> "Insight":
+        status_desc = "\n".join(
+            [f"- {cid}: {status}" for cid, status in root_claims_status.items()]
+        )
+
+        transcript_text = "\n".join(transcript) if transcript else "（无庭审记录）"
+
         prompt = EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT.format(
             case_context=case_context,
-            winning_graph_json=winning_graph.to_json(),
-            losing_graph_json=losing_graph.to_json(),
+            claims_status=status_desc,
+            transcript=transcript_text[:15000],
         )
 
         response = self.llm([Message(role="user", content=prompt)])
+        content = response.replace("策略：", "").replace("Insight:", "").strip()
+        candidates = [(str(i), inst.content) for i, inst in enumerate(self.insights)]
+        match_idx_str = self.matcher.find_match(content, candidates)
+        target_insight = None
 
-        if "STRATEGY:" in response:
-            content = response.split("STRATEGY:")[1].strip()
+        if match_idx_str:
+            idx = int(match_idx_str)
+            target_insight = self.insights[idx]
 
-            candidates = [
-                (str(i), inst.content) for i, inst in enumerate(self.insights)
-            ]
+            if case_id not in target_insight.cases:
+                target_insight.cases.append(case_id)
 
-            match_idx_str = self.matcher.find_match(content, candidates)
+        else:
+            target_insight = Insight(
+                content=content, cases=[case_id], representatives=[case_id]
+            )
 
-            if match_idx_str:
-                idx = int(match_idx_str)
+            self.insights.append(target_insight)
 
-                if case_id not in self.insights[idx].cases:
-                    self.insights[idx].cases.append(case_id)
+        self._save_insights()
+        return target_insight
 
-            else:
-                new_insight = Insight(content=content, cases=[case_id])
-                self.insights.append(new_insight)
+    def update_insight_topology(self, insight_content: str, task_layer: Any):
+        target_insight = None
 
-            self._save_insights()
+        for inst in self.insights:
+            if inst.content == insight_content:
+                target_insight = inst
+                break
+
+        if not target_insight:
+            return
+
+        components = task_layer.get_subgraph_components(target_insight.cases)
+        new_reps = []
+
+        for comp in components:
+            rep = task_layer.get_central_node(comp)
+
+            if rep:
+                new_reps.append(rep)
+
+        target_insight.representatives = new_reps
+        self._save_insights()
 
     def get_relevant_insights(self, context: str, top_k: int = 3) -> List[str]:
         if not self._insight_index:
@@ -131,7 +167,7 @@ class InsightsManager:
         return [c[1].content for c in candidates[:top_k]]
 
     def find_cases_by_insight(
-        self, insight_content: str, memory_retriever: Any = None, top_k: int = 5
+        self, insight_content: str, memory_retriever: Any = None, top_k: int = 3
     ) -> List[str]:
         target_insight = None
 
@@ -155,6 +191,6 @@ class InsightsManager:
                 return []
 
         if target_insight:
-            return target_insight.cases[-top_k:]
+            return target_insight.representatives
 
         return []

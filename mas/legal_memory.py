@@ -1,7 +1,8 @@
 import json
 import os
+from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import Dict, List, Set, Tuple
 
 import chromadb
 from chromadb.utils import embedding_functions
@@ -10,6 +11,7 @@ from .common import LegalMessage, NodeStatus, NodeType, ShadowGraph
 from .config import SystemConfig
 from .memory_base import MASMemoryBase
 from .task_layer import TaskLayer
+from .utils import file_lock
 
 
 @dataclass
@@ -23,7 +25,7 @@ class LegalGMemory(MASMemoryBase):
         chroma_path = os.path.join(
             self.persist_dir, self.config.path.storage_subdir_chroma
         )
-
+        self.index_path = os.path.join(self.persist_dir, "legal_indices.json")
         self.chroma_client = chromadb.PersistentClient(path=chroma_path)
 
         self.chroma_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
@@ -36,16 +38,43 @@ class LegalGMemory(MASMemoryBase):
             metadata={"hnsw:space": "cosine"},
         )
 
-        self.task_layer = TaskLayer(
-            working_dir=self.persist_dir,
-            similarity_threshold=self.config.topology.task_layer_threshold,
-        )
+        self.task_layer = TaskLayer(working_dir=self.persist_dir)
+        self.law_inverted_index: Dict[str, Set[str]] = defaultdict(set)
+        self.case_law_index: Dict[str, Set[str]] = defaultdict(set)
+        self._load_indices()
 
-    def add_memory(self, message: LegalMessage) -> None:
-        cited_laws = []
+    def _load_indices(self):
+        if os.path.exists(self.index_path):
+            try:
+                with open(self.index_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
 
-        if message.shadow_graph and message.shadow_graph.graph:
-            for _, data in message.shadow_graph.graph.nodes(data=True):
+                    for k, v in data.get("law_inverted_index", {}).items():
+                        self.law_inverted_index[k] = set(v)
+
+                    for k, v in data.get("case_law_index", {}).items():
+                        self.case_law_index[k] = set(v)
+
+            except Exception as e:
+                print(f"[Memory] Failed to load indices: {e}")
+
+    def _save_indices(self):
+        data = {
+            "law_inverted_index": {
+                k: list(v) for k, v in self.law_inverted_index.items()
+            },
+            "case_law_index": {k: list(v) for k, v in self.case_law_index.items()},
+        }
+
+        with file_lock(self.index_path + ".lock"):
+            with open(self.index_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def _extract_laws_from_graph(self, graph: ShadowGraph) -> Set[str]:
+        laws = set()
+
+        if graph and graph.graph:
+            for _, data in graph.graph.nodes(data=True):
                 if (
                     data.get("type") == NodeType.LAW
                     and data.get("status") == NodeStatus.VALIDATED
@@ -53,9 +82,30 @@ class LegalGMemory(MASMemoryBase):
                     content = data.get("content", "").strip()
 
                     if content:
-                        cited_laws.append(content)
+                        laws.add(content)
 
-        cited_laws_str = "|||".join(cited_laws) if cited_laws else ""
+        return laws
+
+    def _compute_jaccard(self, set_a: Set[str], set_b: Set[str]) -> float:
+        union_len = len(set_a.union(set_b))
+
+        if union_len == 0:
+            return 0.0
+
+        return len(set_a.intersection(set_b)) / union_len
+
+    def add_memory(self, message: LegalMessage) -> None:
+        current_laws = self._extract_laws_from_graph(message.shadow_graph)
+
+        if current_laws:
+            self.case_law_index[message.case_id] = current_laws
+
+            for law in current_laws:
+                self.law_inverted_index[law].add(message.case_id)
+
+            self._save_indices()
+
+        cited_laws_str = "|||".join(current_laws)
 
         self.collection.add(
             documents=[message.case_context],
@@ -68,25 +118,34 @@ class LegalGMemory(MASMemoryBase):
             ids=[message.case_id],
         )
 
-        results = self.collection.query(
-            query_texts=[message.case_context],
-            n_results=self.config.retrieval.chroma_n_results,
-        )
+    def retrieve_cases_by_law_codes(
+        self, law_contents: List[str]
+    ) -> List[LegalMessage]:
+        if not law_contents:
+            return []
 
-        neighbors: List[Tuple[str, float]] = []
+        target_set = set(law_contents)
+        candidate_case_ids = set()
 
-        if results["ids"] and results["distances"]:
-            retrieved_ids = results["ids"][0]
-            retrieved_distances = results["distances"][0]
+        for law in target_set:
+            if law in self.law_inverted_index:
+                candidate_case_ids.update(self.law_inverted_index[law])
 
-            for rid, dist in zip(retrieved_ids, retrieved_distances):
-                if rid == message.case_id:
-                    continue
+        if not candidate_case_ids:
+            return []
 
-                sim = max(0.0, 1.0 - dist)
-                neighbors.append((rid, sim))
+        scores: List[Tuple[str, float]] = []
 
-        self.task_layer.update_topology(message.case_id, neighbors)
+        for case_id in candidate_case_ids:
+            case_laws = self.case_law_index.get(case_id, set())
+            sim = self._compute_jaccard(target_set, case_laws)
+
+            if sim > 0:
+                scores.append((case_id, sim))
+
+        scores.sort(key=lambda x: x[1], reverse=True)
+        top_k_ids = [s[0] for s in scores[:3]]
+        return self._fetch_messages_by_ids(top_k_ids)
 
     def retrieve_memory(
         self, query_context: str, top_k: int = 3
@@ -96,29 +155,12 @@ class LegalGMemory(MASMemoryBase):
         if count == 0:
             return [], []
 
-        real_k = min(top_k, count)
-        results = self.collection.query(query_texts=[query_context], n_results=real_k)
-        anchor_ids = results["ids"][0] if results["ids"] else []
-
-        expanded_ids = self.task_layer.get_k_hop_neighbors(
-            anchor_ids, hop=self.config.retrieval.hop
+        results = self.collection.query(
+            query_texts=[query_context], n_results=min(top_k, count)
         )
 
-        if not expanded_ids:
-            return [], []
-
-        return self._fetch_messages_by_ids(expanded_ids), []
-
-    def retrieve_cases_by_law_codes(
-        self, law_contents: List[str]
-    ) -> List[LegalMessage]:
-        if not law_contents:
-            return []
-
-        combined_query = " ".join(law_contents)
-        results = self.collection.query(query_texts=[combined_query], n_results=5)
         found_ids = results["ids"][0] if results["ids"] else []
-        return self._fetch_messages_by_ids(found_ids)
+        return self._fetch_messages_by_ids(found_ids), []
 
     def _fetch_messages_by_ids(self, ids: List[str]) -> List[LegalMessage]:
         if not ids:
