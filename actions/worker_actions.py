@@ -24,7 +24,7 @@ class AnalyzeSearchResults(Action):
             search_result=search_result,
         )
 
-        return await self.llm.aask(prompt)
+        return await self.llm.aask(prompt, temperature=0.5)
 
 
 class FormulateSearchQueries(Action):

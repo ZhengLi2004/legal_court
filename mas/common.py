@@ -534,6 +534,22 @@ class ShadowGraph:
 
         return result
 
+    def get_simple_id_list(self) -> str:
+        ids = []
+
+        for n, d in self.graph.nodes(data=True):
+            n_type = d.get("type", "UNKNOWN")
+
+            if hasattr(n_type, "value"):
+                n_type = n_type.value
+
+            ids.append(f"- {n} ({n_type})")
+
+        if not ids:
+            return "（当前图谱为空）"
+
+        return "\n".join(ids)
+
     def get_nodes_by_step(self, step_index: int) -> List[str]:
         target_nodes = []
 

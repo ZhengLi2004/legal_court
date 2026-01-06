@@ -275,6 +275,7 @@ class ArgumentController(Role):
 
             current_advice = self.latest_summary or "（本轮无额外信息）"
             action = VerifyAndDecide(llm=self.llm)
+            id_list_str = self.graph_tool.current_graph.get_simple_id_list()
 
             decision_raw = await action.run(
                 self.name,
@@ -282,6 +283,7 @@ class ArgumentController(Role):
                 graph_context,
                 self.persona.initial_strategy,
                 feedback=feedback_section,
+                id_inventory=id_list_str,
             )
 
             parsed_actions = parse_agent_action_output(decision_raw)
@@ -295,11 +297,12 @@ class ArgumentController(Role):
 
                 if "REJECT" in exec_msg or "Error" in exec_msg:
                     logger.warning(f"[{self.name}] Action Execution Failed: {exec_msg}")
-                    error_entry = f"Attempt #{len(self.recent_errors) + 1}: {exec_msg}"
-                    self.recent_errors.append(error_entry)
 
-                    if len(self.recent_errors) > 5:
-                        self.recent_errors.pop(0)
+                    detailed_error = (
+                        f"[系统报错]: {exec_msg}\n[你的原始输出]: \n{decision_raw}\n"
+                    )
+
+                    self.recent_errors = [detailed_error]
 
                     return Message(
                         content=f"EXECUTION_FAILURE_RETRY: {exec_msg[:50]}...",
@@ -318,12 +321,11 @@ class ArgumentController(Role):
                 error_msg = f"JSON Parsing Failed: {parsed_actions}"
                 logger.warning(f"[{self.name}] {error_msg}")
 
-                self.recent_errors.append(
-                    f"Attempt #{len(self.recent_errors) + 1}: {error_msg}"
+                detailed_error = (
+                    f"[格式错误]: {error_msg}\n[你的原始输出]: \n{decision_raw}\n"
                 )
 
-                if len(self.recent_errors) > 5:
-                    self.recent_errors.pop(0)
+                self.recent_errors = [detailed_error]
 
                 return Message(
                     content="EXECUTION_FAILURE_RETRY: JSON Error", role=self.profile

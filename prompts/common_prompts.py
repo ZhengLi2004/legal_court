@@ -215,16 +215,27 @@ VERIFY_AND_DECIDE_PROMPT = (
     【参谋报告/行动结果】:
     "{worker_advice}"
 
-    【当前战局】:
+    【当前战局 (Graph Context)】:
     {graph_context}
-
+    
     """
     + GRAPH_READING_GUIDE
     + """
+    
+    【🛡️ ID 防幻觉安全校验】:
+    **你只能引用以下列表中真实存在的 ID**。严禁捏造 "FACT_1", "CLAIM_new" 等不存在的 ID！
+    若你想提出新观点，`source_id` 或 `target_id` 必须设为 `null` (取决于具体动作类型)。
+    
+    **有效 ID 清单**:
+    {id_inventory}
 
     {feedback_section}
 
-    任务：请结合【参谋报告】中提到的成果和【当前战局】中的已有节点，生成具体的图谱操作 JSON 数组，以推进【战略重心】({focus})。
+    任务：请结合【参谋报告】和【当前战局】，生成具体的图谱操作 JSON 数组，以推进【战略重心】({focus})。
+    
+    【⚠️ 强制活跃要求】:
+    - 只要你能找到反驳对方或支持己方的机会，**必须**采取行动。
+    - **禁止**仅仅因为“看起来不错”就停止行动，必须追求逻辑的绝对闭环。
 
     {action_schema_desc}
 

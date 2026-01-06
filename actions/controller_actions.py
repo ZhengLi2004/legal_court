@@ -63,6 +63,7 @@ class VerifyAndDecide(Action):
         worker_advice: str,
         graph_context: str,
         focus: str,
+        id_inventory: str,
         feedback: str = "",
     ):
         feedback_text = ""
@@ -77,6 +78,7 @@ class VerifyAndDecide(Action):
             focus=focus,
             action_schema_desc=AGENT_ACTION_SCHEMA_DESC,
             feedback_section=feedback_text,
+            id_inventory=id_inventory,
         )
 
-        return await self.llm.aask(prompt, max_tokens=8192)
+        return await self.llm.aask(prompt, max_tokens=8192, temperature=0.5)
