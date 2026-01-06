@@ -58,7 +58,10 @@ class DebateTeam:
         self.law_worker.graph_tool = graph_tool
 
         self.recall_worker = RecallWorker(
-            name=f"{side}_RecallWorker", legal_system=legal_system, llm=llm
+            name=f"{side}_RecallWorker",
+            legal_system=legal_system,
+            llm=llm,
+            role_name=side,
         )
 
         self.recall_worker.graph_tool = graph_tool

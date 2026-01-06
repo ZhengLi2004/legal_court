@@ -61,6 +61,7 @@ class ProjectAndAnalyze(Action):
         query: str,
         legal_system: LegalSystem,
         current_graph: ShadowGraph,
+        my_role: str = "Unknown",
         top_k: int = 3,
     ) -> str:
         logger.info(
@@ -110,7 +111,9 @@ class ProjectAndAnalyze(Action):
         logger.info("Successfully retrieved historical context text from cache.")
 
         prompt = ANALYZE_RECALL_PROMPT.format(
-            user_query=query, projection_context=historical_context_text
+            user_query=query,
+            projection_context=historical_context_text,
+            my_role=my_role,
         )
 
         return await self.llm.aask(prompt, temperature=0.5)

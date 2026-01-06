@@ -476,8 +476,33 @@ class ShadowGraph:
         }
 
         current_status_str = status_map.get(data.get("status"), "")
-        type_map = {NodeType.FACT: "事实", NodeType.LAW: "法条", NodeType.CLAIM: "观点"}
-        type_cn = type_map.get(data["type"], data["type"].value)
+        node_type = data["type"]
+
+        if hasattr(node_type, "value"):
+            node_type = node_type.value
+
+        node_type = NodeType(node_type)
+        agent_id = data.get("agent_id", "").lower()
+
+        if node_type == NodeType.FACT:
+            type_cn = "事实"
+
+        elif node_type == NodeType.LAW:
+            type_cn = "法条"
+
+        elif node_type == NodeType.CLAIM:
+            if "plaintiff" in agent_id:
+                type_cn = "原告观点"
+
+            elif "defendant" in agent_id:
+                type_cn = "被告观点"
+
+            else:
+                type_cn = "核心诉求"
+
+        else:
+            type_cn = "节点"
+
         content = f"[{node_id}] [{type_cn}] {data['content']}{current_status_str}"
         preds = sorted(list(self.graph.predecessors(node_id)))
         supporting_texts = []

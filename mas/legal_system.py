@@ -84,7 +84,7 @@ class LegalSystem:
                 self._static_history_cases.append(case)
                 existing_ids.add(case.case_id)
 
-    def new_case(self, context: str) -> Tuple[ShadowGraph, List[str]]:
+    def new_case(self, context: str) -> Tuple[ShadowGraph, Tuple[List[str], List[str]]]:
         self.step_counter = 0
         self._static_history_cases = []
         self._dynamic_law_cases = []
@@ -96,16 +96,17 @@ class LegalSystem:
 
         self._merge_static_cases(initial_msgs)
 
-        relevant_strategies = self.insights.get_relevant_insights(
+        p_insights, d_insights = self.insights.get_relevant_insights_by_side(
             context, top_k=self.cfg.retrieval.insight_top_k
         )
 
+        all_strategies = list(set(p_insights + d_insights))
         candidates_from_strategy = []
 
-        if relevant_strategies:
+        if all_strategies:
             representatives = []
 
-            for strat in relevant_strategies:
+            for strat in all_strategies:
                 reps = self.insights.find_cases_by_insight(
                     strat, top_k=self.cfg.retrieval.corrective_top_k
                 )
@@ -141,7 +142,7 @@ class LegalSystem:
 
         self._merge_static_cases(candidates_from_strategy)
         sg.refresh_context(0)
-        return sg, relevant_strategies
+        return sg, (p_insights, d_insights)
 
     def learn(
         self,
@@ -166,7 +167,6 @@ class LegalSystem:
         )
 
         self.memory.add_memory(msg)
-
         status_str_dict = {k: v.value for k, v in root_claims_status.items()}
 
         target_insight = self.insights.extract_adversarial_insights(

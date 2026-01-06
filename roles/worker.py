@@ -308,10 +308,12 @@ class RecallWorker(BaseWorker):
         name: str = "RecallWorker",
         legal_system: LegalSystem = None,
         llm: GPTChat = None,
+        role_name: str = "Unknown",
     ):
         super().__init__(name, "Strategy Researcher", llm)
         self.legal_system = legal_system
         self.graph_tool = None
+        self.role_name = role_name
         self.set_actions([ProjectAndAnalyze])
 
     async def _act(self) -> Message:
@@ -339,6 +341,7 @@ class RecallWorker(BaseWorker):
                 query=instruction.intent,
                 legal_system=self.legal_system,
                 current_graph=self.graph_tool.current_graph,
+                my_role=self.role_name,
             )
 
             final_content = truncate_text(advice, 500)

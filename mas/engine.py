@@ -91,7 +91,13 @@ class DebateEngine:
         cause = case_data.get("cause", ["未知案由"])[0]
         initializer = CaseInitializer(agent_llm)
         init_res = await initializer.initialize(self.raw_facts, cause)
-        self.graph, insights = self.legal_sys.new_case(self.raw_facts)
+
+        self.graph, (p_insights_list, d_insights_list) = self.legal_sys.new_case(
+            self.raw_facts
+        )
+
+        p_insights_str = "\n".join([f"- {s}" for s in p_insights_list])
+        d_insights_str = "\n".join([f"- {s}" for s in d_insights_list])
         self.legal_sys.step_counter = 0
         self.prev_stats["claim_nodes"] = self._count_claim_nodes()
         self.prev_stats["conflict_edges"] = 0
@@ -144,7 +150,7 @@ class DebateEngine:
             self.law_es,
             agent_llm,
             self.legal_sys,
-            insights,
+            insights=p_insights_str,
             verbose=verbose,
         )
 
@@ -156,7 +162,7 @@ class DebateEngine:
             self.law_es,
             agent_llm,
             self.legal_sys,
-            insights,
+            insights=d_insights_str,
             verbose=verbose,
         )
 

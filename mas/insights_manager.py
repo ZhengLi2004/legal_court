@@ -1,7 +1,8 @@
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from enum import Enum
+from typing import Any, Dict, List, Tuple
 
 from prompts.common_prompts import EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT
 
@@ -11,9 +12,16 @@ from .semantic_matcher import SemanticMatcher
 from .utils import cosine_similarity, file_lock
 
 
+class InsightSide(str, Enum):
+    PLAINTIFF = "PLAINTIFF"
+    DEFENDANT = "DEFENDANT"
+    COMMON = "COMMON"
+
+
 @dataclass
 class Insight:
     content: str
+    side: InsightSide = InsightSide.COMMON
     cases: List[str] = field(default_factory=list)
     representatives: List[str] = field(default_factory=list)
 
@@ -58,9 +66,20 @@ class InsightsManager:
                     if cases and not reps:
                         reps = cases
 
+                    side_str = item.get("side", "COMMON")
+
+                    try:
+                        side = InsightSide(side_str)
+
+                    except ValueError:
+                        side = InsightSide.COMMON
+
                     loaded_insights.append(
                         Insight(
-                            content=item["content"], cases=cases, representatives=reps
+                            content=item["content"],
+                            side=side,
+                            cases=cases,
+                            representatives=reps,
                         )
                     )
 
@@ -73,7 +92,12 @@ class InsightsManager:
         lock_file = self.file_path + ".lock"
 
         with file_lock(lock_file):
-            data = [inst.__dict__ for inst in self.insights]
+            data = []
+
+            for inst in self.insights:
+                d = inst.__dict__.copy()
+                d["side"] = inst.side.value
+                data.append(d)
 
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -107,7 +131,30 @@ class InsightsManager:
         )
 
         response = self.llm([Message(role="user", content=prompt)])
-        content = response.replace("策略：", "").replace("Insight:", "").strip()
+        content = response.strip()
+        side = InsightSide.COMMON
+
+        if "SIDE: PLAINTIFF" in content.upper():
+            side = InsightSide.PLAINTIFF
+
+            content = content.replace("SIDE: PLAINTIFF", "").replace(
+                "SIDE: plaintiff", ""
+            )
+
+        elif "SIDE: DEFENDANT" in content.upper():
+            side = InsightSide.DEFENDANT
+
+            content = content.replace("SIDE: DEFENDANT", "").replace(
+                "SIDE: defendant", ""
+            )
+
+        content = (
+            content.replace("CONTENT:", "")
+            .replace("策略：", "")
+            .replace("Insight:", "")
+            .strip()
+        )
+
         candidates = [(str(i), inst.content) for i, inst in enumerate(self.insights)]
         match_idx_str = self.matcher.find_match(content, candidates)
         target_insight = None
@@ -121,7 +168,7 @@ class InsightsManager:
 
         else:
             target_insight = Insight(
-                content=content, cases=[case_id], representatives=[case_id]
+                content=content, side=side, cases=[case_id], representatives=[case_id]
             )
 
             self.insights.append(target_insight)
@@ -152,9 +199,11 @@ class InsightsManager:
         target_insight.representatives = new_reps
         self._save_insights()
 
-    def get_relevant_insights(self, context: str, top_k: int = 3) -> List[str]:
+    def get_relevant_insights_by_side(
+        self, context: str, top_k: int = 3
+    ) -> Tuple[List[str], List[str]]:
         if not self._insight_index:
-            return []
+            return [], []
 
         query_emb = self.matcher.embedding_func.embed_query(context)
         candidates = []
@@ -164,7 +213,20 @@ class InsightsManager:
             candidates.append((sim, inst))
 
         candidates.sort(key=lambda x: x[0], reverse=True)
-        return [c[1].content for c in candidates[:top_k]]
+        top_candidates = candidates[: top_k * 2]
+        p_insights = []
+        d_insights = []
+
+        for _, inst in top_candidates:
+            if inst.side == InsightSide.PLAINTIFF or inst.side == InsightSide.COMMON:
+                if len(p_insights) < top_k:
+                    p_insights.append(inst.content)
+
+            if inst.side == InsightSide.DEFENDANT or inst.side == InsightSide.COMMON:
+                if len(d_insights) < top_k:
+                    d_insights.append(inst.content)
+
+        return p_insights, d_insights
 
     def find_cases_by_insight(
         self, insight_content: str, memory_retriever: Any = None, top_k: int = 3
