@@ -1,3 +1,11 @@
+"""Provides miscellaneous utility functions and classes for the MAS.
+
+This module contains a collection of helper functions and classes used across
+the application, including file locking, configuration loading, mathematical
+operations like cosine similarity, and a singleton-like pattern for managing
+the embedding model to avoid loading it multiple times.
+"""
+
 import contextlib
 import json
 import math
@@ -15,6 +23,21 @@ from .config import SystemConfig
 
 @contextlib.contextmanager
 def file_lock(lock_path: str, timeout: int = 10):
+    """Create a file-based lock as a context manager.
+
+    This is useful for preventing race conditions when multiple processes might
+    try to write to the same file (e.g., the insights or task layer files).
+
+    Args:
+        lock_path: The path to the file to use for the lock.
+        timeout: The number of seconds to wait to acquire the lock.
+
+    Yields:
+        None.
+
+    Raises:
+        TimeoutError: If the lock cannot be acquired within the timeout period.
+    """
     lock = portalocker.Lock(lock_path, mode="a", timeout=timeout)
 
     try:
@@ -28,6 +51,7 @@ def file_lock(lock_path: str, timeout: int = 10):
 
 
 def load_config(config_path: str = "configs/configs.yaml"):
+    """Load a YAML configuration file."""
     if not os.path.exists(config_path):
         return {}
 
@@ -36,6 +60,7 @@ def load_config(config_path: str = "configs/configs.yaml"):
 
 
 def load_json(file_name: str) -> Union[list, dict]:
+    """Load a JSON file."""
     if not os.path.exists(file_name):
         return None
 
@@ -44,6 +69,7 @@ def load_json(file_name: str) -> Union[list, dict]:
 
 
 def random_divide_list(lst: list[Any], k: int) -> list[list]:
+    """Randomly divide a list into chunks of a maximum size k."""
     if len(lst) == 0:
         return []
 
@@ -65,6 +91,15 @@ def random_divide_list(lst: list[Any], k: int) -> list[list]:
 def cosine_similarity(
     vec1: Union[List[float], np.ndarray], vec2: Union[List[float], np.ndarray]
 ) -> float:
+    """Calculate the cosine similarity between two vectors.
+
+    Args:
+        vec1: The first vector.
+        vec2: The second vector.
+
+    Returns:
+        The cosine similarity score, a float between -1.0 and 1.0.
+    """
     vec1 = np.array(vec1)
     vec2 = np.array(vec2)
     norm1 = np.linalg.norm(vec1)
@@ -81,6 +116,23 @@ def deduplicate_and_rerank(
     key_extractor: Callable[[Dict[str, Any], Dict[str, Any]], str],
     top_k: int = 3,
 ) -> List[Dict[str, Any]]:
+    """Deduplicate and reranks search results from multiple queries.
+
+    This function is used when a high-level intent is broken down into multiple
+    search queries. It takes the lists of results from each query, merges them,
+    removes duplicates based on a provided key, and returns the top_k results
+    based on their original search score.
+
+    Args:
+        all_hits_list: A list where each element is a list of search hits from
+            one query.
+        key_extractor: A function that takes a search hit dictionary and its
+            _source field and returns a unique key for deduplication.
+        top_k: The final number of results to return.
+
+    Returns:
+        A single, deduplicated, and reranked list of the top_k search hits.
+    """
     unique_map = {}
 
     for hits in all_hits_list:
@@ -107,9 +159,21 @@ _EMBEDDING_MODEL_CACHE = {}
 
 @dataclass
 class EmbeddingFunc:
+    """A wrapper for the sentence transformer embedding model.
+
+    This class ensures that the potentially large embedding model is loaded
+    into memory only once and is shared across all components that need it.
+    It uses a global cache keyed by the model path.
+
+    Attributes:
+        model_path: The file path to the sentence transformer model directory.
+        func: The loaded embedding function object from `chromadb.utils`.
+    """
+
     model_path: str = None
 
     def __post_init__(self):
+        """Load the embedding model or retrieves it from the cache."""
         if self.model_path is None:
             self.model_path = SystemConfig().path.embedding_model_path
 
@@ -132,7 +196,23 @@ class EmbeddingFunc:
         self.func = _EMBEDDING_MODEL_CACHE[self.model_path]
 
     def embed_documents(self, texts: list[str]) -> list[list]:
+        """Generate embeddings for a list of documents.
+
+        Args:
+            texts: A list of strings to embed.
+
+        Returns:
+            A list of embedding vectors.
+        """
         return self.func(texts)
 
     def embed_query(self, query: str) -> list:
+        """Generate an embedding for a single query string.
+
+        Args:
+            query: The string to embed.
+
+        Returns:
+            A single embedding vector.
+        """
         return self.func([query])[0]

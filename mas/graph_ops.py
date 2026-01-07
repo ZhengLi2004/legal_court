@@ -1,3 +1,12 @@
+"""Provides the logic for executing agent actions on the debate graph.
+
+This module defines the `GraphExecutor` class, which is a dedicated component
+for translating the structured `AgentAction` objects produced by agents into
+actual modifications of the `ShadowGraph`. It handles action validation,
+node and edge creation, and ensures that operations are transactional (i.e.,
+a batch of actions either succeeds or fails as a whole).
+"""
+
 import copy
 from typing import Dict, List, Optional, Tuple
 
@@ -9,11 +18,42 @@ from .semantic_matcher import SemanticMatcher
 
 
 class GraphExecutor:
+    """Validates and executes a batch of AgentActions on a ShadowGraph.
+
+    This class provides a safe and structured way to modify the debate graph.
+    It first performs a static validation of all actions in a batch to catch
+    errors early. If validation passes, it attempts to execute the batch
+    transactionally.
+
+    Attributes:
+        graph: The `ShadowGraph` instance to be modified.
+        matcher: An optional `SemanticMatcher` for node deduplication.
+    """
+
     def __init__(self, graph: ShadowGraph, matcher: SemanticMatcher = None):
+        """Initialize the GraphExecutor.
+
+        Args:
+            graph: The `ShadowGraph` to be operated on.
+            matcher: The `SemanticMatcher` used for deduplicating new nodes.
+        """
         self.graph = graph
         self.matcher = matcher
 
     def _validate_action_static(self, action: AgentAction, index: int) -> Optional[str]:
+        """Perform static validation on a single AgentAction.
+
+        This check verifies that the action has the required fields for its type,
+        that specified node IDs exist in the graph, and that the node types are
+        correct for the intended operation.
+
+        Args:
+            action: The `AgentAction` to validate.
+            index: The index of the action in the batch, for error reporting.
+
+        Returns:
+            A string describing the validation error, or None if the action is valid.
+        """
         errors = []
         prefix = f"第 {index + 1} 个动作 ({action.action_type.value})"
 
@@ -114,6 +154,18 @@ class GraphExecutor:
         current_step: int = 0,
         metadata: Dict = None,
     ) -> Tuple[Optional[str], str]:
+        """Apply the add_node operation to the graph.
+
+        Args:
+            content: The text content of the node.
+            node_type: The `NodeType` of the node.
+            agent_id: The ID of the agent performing the action.
+            current_step: The current debate step, for metadata.
+            metadata: Additional metadata for the node.
+
+        Returns:
+            A tuple containing the new node's ID and a log message.
+        """
         try:
             if self.matcher:
                 cfg = SystemConfig().dedup
@@ -163,6 +215,18 @@ class GraphExecutor:
         agent_id: str,
         current_step: int = 0,
     ) -> str:
+        """Apply the add_edge operation to the graph.
+
+        Args:
+            source_id: The ID of the source node.
+            target_id: The ID of the target node.
+            edge_type: The `EdgeType` of the edge.
+            agent_id: The ID of the agent performing the action.
+            current_step: The current debate step, for metadata.
+
+        Returns:
+            A log message describing the result of the operation.
+        """
         try:
             result = self.graph.add_edge(source_id, target_id, edge_type)
             self.graph.touch_nodes([source_id, target_id], current_step)
@@ -188,6 +252,25 @@ class GraphExecutor:
     def execute_batch(
         self, actions_batch: List[AgentAction], agent_id: str, current_step: int = 0
     ) -> List[str]:
+        """Execute a batch of actions atomically.
+
+        First, it validates all actions. If any are invalid, it raises an
+        error with a summary of all issues. If validation passes, it proceeds
+        to execute the actions. If any action fails during execution, it reverts
+        the graph to its state before the batch began and raises an error.
+
+        Args:
+            actions_batch: A list of `AgentAction` objects to execute.
+            agent_id: The ID of the agent performing the actions.
+            current_step: The current debate step index.
+
+        Returns:
+            A list of log strings detailing the outcome of each successful operation.
+
+        Raises:
+            ValueError: If static validation fails or if a runtime error occurs
+                during execution.
+        """
         logs = []
         validation_errors = []
 

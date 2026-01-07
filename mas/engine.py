@@ -1,3 +1,11 @@
+"""The core orchestrator for the legal debate simulation.
+
+This module defines the `DebateEngine`, the central class that manages the
+entire lifecycle of a legal debate. It is responsible for setting up the
+environment, initializing the case and agents, running the debate turns,
+checking for convergence, and triggering the final adjudication process.
+"""
+
 import json
 from enum import Enum
 from typing import Any, Dict, List
@@ -18,12 +26,41 @@ from .team import DebateTeam
 
 
 class Turn(Enum):
+    """Enumeration to represent whose turn it is in the debate."""
+
     PLAINTIFF = "plaintiff"
     DEFENDANT = "defendant"
 
 
 class DebateEngine:
+    """Manages and executes the entire legal debate simulation.
+
+    This class acts as the main driver of the application. It holds the state
+    of the debate, including the central argument graph, the two opposing teams,
+    and the legal system components. It provides methods to initialize a case,
+    advance the debate by one turn, and retrieve a snapshot of the current state.
+
+    Attributes:
+        cfg: The system configuration object.
+        legal_sys: The `LegalSystem` instance providing memory and learning capabilities.
+        p_team: The `DebateTeam` for the plaintiff.
+        d_team: The `DebateTeam` for the defendant.
+        graph: The central `ShadowGraph` representing the debate state.
+        current_turn: The `Turn` enum member indicating the active team.
+        round_idx: The current round number of the debate.
+        is_finished: A boolean flag indicating if the debate has concluded.
+        transcript: A list of strings containing the narrated debate history.
+        last_step_log: A dictionary containing detailed information about the last turn.
+    """
+
     def __init__(self, config: SystemConfig, judge_config: Dict):
+        """Initialize the DebateEngine.
+
+        Args:
+            config: The main `SystemConfig` object.
+            judge_config: A dictionary with configuration for the judge LLM
+                (currently passed but may be integrated into SystemConfig).
+        """
         self.cfg = config
         self.judge_config = judge_config
         self.legal_sys: LegalSystem = None
@@ -47,6 +84,7 @@ class DebateEngine:
         self.narrator: GraphNarrator = None
 
     def _count_claim_nodes(self) -> int:
+        """Count the number of CLAIM nodes in the graph."""
         if not self.graph or not self.graph.graph:
             return 0
 
@@ -63,6 +101,25 @@ class DebateEngine:
     async def setup(
         self, case_data_path: str = None, case_data: Dict = None, verbose: bool = False
     ):
+        """Initialize the engine, legal system, and agent teams for a new case.
+
+        This asynchronous method performs all the necessary setup for a debate,
+        including:
+        - Initializing the `LegalSystem`.
+        - Using `CaseInitializer` to parse the case data, create personas, and
+          extract initial facts and claims.
+        - Injecting these initial facts and claims into the `ShadowGraph`.
+        - Instantiating the plaintiff and defendant `DebateTeam`s.
+
+        Args:
+            case_data_path: The file path to the case data (JSONL format).
+            case_data: A dictionary containing the case data. One of these two
+                arguments must be provided.
+            verbose: A boolean to enable verbose logging for the teams.
+
+        Raises:
+            ValueError: If neither `case_data_path` nor `case_data` is provided.
+        """
         logger.info(">>> [Engine] Setting up...")
         agent_llm = GPTChat(model_name=self.cfg.llm.model_name)
         self.narrator = GraphNarrator(llm=agent_llm)
@@ -175,6 +232,15 @@ class DebateEngine:
         }
 
     def _calculate_convergence(self) -> float:
+        """Calculate the convergence score for the current turn.
+
+        Convergence is measured as a weighted sum of the change in the number
+        of claim nodes and the change in the number of conflict edges. A low
+        score over several rounds indicates that the debate has stabilized.
+
+        Returns:
+            The convergence score (delta_phi) for the current turn.
+        """
         current_claim_nodes = self._count_claim_nodes()
         current_conflicts = 0
 
@@ -197,6 +263,7 @@ class DebateEngine:
         return delta_phi
 
     async def open_resources(self):
+        """Open persistent connections, like to Elasticsearch."""
         if self.fact_es:
             await self.fact_es.open()
 
@@ -204,6 +271,7 @@ class DebateEngine:
             await self.law_es.open()
 
     async def close_resources(self):
+        """Close any open persistent connections."""
         if self.fact_es:
             await self.fact_es.close()
             logger.info("[Engine] FactEsTool connection closed.")
@@ -213,6 +281,13 @@ class DebateEngine:
             logger.info("[Engine] LawEsTool connection closed.")
 
     async def step(self):
+        """Execute a single turn of the debate.
+
+        This method determines which team is active, runs the team's turn,
+        updates the debate state, calculates convergence, and checks if the
+        debate should end. If the end condition is met, it triggers the
+        adjudication process.
+        """
         if self.is_finished:
             return
 
@@ -326,7 +401,7 @@ class DebateEngine:
                 ) = await self.legal_sys.adjudicate(
                     self.raw_facts,
                     self.graph,
-                    transcript=self.transcript,  # 传递笔录
+                    transcript=self.transcript,
                 )
 
                 logger.info(
@@ -352,6 +427,15 @@ class DebateEngine:
             await self.close_resources()
 
     def get_snapshot(self) -> Dict[str, Any]:
+        """Return a snapshot of the current state of the debate.
+
+        This method compiles all the important state information into a single
+        dictionary, suitable for logging, visualization, or debugging.
+
+        Returns:
+            A dictionary containing the shadow graph, insights, task layer,
+            last log, agent memories, and other state variables.
+        """
         if not self.legal_sys:
             return {}
 

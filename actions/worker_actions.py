@@ -1,3 +1,13 @@
+"""Defines tactical actions for the Worker roles (Fact, Law, Recall).
+
+This module contains Action classes derived from metagpt.actions.Action. These
+actions are designed to be executed by worker agents and are focused on
+information retrieval, processing, and analysis tasks. They form the building
+blocks for the research and analysis phase of a debate turn, such as formulating
+search queries, analyzing search results, and projecting the current debate
+state onto historical cases.
+"""
+
 from typing import List
 
 from metagpt.actions import Action
@@ -14,11 +24,29 @@ from tools.json_utils import extract_json_from_text
 
 
 class AnalyzeSearchResults(Action):
+    """An action to analyze raw search results and provide a summary.
+
+    This action takes a user's query and the raw text from a search tool,
+    then uses a language model with a specific prompt template to generate a
+    concise, actionable analysis.
+    """
+
     name: str = "AnalyzeSearchResults"
 
     async def run(
         self, user_query: str, search_result: str, prompt_template: str
     ) -> str:
+        """Format a prompt and queries the LLM to analyze search results.
+
+        Args:
+            user_query: The original query or intent from the user.
+            search_result: The raw string of search results to be analyzed.
+            prompt_template: The string template for the prompt, which should
+                contain placeholders for `user_query` and `search_result`.
+
+        Returns:
+            A string containing the language model's analysis of the search results.
+        """
         prompt = prompt_template.format(
             user_query=user_query,
             search_result=search_result,
@@ -28,11 +56,33 @@ class AnalyzeSearchResults(Action):
 
 
 class FormulateSearchQueries(Action):
+    """An action to decompose a high-level intent into specific search queries.
+
+    This action takes a natural language statement of intent and uses a
+    language model to break it down into multiple, concrete query strings
+    suitable for a search engine.
+    """
+
     name: str = "FormulateSearchQueries"
 
     async def run(
         self, intent: str, prompt_template: str = DECOMPOSE_SEARCH_INTENT_PROMPT
     ) -> List[str]:
+        """Format a prompt and queries the LLM to generate search queries.
+
+        It attempts to parse the LLM's response as a JSON list of strings.
+        If parsing fails or the format is incorrect, it logs a warning and
+        falls back to returning the original intent as a single-element list.
+
+        Args:
+            intent: The high-level search intent string.
+            prompt_template: The string template for the prompt, which should
+                contain a placeholder for `intent`.
+
+        Returns:
+            A list of formulated search query strings. Returns `[intent]` as a
+            fallback if the LLM response is invalid.
+        """
         prompt = prompt_template.format(intent=intent)
 
         try:
@@ -54,6 +104,16 @@ class FormulateSearchQueries(Action):
 
 
 class ProjectAndAnalyze(Action):
+    """An action to find and analyze analogous arguments from historical cases.
+
+    This action implements a "projection" mechanism. It first identifies key
+    nodes in the current debate graph that are semantically similar to the
+    given query. These nodes act as anchors. It then searches through a cached
+    set of historical cases to find similar argument structures connected to
+    those anchors. Finally, it uses an LLM to analyze the retrieved historical
+    context and provide strategic advice.
+    """
+
     name: str = "ProjectAndAnalyze"
 
     async def run(
@@ -64,6 +124,22 @@ class ProjectAndAnalyze(Action):
         my_role: str = "Unknown",
         top_k: int = 3,
     ) -> str:
+        """Execute the projection and analysis workflow.
+
+        Args:
+            query: The strategic intent or question to investigate.
+            legal_system: The main LegalSystem object providing access to
+                resources like embedding functions and historical cases.
+            current_graph: The current state of the debate as a ShadowGraph.
+            my_role: The role of the agent executing the action (e.g., "plaintiff"),
+                used to tailor the analysis.
+            top_k: The number of most similar nodes to use as anchors for projection.
+
+        Returns:
+            A string containing strategic advice derived from analyzing
+            analogous historical arguments, or an explanatory message if
+            no relevant history is found.
+        """
         logger.info(
             f"Running historical projection retrieval (cached) for intent: {query[:50]}..."
         )

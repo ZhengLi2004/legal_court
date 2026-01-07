@@ -1,3 +1,11 @@
+"""Defines the Judge agent responsible for adjudicating the debate.
+
+This module provides the `LLMJudge` class, which acts as an impartial
+adjudicator. Its primary roles are to generate a final judgment document based
+on the debate transcript and to extract a structured verdict on the root
+claims from that document.
+"""
+
 import asyncio
 from abc import ABC
 from typing import Dict, List
@@ -11,21 +19,74 @@ from .llm import GPTChat, Message
 
 
 class BaseJudge(ABC):
+    """Abstract base class for a Judge."""
+
     def evaluate(self, context: str, graph: ShadowGraph, transcript: List[str]) -> str:
+        """Generate a final judgment document.
+
+        Args:
+            context: The initial facts of the case.
+            graph: The final state of the debate graph.
+            transcript: The narrated transcript of the debate.
+
+        Returns:
+            A string containing the full text of the judgment document.
+        """
         pass
 
     async def extract_verdict(
         self, judgment_document: str, graph: ShadowGraph
     ) -> Dict[str, NodeStatus]:
+        """Extract the status of each root claim from the judgment document.
+
+        Args:
+            judgment_document: The full text of the judgment.
+            graph: The debate graph, used to identify the root claims.
+
+        Returns:
+            A dictionary mapping each root claim ID to its final `NodeStatus`
+            (VALIDATED, DEFEATED, or HYPOTHETICAL).
+        """
         pass
 
 
 class LLMJudge(BaseJudge):
+    """An implementation of the Judge using Large Language Models.
+
+    This class uses one LLM (the `judge_llm`) to write the main legal
+    analysis and another (`extraction_llm`) to perform the structured task
+    of extracting claim statuses. This separation of concerns can improve
+    reliability.
+
+    Attributes:
+        judge_llm: The `GPTChat` instance for generating the judgment document.
+        extraction_llm: The `GPTChat` instance for extracting verdicts.
+    """
+
     def __init__(self, judge_llm: GPTChat, extraction_llm: GPTChat):
+        """Initialize the LLMJudge.
+
+        Args:
+            judge_llm: An LLM client configured for the main judgment task.
+            extraction_llm: An LLM client configured for the extraction task.
+        """
         self.judge_llm = judge_llm
         self.extraction_llm = extraction_llm
 
     def evaluate(self, context: str, graph: ShadowGraph, transcript: List[str]) -> str:
+        """Generate a judgment document by prompting an LLM.
+
+        It constructs a prompt containing the list of root claims and the full
+        debate transcript and asks the `judge_llm` to write a judgment.
+
+        Args:
+            context: (Not directly used, but part of the base signature) The case facts.
+            graph: The final debate graph.
+            transcript: The narrated debate transcript.
+
+        Returns:
+            The generated judgment document as a string.
+        """
         root_claims = []
 
         for _, data in graph.graph.nodes(data=True):
@@ -67,6 +128,20 @@ class LLMJudge(BaseJudge):
     async def extract_verdict(
         self, judgment_document: str, graph: ShadowGraph
     ) -> Dict[str, NodeStatus]:
+        """Extract verdicts for all root claims in parallel.
+
+        For each root claim identified in the graph, it creates a separate
+        asynchronous task to query the `extraction_llm`. This task asks the LLM
+        to read the judgment document and determine if that specific claim was
+        'ACCEPTED', 'REJECTED', or 'UNMENTIONED'.
+
+        Args:
+            judgment_document: The full text of the judgment.
+            graph: The debate graph, used to identify the root claims.
+
+        Returns:
+            A dictionary mapping each root claim ID to its final `NodeStatus`.
+        """
         root_claims_status: Dict[str, NodeStatus] = {}
 
         all_root_claims = {

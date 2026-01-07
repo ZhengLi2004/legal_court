@@ -1,3 +1,11 @@
+"""Provides the long-term memory storage for the legal MAS.
+
+This module defines `LegalGMemory`, a class responsible for persistently
+storing and retrieving completed legal cases. It uses ChromaDB for semantic
+vector-based retrieval of case contexts and maintains its own inverted indices
+for structured retrieval based on cited laws.
+"""
+
 import json
 import os
 from collections import defaultdict
@@ -16,10 +24,29 @@ from .utils import file_lock
 
 @dataclass
 class LegalGMemory(MASMemoryBase):
+    """Manages long-term storage and retrieval of legal cases.
+
+    This class extends `MASMemoryBase` and implements a hybrid memory system.
+    It stores case data, including the final argument graph, in a ChromaDB
+    collection for semantic search. It also builds and maintains inverted
+    indices mapping legal statutes to the cases that cite them, allowing for
+    more structured, jurisprudence-based retrieval.
+
+    Attributes:
+        config: The system configuration object.
+        collection_name: The name of the ChromaDB collection.
+        chroma_client: The ChromaDB client instance.
+        collection: The ChromaDB collection object.
+        task_layer: A `TaskLayer` instance to manage the topology of related cases.
+        law_inverted_index: Maps law content to a set of case IDs.
+        case_law_index: Maps case IDs to a set of cited law contents.
+    """
+
     config: SystemConfig = field(default_factory=SystemConfig)
     collection_name: str = "legal_cases"
 
     def __post_init__(self):
+        """Initialize the memory system, ChromaDB, and loads indices."""
         super().__post_init__()
 
         chroma_path = os.path.join(
@@ -44,6 +71,7 @@ class LegalGMemory(MASMemoryBase):
         self._load_indices()
 
     def _load_indices(self):
+        """Load the law-to-case indices from a JSON file."""
         if os.path.exists(self.index_path):
             try:
                 with open(self.index_path, "r", encoding="utf-8") as f:
@@ -59,6 +87,7 @@ class LegalGMemory(MASMemoryBase):
                 print(f"[Memory] Failed to load indices: {e}")
 
     def _save_indices(self):
+        """Save the law-to-case indices to a JSON file."""
         data = {
             "law_inverted_index": {
                 k: list(v) for k, v in self.law_inverted_index.items()
@@ -71,6 +100,7 @@ class LegalGMemory(MASMemoryBase):
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
     def _extract_laws_from_graph(self, graph: ShadowGraph) -> Set[str]:
+        """Extract all validated LAW node contents from a graph."""
         laws = set()
 
         if graph and graph.graph:
@@ -87,6 +117,7 @@ class LegalGMemory(MASMemoryBase):
         return laws
 
     def _compute_jaccard(self, set_a: Set[str], set_b: Set[str]) -> float:
+        """Compute the Jaccard similarity between two sets."""
         union_len = len(set_a.union(set_b))
 
         if union_len == 0:
@@ -95,6 +126,15 @@ class LegalGMemory(MASMemoryBase):
         return len(set_a.intersection(set_b)) / union_len
 
     def add_memory(self, message: LegalMessage) -> None:
+        """Add a completed case to the long-term memory.
+
+        This method extracts validated laws from the case's graph, updates the
+        law indices, and adds the case document and metadata to the ChromaDB
+        collection.
+
+        Args:
+            message: The `LegalMessage` object representing the completed case.
+        """
         current_laws = self._extract_laws_from_graph(message.shadow_graph)
 
         if current_laws:
@@ -121,6 +161,17 @@ class LegalGMemory(MASMemoryBase):
     def retrieve_cases_by_law_codes(
         self, law_contents: List[str]
     ) -> List[LegalMessage]:
+        """Retrieve cases that cite a given set of laws.
+
+        It uses the inverted index to find candidate cases and then ranks them
+        by the Jaccard similarity of their cited laws to the query laws.
+
+        Args:
+            law_contents: A list of law content strings to search for.
+
+        Returns:
+            A list of the most relevant `LegalMessage` objects.
+        """
         if not law_contents:
             return []
 
@@ -150,6 +201,16 @@ class LegalGMemory(MASMemoryBase):
     def retrieve_memory(
         self, query_context: str, top_k: int = 3
     ) -> Tuple[List[LegalMessage], List[str]]:
+        """Retrieve semantically similar cases from ChromaDB.
+
+        Args:
+            query_context: The natural language description of the current case.
+            top_k: The maximum number of cases to retrieve.
+
+        Returns:
+            A tuple containing a list of retrieved `LegalMessage` objects and an
+            empty list (for compatibility with a base class signature).
+        """
         count = self.collection.count()
 
         if count == 0:
@@ -163,6 +224,7 @@ class LegalGMemory(MASMemoryBase):
         return self._fetch_messages_by_ids(found_ids), []
 
     def _fetch_messages_by_ids(self, ids: List[str]) -> List[LegalMessage]:
+        """Fetch full LegalMessage objects from ChromaDB using their IDs."""
         if not ids:
             return []
 

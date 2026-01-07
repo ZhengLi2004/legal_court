@@ -1,3 +1,11 @@
+"""Defines the structure and orchestration of an agent team.
+
+This module provides the `DebateTeam` class, which encapsulates one side of the
+legal debate (either plaintiff or defendant). A team consists of a
+`ArgumentController` agent and several specialized `Worker` agents. This class
+manages the internal workflow of a single debate turn for one team.
+"""
+
 import asyncio
 from typing import Union
 
@@ -18,6 +26,22 @@ from .llm import GPTChat
 
 
 class DebateTeam:
+    """Orchestrates the agents of one side (plaintiff or defendant) for a debate turn.
+
+    A `DebateTeam` follows a controller-worker architecture. The `ArgumentController`
+    first assesses the situation and dispatches tasks to the `FactWorker`,
+    `LawWorker`, and `RecallWorker`. These workers execute their tasks in parallel.
+    The controller then ingests the results and makes a final strategic decision,
+    which is translated into a set of actions on the debate graph.
+
+    Attributes:
+        side: The side the team represents, e.g., "plaintiff".
+        controller: The `ArgumentController` agent for the team.
+        fact_worker: The `FactWorker` agent.
+        law_worker: The `LawWorker` agent.
+        recall_worker: The `RecallWorker` agent.
+    """
+
     def __init__(
         self,
         side: str,
@@ -30,6 +54,19 @@ class DebateTeam:
         insights: str = "",
         verbose: bool = False,
     ):
+        """Initialize the DebateTeam and its constituent agents.
+
+        Args:
+            side: The side of the debate ("plaintiff" or "defendant").
+            persona: The `AgentPersona` defining the team's goals and strategy.
+            graph_tool: The tool for interacting with the debate graph.
+            fact_es: The tool for searching fact databases.
+            law_es: The tool for searching law databases.
+            llm: The language model client for the agents.
+            legal_system: The main `LegalSystem` object.
+            insights: A string of initial strategic insights for the controller.
+            verbose: A flag to enable detailed transcript logging.
+        """
         self.side = side
         self.persona = persona
         self.graph_tool = graph_tool
@@ -70,6 +107,7 @@ class DebateTeam:
     def _get_worker_by_name(
         self, target_name: str
     ) -> Union[FactWorker, LawWorker, RecallWorker, None]:
+        """Retrieve a worker instance by its name string."""
         if "FactWorker" in target_name:
             return self.fact_worker
 
@@ -82,6 +120,24 @@ class DebateTeam:
         return None
 
     async def run_turn(self, graph: ShadowGraph) -> dict:
+        """Execute the workflow for a single debate turn.
+
+        This method orchestrates the internal steps of a turn:
+        1. Controller assesses needs and generates instructions for workers.
+        2. Worker tasks are executed in parallel.
+        3. Controller ingests worker reports.
+        4. Controller makes a final decision and generates graph actions.
+        The process continues in a loop until the controller completes its
+        action or a timeout is reached.
+
+        Args:
+            graph: The current `ShadowGraph` of the debate.
+
+        Returns:
+            A dictionary containing a summary of the turn's outcome, a detailed
+            transcript of internal messages (if verbose), and the list of
+            executed `AgentAction` objects.
+        """
         logger.info(f"--- Team {self.side} Turn Start ---")
         self.graph_tool.set_current_graph(graph)
         self.controller.reset_turn_state()

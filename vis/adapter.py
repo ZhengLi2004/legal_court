@@ -1,8 +1,30 @@
+"""Provides an adapter to convert the internal debate graph for ECharts.
+
+This module defines the `EChartsAdapter`, a utility class that bridges the gap
+between the application's internal data representation (the `ShadowGraph` based
+on `networkx`) and the configuration object required by the Apache ECharts
+charting library. It handles the translation of nodes, edges, and their
+properties (like type, status, and agent ownership) into visual attributes such
+as colors, sizes, and styles.
+"""
+
 import textwrap
 from typing import Any, Dict, Tuple
 
 
 class EChartsAdapter:
+    """A static utility class to parse a debate graph into an ECharts option object.
+
+    This class provides static methods to handle the conversion. It contains a
+    predefined color scheme for different graph elements and logic to map node
+    and edge attributes to specific visual properties, creating a rich,
+    interactive, and informative graph visualization for the frontend.
+
+    Attributes:
+        COLORS: A dictionary mapping node types, statuses, and other properties
+            to specific hex color codes for consistent styling.
+    """
+
     COLORS = {
         "FACT": "#00CED1",
         "LAW": "#FFD700",
@@ -17,6 +39,21 @@ class EChartsAdapter:
 
     @staticmethod
     def _get_category_name_and_color(node_data: Dict) -> Tuple[str, str, int, str]:
+        """Determine the visual styling for a node based on its properties.
+
+        This helper method inspects a node's 'type', 'agent_id', and 'status'
+        attributes to assign it a legend category, a fill color, a symbol size,
+        and a border color. This logic centralizes the visual styling rules for
+        the graph.
+
+        Args:
+            node_data: A dictionary of attributes for a single graph node.
+
+        Returns:
+            A tuple containing the category name (e.g., "Fact", "Plaintiff Claim"),
+            hex color code for the node's fill, an integer for the symbol size,
+            and a hex color code for the node's border.
+        """
         n_type = node_data.get("type", "CLAIM")
 
         if hasattr(n_type, "value"):
@@ -71,6 +108,21 @@ class EChartsAdapter:
 
     @staticmethod
     def parse_graph(graph_obj) -> Dict[str, Any]:
+        """Convert a graph object into an ECharts configuration.
+
+        This method iterates over the nodes and edges of the input graph,
+        translating each element into the corresponding structure required by
+        ECharts. It builds the `nodes`, `links`, and `categories` lists and
+        assembles them into the final ECharts option dictionary.
+
+        Args:
+            graph_obj: The graph object to parse. Can be a `ShadowGraph`
+                instance or a raw `networkx` graph.
+
+        Returns:
+            A dictionary structured as a valid ECharts option object, ready to
+            be consumed by the frontend.
+        """
         if hasattr(graph_obj, "graph"):
             G = graph_obj.graph
 

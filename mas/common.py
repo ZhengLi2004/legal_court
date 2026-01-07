@@ -1,3 +1,12 @@
+"""Defines common data structures and enumerations for the legal MAS.
+
+This module contains the core data structures used to represent the state of a
+legal debate, including enumerations for node and edge types (`NodeType`,
+`EdgeType`), node statuses (`NodeStatus`), and the primary graph data structure,
+`ShadowGraph`. It also defines `LegalMessage`, the standard format for
+exchanging and storing case information within the system.
+"""
+
 import json
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -9,12 +18,16 @@ from networkx.readwrite import json_graph
 
 
 class BaseMetadata(TypedDict, total=False):
+    """Base metadata for graph nodes."""
+
     created_at: float
     source_doc_id: str
     last_modified_step: int
 
 
 class ClaimMetadata(BaseMetadata, total=False):
+    """Metadata specific to CLAIM nodes."""
+
     is_root_claim: bool
     claim_index: int
     verdict_status: str
@@ -24,23 +37,31 @@ NodeMetadata = Union[BaseMetadata, ClaimMetadata]
 
 
 class NodeType(str, Enum):
+    """Enumeration for the types of nodes in the debate graph."""
+
     FACT = "FACT"
     LAW = "LAW"
     CLAIM = "CLAIM"
 
 
 class NodeStatus(str, Enum):
+    """Enumeration for the status of a node, updated during adjudication."""
+
     HYPOTHETICAL = "HYPOTHETICAL"
     VALIDATED = "VALIDATED"
     DEFEATED = "DEFEATED"
 
 
 class EdgeType(str, Enum):
+    """Enumeration for the types of edges (relationships) in the debate graph."""
+
     SUPPORT = "SUPPORT"
     CONFLICT = "CONFLICT"
 
 
 class EdgeAddResult(Enum):
+    """Enumeration for the result of an attempt to add an edge to the graph."""
+
     CREATED = auto()
     DUPLICATE = auto()
     TYPE_CLASH = auto()
@@ -49,6 +70,8 @@ class EdgeAddResult(Enum):
 
 @dataclass
 class ShadowNode:
+    """Represents a single node within the ShadowGraph."""
+
     id: str
     content: str
     type: NodeType
@@ -58,6 +81,7 @@ class ShadowNode:
 
 
 def ensure_node_type(val: Any) -> NodeType:
+    """Casts a value to a NodeType enum member if possible."""
     if isinstance(val, NodeType):
         return val
 
@@ -68,6 +92,7 @@ def ensure_node_type(val: Any) -> NodeType:
 
 
 def ensure_edge_type(val: Any) -> EdgeType:
+    """Casts a value to an EdgeType enum member if possible."""
     if isinstance(val, EdgeType):
         return val
 
@@ -79,14 +104,35 @@ def ensure_edge_type(val: Any) -> EdgeType:
 
 @dataclass
 class ShadowGraph:
+    """A wrapper around a networkx.DiGraph to represent the debate state.
+
+    This class provides the central data structure for the debate simulation.
+    It contains the directed graph of arguments, facts, and laws, and provides
+    methods to manipulate the graph, serialize it to text, and manage its context.
+
+    Attributes:
+        graph: The underlying `networkx.DiGraph` object.
+        latest_context: A string containing a textual representation of the most
+            recent or relevant parts of the graph, used as context for the LLM agents.
+    """
+
     graph: nx.DiGraph = field(default_factory=nx.DiGraph)
     latest_context: str = field(default="")
 
     def __post_init__(self):
+        """Ensure the graph attribute is properly initialized."""
         if not hasattr(self.graph, "graph"):
             self.graph.graph = {}
 
     def get_id_inventory(self) -> str:
+        """Generate a simple string list of all node IDs and their content.
+
+        This is used to provide a "ground truth" list of available IDs to the
+        LLM to prevent it from hallucinating non-existent node IDs.
+
+        Returns:
+            A formatted string listing all nodes.
+        """
         lines = []
 
         for n, d in self.graph.nodes(data=True):
@@ -101,6 +147,17 @@ class ShadowGraph:
         return "\n".join(lines)
 
     def _calculate_focus_nodes(self, current_step: int) -> List[str]:
+        """Determine which nodes are currently most relevant for context.
+
+        The focus set includes all root claims plus any nodes that have been
+        modified in the last few turns.
+
+        Args:
+            current_step: The current step index of the debate engine.
+
+        Returns:
+            A list of node IDs that are considered in focus.
+        """
         focus_nodes = set(
             [
                 nid
@@ -119,6 +176,15 @@ class ShadowGraph:
         return list(focus_nodes)
 
     def refresh_context(self, current_step: int):
+        """Update the `latest_context` attribute with the current tactical view.
+
+        It generates a textual representation of the subgraph surrounding the
+        current focus nodes. If no nodes are in focus, it falls back to a
+        recursive text representation of the entire graph.
+
+        Args:
+            current_step: The current step index of the debate engine.
+        """
         focus_nodes = self._calculate_focus_nodes(current_step)
 
         if focus_nodes:
@@ -131,6 +197,12 @@ class ShadowGraph:
             self.latest_context = "（当前辩论图谱为空）"
 
     def touch_nodes(self, node_ids: List[str], step_index: int):
+        """Update the 'last_modified_step' metadata for a list of nodes.
+
+        Args:
+            node_ids: A list of node IDs to update.
+            step_index: The current step index to set as the last modified time.
+        """
         for nid in node_ids:
             if self.graph.has_node(nid):
                 current_step = (
@@ -148,6 +220,19 @@ class ShadowGraph:
     def is_valid_connection(
         self, src_id: str, tgt_id: str, edge_type: EdgeType
     ) -> bool:
+        """Check if an edge between two nodes is logically valid.
+
+        Defines the rules for valid connections, e.g., a CLAIM cannot support a
+        FACT, and no node can be linked to a LAW node.
+
+        Args:
+            src_id: The ID of the source node.
+            tgt_id: The ID of the target node.
+            edge_type: The type of the proposed edge.
+
+        Returns:
+            True if the connection is valid, False otherwise.
+        """
         if not self.graph.has_node(src_id) or not self.graph.has_node(tgt_id):
             return False
 
@@ -165,6 +250,7 @@ class ShadowGraph:
         return True
 
     def is_valid_evidence(self, node_id: str) -> bool:
+        """Check if a node is a valid piece of evidence (FACT or LAW)."""
         if not self.graph.has_node(node_id):
             return False
 
@@ -172,6 +258,7 @@ class ShadowGraph:
         return t.value in [NodeType.FACT.value, NodeType.LAW.value]
 
     def _get_node_type(self, node_id: str) -> NodeType:
+        """Retrieve the NodeType of a node by its ID."""
         t = self.graph.nodes[node_id]["type"]
 
         if isinstance(t, str):
@@ -187,6 +274,22 @@ class ShadowGraph:
         matcher: Any = None,
         metadata: dict = None,
     ) -> str:
+        """Add a node to the graph, handling deduplication.
+
+        Before adding a new node, it checks for existing nodes with identical
+        or semantically similar content to avoid redundancy.
+
+        Args:
+            content: The text content of the node.
+            node_type: The type of the node (FACT, LAW, or CLAIM).
+            agent_id: The ID of the agent creating the node.
+            matcher: An optional semantic matcher for deduplication.
+            metadata: Optional dictionary of metadata for the node.
+
+        Returns:
+            A tuple containing the node ID (either new or existing) and a
+            boolean indicating if a new node was created.
+        """
         node_type = ensure_node_type(node_type)
         existing_id = None
 
@@ -225,6 +328,7 @@ class ShadowGraph:
     def _find_exact_match_node(
         self, content: str, node_type: NodeType
     ) -> Optional[str]:
+        """Find a node with exactly matching content and type."""
         norm_content = content.strip().lower()
 
         for nid, data in self.graph.nodes(data=True):
@@ -242,6 +346,15 @@ class ShadowGraph:
         return None
 
     def garbage_collect(self) -> int:
+        """Remove isolated nodes that are not connected to any root claims.
+
+        This is useful for cleaning up the graph before final adjudication,
+        removing any speculative or irrelevant arguments that were not
+        integrated into the main debate structure.
+
+        Returns:
+            The number of nodes that were removed.
+        """
         all_roots = [
             n
             for n, d in self.graph.nodes(data=True)
@@ -269,6 +382,23 @@ class ShadowGraph:
         return len(garbage)
 
     def add_edge(self, source_id: str, target_id: str, edge_type: EdgeType) -> None:
+        """Add a directed edge between two nodes.
+
+        Performs checks for existence of nodes, self-loops, and logical validity
+        before adding the edge.
+
+        Args:
+            source_id: The ID of the source node.
+            target_id: The ID of the target node.
+            edge_type: The type of the edge (SUPPORT or CONFLICT).
+
+        Returns:
+            An `EdgeAddResult` enum member indicating the outcome.
+
+        Raises:
+            ValueError: If the source or target node does not exist, or if the
+                connection is logically invalid.
+        """
         if not self.graph.has_node(source_id) or not self.graph.has_node(target_id):
             raise ValueError(
                 f"Source {source_id} or Target {target_id} does not exist."
@@ -303,6 +433,7 @@ class ShadowGraph:
         return EdgeAddResult.CREATED
 
     def get_subgraph(self, node_ids: List[str]) -> "ShadowGraph":
+        """Create a new ShadowGraph containing only the specified nodes."""
         sub_nx = self.graph.subgraph(node_ids).copy()
         new_sg = ShadowGraph()
         new_sg.graph = sub_nx
@@ -311,6 +442,7 @@ class ShadowGraph:
     def _find_semantically_identical_node(
         self, content: str, node_type: NodeType
     ) -> Optional[str]:
+        """Find a node with semantically identical content."""
         for nid, data in self.graph.nodes(data=True):
             if (
                 data.get("type") == node_type
@@ -321,24 +453,37 @@ class ShadowGraph:
         return None
 
     def _generate_id(self, node_type: NodeType) -> str:
+        """Generate a unique ID for a new node."""
         uid = uuid.uuid4().hex[:8]
         return f"{node_type.value}_{uid}"
 
     @staticmethod
     def to_dict(sg: "ShadowGraph") -> dict:
+        """Serialize the graph to a dictionary."""
         graph_data = json_graph.node_link_data(sg.graph)
         return {"graph_data": graph_data}
 
     @staticmethod
     def from_dict(data: dict) -> "ShadowGraph":
+        """Deserialize a dictionary into a ShadowGraph object."""
         sg = ShadowGraph()
         sg.graph = json_graph.node_link_graph(data["graph_data"])
         return sg
 
     def to_json(self) -> str:
+        """Serialize the graph to a JSON string."""
         return json.dumps(self.to_dict(self), ensure_ascii=False)
 
     def to_recursive_text(self) -> str:
+        """Generate a structured, recursive text representation of the graph.
+
+        This method is ideal for providing a comprehensive view of the entire
+        debate structure to an LLM. It clusters related arguments together
+        and uses indentation to show logical relationships.
+
+        Returns:
+            A formatted string representing the entire graph.
+        """
         if self.graph.number_of_nodes() == 0:
             return "无辩论记录。"
 
@@ -430,6 +575,7 @@ class ShadowGraph:
     def get_tactical_subgraph(
         self, focus_nodes: List[str], history_window: int = 1
     ) -> "ShadowGraph":
+        """Extract a subgraph centered around a set of focus nodes."""
         nodes_to_keep = set()
 
         roots = [
@@ -459,10 +605,12 @@ class ShadowGraph:
         return self.get_subgraph(list(nodes_to_keep))
 
     def to_tactical_text(self, focus_nodes: List[str]) -> str:
+        """Generate a text representation of the tactical subgraph."""
         subgraph = self.get_tactical_subgraph(focus_nodes)
         return subgraph.to_recursive_text()
 
     def _serialize_node(self, node_id: str, visited: set) -> str:
+        """Recursively serializes a node and its predecessors into text."""
         if node_id in visited:
             return ""
 
@@ -535,6 +683,7 @@ class ShadowGraph:
         return result
 
     def get_simple_id_list(self) -> str:
+        """Generate a simple list of node IDs and their types."""
         ids = []
 
         for n, d in self.graph.nodes(data=True):
@@ -551,6 +700,7 @@ class ShadowGraph:
         return "\n".join(ids)
 
     def get_nodes_by_step(self, step_index: int) -> List[str]:
+        """Get all nodes that were last modified at a specific step."""
         target_nodes = []
 
         for nid, data in self.graph.nodes(data=True):
@@ -565,16 +715,31 @@ class ShadowGraph:
 
 @dataclass
 class LegalMessage:
+    """A standardized message for storing and retrieving case data from memory.
+
+    This dataclass encapsulates all necessary information about a completed case
+    for the purpose of long-term memory and learning.
+
+    Attributes:
+        case_id: The unique identifier for the case.
+        case_context: A concise, natural language summary of the case facts.
+        shadow_graph: The final state of the `ShadowGraph` after adjudication.
+        task_main: An alias for `case_context`, used for compatibility with
+            certain memory retrieval interfaces.
+    """
+
     case_id: str
     case_context: str
     shadow_graph: ShadowGraph = field(default_factory=ShadowGraph)
     task_main: str = field(init=False)
 
     def __post_init__(self):
+        """Set the task_main attribute after initialization."""
         self.task_main = self.case_context
 
     @staticmethod
     def to_dict(msg: "LegalMessage") -> dict:
+        """Serialize the LegalMessage to a dictionary."""
         return {
             "case_id": msg.case_id,
             "case_context": msg.case_context,
@@ -583,6 +748,7 @@ class LegalMessage:
 
     @staticmethod
     def from_dict(data: dict) -> "LegalMessage":
+        """Deserialize a dictionary into a LegalMessage object."""
         sg = ShadowGraph.from_dict(json.loads(data["graph_json"]))
 
         return LegalMessage(

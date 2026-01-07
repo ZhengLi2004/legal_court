@@ -1,3 +1,11 @@
+"""Defines the high-level LegalSystem, a facade for the system's core capabilities.
+
+This module provides the `LegalSystem` class, which orchestrates the various
+components of the MAS, such as memory, learning, adjudication, and graph
+operations. It serves as the primary interface for the `DebateEngine` to
+interact with the system's underlying functional modules.
+"""
+
 from typing import Dict, List, Tuple
 
 from metagpt.logs import logger
@@ -18,7 +26,28 @@ from .utils import EmbeddingFunc, cosine_similarity
 
 
 class LegalSystem:
+    """A high-level facade for managing the legal MAS's core functionalities.
+
+    This class integrates various subsystems like memory (`LegalGMemory`),
+    learning (`InsightsManager`), and judgment (`LLMJudge`). It simplifies
+    complex operations such as starting a new case (which involves retrieving
+    relevant historical data and insights), executing agent actions on the graph,
+    and running the final adjudication and learning process.
+
+    Attributes:
+        cfg: The system configuration object.
+        llm: The primary LLM client for agents.
+        ef: The embedding function for semantic comparisons.
+        memory: The long-term memory component for cases.
+        insights: The manager for strategic insights.
+        judge: The agent responsible for adjudication.
+        projector: The component for historical case projection.
+        backprop: The component for backpropagating verdicts.
+        step_counter: A counter for the number of turns in the current debate.
+    """
+
     def __init__(self, persist_dir: str = None, config: SystemConfig = None):
+        """Initialize all subsystems of the LegalSystem."""
         self.cfg = config or SystemConfig()
         self.llm = GPTChat(model_name=self.cfg.llm.model_name)
         self.ef = EmbeddingFunc(model_path=self.cfg.path.embedding_model_path)
@@ -57,11 +86,12 @@ class LegalSystem:
         self.projector = GraphProjector(self.projection_matcher, config=self.cfg)
         self.backprop = BackPropagator()
         self.step_counter = 0
-        self._static_history_cases: List[LegalMessage] = []
-        self._dynamic_law_cases: List[LegalMessage] = []
+        self._static_history_cases: List[LegalMessage] = []  # From initial retrieval
+        self._dynamic_law_cases: List[LegalMessage] = []  # From in-debate law citation
 
     @property
     def active_history_cases(self) -> List[LegalMessage]:
+        """Return a unified list of all relevant historical cases for the current debate."""
         unique_map = {}
 
         for c in self._static_history_cases:
@@ -74,6 +104,7 @@ class LegalSystem:
         return list(unique_map.values())
 
     def _merge_static_cases(self, candidates: List[LegalMessage]):
+        """Add new candidate cases to the static history cache, avoiding duplicates."""
         if not candidates:
             return
 
@@ -85,6 +116,20 @@ class LegalSystem:
                 existing_ids.add(case.case_id)
 
     def new_case(self, context: str) -> Tuple[ShadowGraph, Tuple[List[str], List[str]]]:
+        """Set up the system for a new case.
+
+        This involves resetting the state, creating a new `ShadowGraph`, and
+        performing an initial retrieval of relevant historical cases and
+        strategic insights from memory based on the new case's context.
+
+        Args:
+            context: A natural language description of the new case.
+
+        Returns:
+            A tuple containing:
+            - A new, empty `ShadowGraph` for the debate.
+            - A tuple of (plaintiff_insights, defendant_insights).
+        """
         self.step_counter = 0
         self._static_history_cases = []
         self._dynamic_law_cases = []
@@ -152,6 +197,21 @@ class LegalSystem:
         case_id: str,
         transcript: List[str],
     ):
+        """Process a completed case to learn from it.
+
+        This method:
+        1. Backpropagates the final verdict through the graph.
+        2. Saves the final graph and case context to long-term memory.
+        3. Extracts and saves a new strategic insight from the case outcome.
+        4. Updates the case topology graph (`TaskLayer`).
+
+        Args:
+            context: The context of the completed case.
+            current_graph: The final state of the debate graph.
+            root_claims_status: The final status of each root claim.
+            case_id: The unique ID of the case.
+            transcript: The narrated transcript of the debate.
+        """
         validated_ids = [
             nid
             for nid, status in root_claims_status.items()
@@ -204,6 +264,15 @@ class LegalSystem:
             )
 
     def inject_jurisprudential_context(self, current_graph: ShadowGraph):
+        """Dynamically retrieves historical cases based on laws cited in the debate.
+
+        This method is called during a debate turn. It inspects the current graph
+        for LAW nodes, then retrieves historical cases from memory that also
+        cited those same laws, adding them to the active context.
+
+        Args:
+            current_graph: The current debate graph.
+        """
         if not current_graph:
             return
 
@@ -234,11 +303,22 @@ class LegalSystem:
         self._dynamic_law_cases = new_dynamic_cases
 
     def advance_step(self):
+        """Increment the internal step counter."""
         self.step_counter += 1
 
     def execute_action(
         self, graph: ShadowGraph, agent_id: str, actions: List[AgentAction]
     ) -> List[str]:
+        """Execute a batch of agent actions on the graph.
+
+        Args:
+            graph: The `ShadowGraph` to modify.
+            agent_id: The ID of the agent performing the actions.
+            actions: A list of `AgentAction` objects.
+
+        Returns:
+            A list of log strings from the execution.
+        """
         current_step = self.step_counter
         executor = GraphExecutor(graph, matcher=self.dedup_matcher)
         logs = executor.execute_batch(actions, agent_id, current_step=self.step_counter)
@@ -248,6 +328,18 @@ class LegalSystem:
     async def adjudicate(
         self, context: str, graph: ShadowGraph, transcript: List[str]
     ) -> Tuple[str, Dict[str, NodeStatus]]:
+        """Run the final adjudication process.
+
+        Args:
+            context: The initial case context.
+            graph: The final debate graph.
+            transcript: The narrated transcript of the debate.
+
+        Returns:
+            A tuple containing:
+            - The full text of the judgment document.
+            - A dictionary mapping root claim IDs to their final `NodeStatus`.
+        """
         judgment_document = self.judge.evaluate(context, graph, transcript)
         root_claims_status = await self.judge.extract_verdict(judgment_document, graph)
         return judgment_document, root_claims_status

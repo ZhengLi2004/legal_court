@@ -1,3 +1,13 @@
+"""Defines the ArgumentController, the strategic agent of a debate team.
+
+This module contains the `ArgumentController` class, which acts as the "lead
+lawyer" or "brain" for a debate team (plaintiff or defendant). It orchestrates
+the team's turn by following an internal state machine (pipeline), assessing
+the debate's state, delegating research tasks to worker agents, synthesizing
+their findings, and ultimately deciding on the concrete actions to take on the
+debate graph.
+"""
+
 import asyncio
 import json
 from enum import Enum, auto
@@ -25,6 +35,8 @@ from tools.json_utils import extract_json_from_text
 
 
 class ControllerPipelineStep(Enum):
+    """Enumeration for the internal states of the controller's turn-based pipeline."""
+
     IDLE = auto()
     ASSESS_NEEDS = auto()
     WAIT_FOR_WORKERS = auto()
@@ -33,6 +45,30 @@ class ControllerPipelineStep(Enum):
 
 
 class ArgumentController(Role):
+    """The strategic core of a debate team, responsible for orchestrating a turn.
+
+    The controller manages a pipeline for its turn:
+    1.  `ASSESS_NEEDS`: It evaluates the current debate graph to determine what
+        information is needed (facts, laws, or historical strategies).
+    2.  It dispatches instructions to the appropriate worker agents.
+    3.  `WAIT_FOR_WORKERS`: It waits for the workers to return their findings.
+    4.  It ingests the workers' reports into a consolidated summary.
+    5.  `DECIDE`: It uses this summary and the graph context to decide on a final
+        set of `AgentAction`s to modify the graph.
+    6.  It handles feedback from failed actions and can retry its decision.
+
+    Attributes:
+        persona: The BDI (Belief, Desire, Intention) persona of the agent.
+        graph_tool: The tool for interacting with the debate graph.
+        insights: Initial strategic insights provided at the start of the case.
+        pipeline_step: The current step in the controller's internal state machine.
+        investigation_buffer: A dictionary to store results from worker agents.
+        latest_summary: A consolidated text summary of the investigation buffer.
+        recent_errors: A list of error messages from failed graph execution attempts.
+        last_executed_actions: A list of the `AgentAction`s successfully
+            executed in the last turn.
+    """
+
     name: str = "Controller"
     profile: str = "Lead Lawyer"
 
@@ -43,6 +79,15 @@ class ArgumentController(Role):
         graph_tool: GraphTool,
         insights: str = "",
     ):
+        """Initialize the ArgumentController.
+
+        Args:
+            name: The specific name of the controller (e.g., "plaintiff_Controller").
+            persona: The `AgentPersona` object defining the agent's goals.
+            graph_tool: The `GraphTool` for executing actions on the debate graph.
+            insights: A string containing pre-computed strategic insights relevant
+                to the current case.
+        """
         super().__init__(name=name, profile="Lead Lawyer")
         self.persona = persona
         self.graph_tool = graph_tool
@@ -59,6 +104,7 @@ class ArgumentController(Role):
         self.last_executed_actions: List[AgentAction] = []
 
     def reset_turn_state(self):
+        """Reset the controller's state at the beginning of a new turn."""
         logger.info(f"[{self.name}] Resetting turn state (Buffer & Errors cleared).")
         self.pipeline_step = ControllerPipelineStep.IDLE
         self.investigation_buffer = {}
@@ -67,6 +113,17 @@ class ArgumentController(Role):
         self.last_executed_actions = []
 
     def ingest_results(self, results_list: List[Dict[str, str]]):
+        """Process and store the results from worker agents.
+
+        This method is called by the `DebateTeam` after the parallel worker
+        tasks have completed. It parses the reports, updates the internal
+        `investigation_buffer`, generates a summary, and advances the
+        pipeline to the `DECIDE` step.
+
+        Args:
+            results_list: A list of dictionaries, where each dictionary contains
+                the 'worker' name and 'content' of their report.
+        """
         logger.info(
             f"[{self.name}] Ingesting {len(results_list)} worker results via direct call."
         )
@@ -112,6 +169,16 @@ class ArgumentController(Role):
             logger.info(f"[{self.name}] State transitioned to DECIDE.")
 
     async def _act(self) -> Message:
+        """Execute the main logic for the controller, driven by a state machine.
+
+        This method is called repeatedly by the `DebateTeam`. Its behavior
+        depends on the current `self.pipeline_step`.
+
+        Returns:
+            A `Message` object containing either instructions for workers, a
+            status update (like "WAITING"), or the final result of the turn's
+            actions.
+        """
         memories = self.get_memories(k=1)
         last_msg = memories[-1] if memories else None
         last_content = str(last_msg.content) if last_msg else ""
@@ -340,6 +407,7 @@ class ArgumentController(Role):
             return Message(content="Controller IDLE", role=self.profile)
 
     def _generate_and_memorize_summary(self):
+        """Create a summary of worker findings and adds it to short-term memory."""
         try:
             step_info = "?"
 
@@ -376,6 +444,15 @@ class ArgumentController(Role):
             self.rc.memory.add(Message(content=fallback_msg, role="System"))
 
     def _parse_requirement(self, raw_text: str) -> ResourceRequirement:
+        """Safely parse a JSON string into a ResourceRequirement object.
+
+        Args:
+            raw_text: The raw string output from a needs assessment LLM call.
+
+        Returns:
+            A `ResourceRequirement` object. Returns a default `need=False` object
+            on parsing failure.
+        """
         try:
             data = extract_json_from_text(raw_text)
             return ResourceRequirement.model_validate(data)
@@ -385,6 +462,7 @@ class ArgumentController(Role):
             return ResourceRequirement(need=False, reasoning=f"Parse Error: {e}")
 
     def _truncate(self, text: str, length: int) -> str:
+        """Truncate a string to a maximum length, adding an ellipsis."""
         if not text:
             return ""
 

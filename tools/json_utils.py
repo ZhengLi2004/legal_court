@@ -1,9 +1,35 @@
+"""Provides a utility function for robustly extracting JSON from text.
+
+This module contains the `extract_json_from_text` function, which is designed
+to find and parse a JSON object or array that may be embedded within a larger
+block of text, often with markdown code fences (```json ... ```).
+"""
+
 import json
 import re
 from typing import Any
 
 
 def extract_json_from_text(text: str) -> Any:
+    """Extract and parses a JSON object or array from a string.
+
+    This function is designed to be resilient to common ways LLMs format JSON
+    in their responses. It searches for JSON enclosed in markdown code fences
+    (with or without the 'json' language identifier). If fences are not found,
+    it assumes the whole string is JSON. If initial parsing fails, it attempts
+    to find the outermost curly or square brackets and parse the content
+    between them as a fallback.
+
+    Args:
+        text: The input string potentially containing an embedded JSON object or array.
+
+    Returns:
+        The parsed Python object (typically a `dict` or `list`).
+
+    Raises:
+        json.JSONDecodeError: If a JSON object or array cannot be successfully
+            parsed from the text after all fallbacks have been attempted.
+    """
     text = text.strip()
     match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
 

@@ -1,3 +1,19 @@
+"""Creates a web-based graphical user interface (GUI) for the Legal MAS.
+
+This module uses the NiceGUI library to build an interactive web front end for
+the debate simulation. The UI allows users to:
+-   Select a legal case from a predefined list.
+-   Initialize the `DebateEngine` with the chosen case.
+-   Step through the debate turn by turn.
+-   View a real-time, interactive visualization of the debate graph using ECharts.
+-   Read the full, narrated transcript of the debate.
+-   View the final judgment in a pop-up dialog once the debate concludes.
+-   Reset the system to its initial state.
+
+The application's state is managed by the `AppState` class to ensure data
+persistence across user interactions.
+"""
+
 from nicegui import ui
 
 from data.loader import CaseDataLoader
@@ -7,7 +23,20 @@ from vis.adapter import EChartsAdapter
 
 
 class LogView(ui.scroll_area):
+    """A custom NiceGUI component for displaying a scrollable, auto-scrolling log.
+
+    This class extends `ui.scroll_area` to create a styled container that is
+    ideal for showing transcripts or log messages. It automatically scrolls to the
+    bottom whenever a new line is pushed, ensuring the latest content is always
+    visible.
+
+    Attributes:
+        lines_container: A `ui.column` within the scroll area that holds the
+            individual log labels.
+    """
+
     def __init__(self, **kwargs):
+        """Initialize the LogView component."""
         super().__init__(**kwargs)
         self.classes("w-full h-full border rounded bg-gray-50 p-2")
         self.lines_container = ui.column().classes("w-full gap-1")
@@ -16,6 +45,11 @@ class LogView(ui.scroll_area):
             self.lines_container.move(self)
 
     def push(self, line: str):
+        """Add a new line of text to the log view.
+
+        Args:
+            line: The string message to add.
+        """
         with self.lines_container:
             ui.label(line).classes(
                 "text-sm font-mono break-words whitespace-pre-wrap text-gray-800"
@@ -24,11 +58,28 @@ class LogView(ui.scroll_area):
         self.scroll_to(percent=1.0)
 
     def clear(self):
+        """Remove all lines from the log view."""
         self.lines_container.clear()
 
 
 class AppState:
+    """Manage the global state of the web application.
+
+    This class holds all the critical state objects for the application, such
+    as the debate engine instance, the case data loader, and the list of
+    available samples. Using a single state class helps in managing the
+    application's data flow and persistence across UI interactions.
+
+    Attributes:
+        engine: The instance of the `DebateEngine` that runs the simulation.
+        loader: The `CaseDataLoader` instance to load case data from files.
+        samples: A list of `CaseData` objects available for simulation.
+        selected_index: The index of the currently selected case in the `samples` list.
+        is_initialized: A boolean flag indicating if the engine has been set up.
+    """
+
     def __init__(self):
+        """Initialize the application state."""
         self.engine = DebateEngine(config=SystemConfig(), judge_config={})
         self.loader = CaseDataLoader("data/sampling")
         self.samples = self.loader.load_all(limit=20)
@@ -37,6 +88,7 @@ class AppState:
 
     @property
     def current_case(self):
+        """The currently selected `CaseData` object."""
         if self.samples and self.selected_index is not None:
             if 0 <= self.selected_index < len(self.samples):
                 return self.samples[self.selected_index]
@@ -53,6 +105,12 @@ verdict_content = None
 
 
 async def on_init_click():
+    """Async event handler for the 'Initialize' button.
+
+    This function retrieves the currently selected case, displays a loading
+    dialog, and calls the `DebateEngine.setup()` method to prepare the
+    simulation. It then updates the UI to reflect the initial state.
+    """
     case = state.current_case
 
     if not case:
@@ -78,6 +136,12 @@ async def on_init_click():
 
 
 async def on_next_turn_click():
+    """Async event handler for the 'Next Turn' button.
+
+    This function advances the debate by one step by calling `DebateEngine.step()`.
+    It shows a loading dialog during processing. After the step is complete,
+    it updates the UI. If the debate has finished, it opens the verdict dialog.
+    """
     if not state.is_initialized:
         ui.notify("请先初始化系统", type="warning")
         return
@@ -109,6 +173,11 @@ async def on_next_turn_click():
 
 
 def on_reset_click():
+    """Event handler for the 'Reset' button.
+
+    This function resets the application to its initial state by creating a new
+    `DebateEngine` instance and clearing all UI components (graph, logs, stats).
+    """
     state.engine = DebateEngine(config=SystemConfig(), judge_config={})
     state.is_initialized = False
 
@@ -124,6 +193,12 @@ def on_reset_click():
 
 
 def update_ui():
+    """Update all major UI components based on the current engine state.
+
+    This function is the central point for refreshing the user interface. It
+    re-parses the debate graph for the ECharts view, repopulates the log view
+    with the latest transcript, and updates the verdict dialog content.
+    """
     if state.engine.graph and chart_view:
         option = EChartsAdapter.parse_graph(state.engine.graph)
 
@@ -152,6 +227,7 @@ def update_ui():
 
 
 def update_stats():
+    """Update the statistics label with the latest round, turn, and convergence info."""
     if stats_label:
         round_idx = state.engine.round_idx
         snapshot = state.engine.get_snapshot()
@@ -166,6 +242,12 @@ def update_stats():
 
 @ui.page("/")
 def index():
+    """Define the main page layout and initializes all UI components.
+
+    This function is decorated with `@ui.page('/')` and is called by NiceGUI to
+    build the user interface. It constructs the header, the main two-column
+    layout (graph and transcript), the control panel, and the verdict dialog.
+    """
     global chart_view, log_view, stats_label, verdict_dialog, verdict_content
 
     with ui.header().classes("bg-blue-700 items-center justify-between"):

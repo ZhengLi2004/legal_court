@@ -1,3 +1,11 @@
+"""Provides a high-level interface for agents to interact with the debate graph.
+
+This module defines the `GraphTool`, which serves as the primary tool for
+agents to modify the `ShadowGraph`. It abstracts the lower-level graph
+operations and ensures that agent intentions are translated into valid graph
+modifications.
+"""
+
 from typing import List, Union
 
 from mas.common import NodeType, ShadowGraph
@@ -8,17 +16,57 @@ from mas.schema import AgentAction
 
 
 class GraphTool:
+    """A tool for agents to process intents and modify the debate graph.
+
+    This class holds the current state of the debate graph and provides methods
+    for agents to apply changes. It uses a `GraphExecutor` to handle the
+    underlying logic of validating and applying actions. It also has a special
+    method for workers to inject new law nodes directly into the graph.
+
+    Attributes:
+        system: The `LegalSystem` object, providing access to system-wide resources.
+        llm: The language model client.
+        current_graph: The `ShadowGraph` instance representing the current debate state.
+    """
+
     def __init__(self, legal_system: LegalSystem, llm: LLMCallable):
+        """Initialize the GraphTool.
+
+        Args:
+            legal_system: The main `LegalSystem` instance.
+            llm: The language model client.
+        """
         self.system = legal_system
         self.llm = llm
         self.current_graph: ShadowGraph = None
 
     def set_current_graph(self, graph: ShadowGraph):
+        """Update the tool with the latest version of the debate graph.
+
+        This is typically called at the beginning of each agent's turn.
+
+        Args:
+            graph: The `ShadowGraph` for the current turn.
+        """
         self.current_graph = graph
 
     async def process_intent(
         self, agent_id: str, actions: Union[AgentAction, List[AgentAction]]
     ) -> str:
+        """Process a list of agent actions and applies them to the graph.
+
+        This method validates and executes a batch of `AgentAction`s. If the
+        execution is successful, it returns a log of the operations. If any
+        action is invalid or fails, it returns a rejection message.
+
+        Args:
+            agent_id: The ID of the agent performing the actions.
+            actions: A single `AgentAction` or a list of `AgentAction`s to be executed.
+
+        Returns:
+            A string indicating the result of the execution, either "EXECUTED"
+            with logs or "REJECT" with an error message.
+        """
         try:
             if not self.current_graph:
                 return "REJECT: 当前图谱上下文未设置。"
@@ -53,6 +101,18 @@ class GraphTool:
             return f"REJECT: GraphTool 处理意图时发生异常: {str(e)}"
 
     def inject_law_nodes(self, law_contents: List[str]) -> str:
+        """Directly inject a list of laws as LAW nodes into the graph.
+
+        This is a privileged operation used by the `LawWorker` to add new
+        legal statutes found during its research to the shared debate state.
+
+        Args:
+            law_contents: A list of strings, where each string is the full
+                content of a legal article.
+
+        Returns:
+            A string log summarizing the injection operation.
+        """
         if not self.current_graph:
             return "Error: Graph not set."
 
@@ -70,6 +130,7 @@ class GraphTool:
             )
 
             logs.append(log)
+
             if "✅" in log:
                 count += 1
 

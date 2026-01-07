@@ -1,20 +1,56 @@
+"""Defines the Pydantic data model for a legal case.
+
+This module contains the `CaseData` class, which serves as the canonical,
+validated data structure for representing a single legal case throughout the
+application. By using Pydantic, it ensures that all case data is well-formed
+and consistent.
+"""
+
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
 
 class CaseData(BaseModel):
-    uid: str = Field(..., description="案件唯一标识符")
-    title: str = Field(..., description="案件名称")
-    cause: List[str] = Field(default_factory=list, description="案由，用于案例检索粗筛")
-    plaintiffs: List[str] = Field(default_factory=list, description="原告列表")
-    defendants: List[str] = Field(default_factory=list, description="被告列表")
-    plaintiff_claim: str = Field(..., description="原告诉称")
-    defendant_argument: Optional[str] = Field(None, description="被告辩称")
-    fact_finding: Optional[str] = Field(None, description="审理查明：客观事实描述")
-    court_opinion: Optional[str] = Field(None, description="法院观点：用于提取 Insight")
-    verdict_result: Optional[str] = Field(None, description="裁判结果：用于判定胜负")
-    cited_laws: List[str] = Field(default_factory=list, description="法官引用的法条")
+    """A Pydantic model representing the structured data of a single legal case.
 
-    def __repr__(self):
+    This class uses Pydantic for data validation and type enforcement, ensuring
+    that all instances of a case have a consistent and predictable structure.
+    It includes all key sections of a typical legal document, from metadata
+    like title and parties to the substantive content like claims, arguments,
+    and verdict.
+
+    Attributes:
+        uid: The unique identifier for the case.
+        title: The name of the case.
+        cause: A list of causes of action, used for coarse-grained case retrieval.
+        plaintiffs: A list of plaintiff names.
+        defendants: A list of defendant names.
+        plaintiff_claim: The claims made by the plaintiff.
+        defendant_argument: The arguments made by the defendant in response.
+        fact_finding: The objective facts of the case as determined by the court.
+        court_opinion: The court's reasoning and perspective, useful for insight extraction.
+        verdict_result: The final outcome or judgment of the case.
+        cited_laws: A list of legal statutes cited by the judge in the verdict.
+    """
+
+    uid: str = Field(...)
+    title: str = Field(...)
+    cause: List[str] = Field(default_factory=list)
+    plaintiffs: List[str] = Field(default_factory=list)
+    defendants: List[str] = Field(default_factory=list)
+    plaintiff_claim: str = Field(...)
+    defendant_argument: Optional[str] = Field(None)
+    fact_finding: Optional[str] = Field(None)
+    court_opinion: Optional[str] = Field(None)
+    verdict_result: Optional[str] = Field(None)
+    cited_laws: List[str] = Field(default_factory=list)
+
+    def __repr__(self) -> str:
+        """Provide a concise, human-readable representation of the CaseData object.
+
+        Returns:
+            A string representation including the UID, cause, and title,
+            useful for logging and debugging.
+        """
         return f"<CaseData uid={self.uid} cause={self.cause} title={self.title}>"

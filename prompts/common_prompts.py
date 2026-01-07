@@ -1,3 +1,29 @@
+"""A centralized repository for all LLM prompt templates used in the system.
+
+This module contains string constants that serve as f-string templates for
+interacting with the Large Language Models (LLMs). Centralizing prompts here
+makes them easier to manage, version, and refine.
+
+The prompts are categorized by their function:
+-   **Controller Prompts**: Used by the ArgumentController for strategic
+    assessment and decision-making (e.g., ASSESS_FACT_NEEDS_PROMPT,
+    VERIFY_AND_DECIDE_PROMPT).
+-   **Worker Prompts**: Used by worker agents for tactical tasks like
+    analyzing search results or decomposing search intents (e.g.,
+    ANALYZE_FACT_PROMPT, DECOMPOSE_SEARCH_INTENT_PROMPT).
+-   **Initialization Prompts**: Used by the CaseInitializer to preprocess
+    case data (e.g., DECOMPOSE_FACTS_PROMPT, GENERATE_ROOT_CLAIM_PROMPT).
+-   **Judge Prompts**: Used by the Judge agent to evaluate the debate and
+    extract a final verdict (e.g., JUDGE_EVALUATE_PROMPT).
+-   **Learning and Narration Prompts**: Used for post-case analysis and
+    generating human-readable transcripts (e.g.,
+    EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT, NARRATOR_POLISH_PROMPT).
+
+A key component, `GRAPH_READING_GUIDE`, is a reusable block of text
+injected into several prompts to provide the LLM with consistent instructions
+on how to interpret the adversarial debate graph.
+"""
+
 GRAPH_READING_GUIDE = """
     【图谱阅读指南 (敌我识别与危机感)】:
     1. **节点标签含义**:

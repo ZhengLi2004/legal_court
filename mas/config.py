@@ -1,3 +1,11 @@
+"""Defines configuration classes for the entire MAS system.
+
+This module uses dataclasses to define a hierarchical configuration structure,
+loading sensitive values (like API keys and paths) from environment variables
+via `python-dotenv`. It provides a centralized point of control for all system
+parameters, from LLM settings to file paths and algorithm thresholds.
+"""
+
 import os
 from dataclasses import dataclass
 
@@ -7,6 +15,17 @@ load_dotenv(override=True)
 
 
 def get_env_strict(key: str) -> str:
+    """Retrieve an environment variable, raising an error if it's not set.
+
+    Args:
+        key: The name of the environment variable.
+
+    Returns:
+        The value of the environment variable.
+
+    Raises:
+        ValueError: If the environment variable is not found.
+    """
     value = os.getenv(key)
 
     if value is None:
@@ -19,11 +38,15 @@ def get_env_strict(key: str) -> str:
 
 @dataclass
 class ESConfig:
+    """Configuration for Elasticsearch connection."""
+
     host: str = get_env_strict("ES_HOST")
 
 
 @dataclass
 class AgentConfig:
+    """Configuration for agent identifiers."""
+
     system_id: str = "system"
     projection_id: str = "projection"
     default_commander_id: str = "commander"
@@ -31,6 +54,8 @@ class AgentConfig:
 
 @dataclass
 class PathConfig:
+    """Configuration for file system paths."""
+
     embedding_model_path: str = get_env_strict("EMBEDDING_MODEL_PATH")
     storage_root_dir: str = get_env_strict("MAS_STORAGE_DIR")
     storage_subdir_chroma: str = "chroma_db"
@@ -40,6 +65,8 @@ class PathConfig:
 
 @dataclass
 class LLMConfig:
+    """Configuration for the primary language model used by agents."""
+
     temperature: float = 0.1
     max_tokens: int = 1024
     model_name: str = "DeepSeek-V3.2"
@@ -49,6 +76,8 @@ class LLMConfig:
 
 @dataclass
 class JudgeLLMConfig:
+    """Configuration for the language model used by the Judge agent."""
+
     temperature: float = 0.1
     model_name: str = "qwen3"
     base_url: str = get_env_strict("JUDGE_API_BASE")
@@ -57,6 +86,8 @@ class JudgeLLMConfig:
 
 @dataclass
 class ConvergenceConfig:
+    """Parameters for the debate convergence detection algorithm."""
+
     alpha: float = 0.3
     epsilon: float = 2
     window_size: int = 4
@@ -65,18 +96,24 @@ class ConvergenceConfig:
 
 @dataclass
 class MatcherConfig:
+    """Thresholds for semantic matching."""
+
     projection_threshold: float = 0.60
     insight_threshold: float = 0.70
 
 
 @dataclass
 class DeduplicationConfig:
+    """Thresholds for semantic deduplication of graph nodes."""
+
     fact_threshold: float = 0.95
     other_threshold: float = 0.90
 
 
 @dataclass
 class RetrievalConfig:
+    """Parameters for various information retrieval processes."""
+
     initial_top_k: int = 3
     corrective_top_k: int = 3
     insight_top_k: int = 3
@@ -86,11 +123,20 @@ class RetrievalConfig:
 
 @dataclass
 class TopologyConfig:
+    """Configuration for the case topology graph (TaskLayer)."""
+
     task_layer_threshold: float = 0.50
 
 
 @dataclass
 class SystemConfig:
+    """The root configuration class that aggregates all other configs.
+
+    This class provides a single object through which all system parameters can
+    be accessed. It also performs initial setup, such as creating the storage
+    directory if it doesn't exist.
+    """
+
     agent: AgentConfig = AgentConfig()
     path: PathConfig = PathConfig()
     llm: LLMConfig = LLMConfig()
@@ -103,5 +149,6 @@ class SystemConfig:
     convergence: ConvergenceConfig = ConvergenceConfig()
 
     def __post_init__(self):
+        """Create the root storage directory after initialization if it's missing."""
         if not os.path.exists(self.path.storage_root_dir):
             os.makedirs(self.path.storage_root_dir, exist_ok=True)

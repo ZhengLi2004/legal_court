@@ -1,3 +1,11 @@
+"""Provides a component for generating human-readable debate transcripts.
+
+This module defines the `GraphNarrator` class, which is responsible for
+translating the structured, logical `AgentAction` objects into fluid,
+natural language prose. This creates a more understandable and engaging
+record of the debate.
+"""
+
 from typing import List
 
 from metagpt.logs import logger
@@ -9,10 +17,24 @@ from prompts.common_prompts import NARRATOR_POLISH_PROMPT
 
 
 class GraphNarrator:
+    """Translates agent actions into a polished, human-readable narrative.
+
+    This class takes a list of `AgentAction` objects from a single turn,
+    converts each action into a somewhat mechanical sentence describing the
+    logical operation, and then uses an LLM to "polish" these sentences into a
+    coherent, well-written paragraph representing that turn's argument.
+    """
+
     def __init__(self, llm: GPTChat):
+        """Initialize the GraphNarrator.
+
+        Args:
+            llm: The `GPTChat` instance used for polishing the text.
+        """
         self.llm = llm
 
     def _get_node_text(self, graph: ShadowGraph, node_id: str) -> str:
+        """Safely retrieves the content of a node from the graph by its ID."""
         if not node_id:
             return "（未知节点）"
 
@@ -26,6 +48,20 @@ class GraphNarrator:
     def _action_to_sentence(
         self, action: AgentAction, graph: ShadowGraph, turn: str
     ) -> str:
+        """Convert a single AgentAction into a descriptive sentence.
+
+        This is a rule-based conversion that creates a structured but potentially
+        stilted sentence describing the action. For example, "Plaintiff cited
+        fact [FACT_123] to support claim [CLAIM_456]."
+
+        Args:
+            action: The `AgentAction` to convert.
+            graph: The current `ShadowGraph` to look up node content.
+            turn: The current turn ("plaintiff" or "defendant").
+
+        Returns:
+            A string sentence describing the action.
+        """
         role = "原告" if turn == "plaintiff" else "被告"
         sentence = ""
         reasoning = action.content.strip() if action.content else ""
@@ -80,6 +116,20 @@ class GraphNarrator:
     async def generate_narrative(
         self, actions: List[AgentAction], graph: ShadowGraph, turn: str
     ) -> str:
+        """Generate a polished, narrative paragraph for a turn's actions.
+
+        It first converts all actions to raw sentences, then feeds the collection
+        of raw sentences to an LLM with a prompt asking it to rewrite them into
+        a smooth and persuasive legal statement.
+
+        Args:
+            actions: The list of `AgentAction`s performed in the turn.
+            graph: The current `ShadowGraph`.
+            turn: The current turn ("plaintiff" or "defendant").
+
+        Returns:
+            A string containing the polished narrative for the turn.
+        """
         if not actions:
             return ""
 

@@ -1,3 +1,11 @@
+"""Manages the creation, storage, and retrieval of strategic legal insights.
+
+This module provides the `InsightsManager` class, which is responsible for the
+system's learning capabilities. It extracts high-level, reusable strategic
+insights from completed debates, stores them persistently, and provides them
+to agents at the start of new, similar cases.
+"""
+
 import json
 import os
 from dataclasses import dataclass, field
@@ -13,6 +21,8 @@ from .utils import cosine_similarity, file_lock
 
 
 class InsightSide(str, Enum):
+    """Enumeration for the party an insight is most relevant to."""
+
     PLAINTIFF = "PLAINTIFF"
     DEFENDANT = "DEFENDANT"
     COMMON = "COMMON"
@@ -20,6 +30,16 @@ class InsightSide(str, Enum):
 
 @dataclass
 class Insight:
+    """Represents a single, reusable strategic insight.
+
+    Attributes:
+        content: The textual description of the insight/strategy.
+        side: The party (`InsightSide`) this insight is primarily for.
+        cases: A list of case IDs where this insight was observed.
+        representatives: A list of case IDs that are central representatives
+            of this insight in the task topology graph.
+    """
+
     content: str
     side: InsightSide = InsightSide.COMMON
     cases: List[str] = field(default_factory=list)
@@ -27,6 +47,17 @@ class Insight:
 
 
 class InsightsManager:
+    """Handles the lifecycle of legal insights: extraction, storage, and retrieval.
+
+    This manager maintains a persistent JSON file of all learned insights.
+    It uses an LLM to extract new insights from completed cases and a semantic
+    matcher to merge new insights with existing similar ones. It also provides
+    methods to retrieve relevant insights for a new case based on context.
+
+    Attributes:
+        insights: A list of all loaded `Insight` objects.
+    """
+
     def __init__(
         self,
         working_dir: str,
@@ -34,6 +65,14 @@ class InsightsManager:
         matcher: SemanticMatcher,
         config: SystemConfig = None,
     ):
+        """Initialize the InsightsManager.
+
+        Args:
+            working_dir: The root directory for storing persistent data.
+            llm: The `GPTChat` instance for extracting insights.
+            matcher: The `SemanticMatcher` for finding similar insights.
+            config: The system configuration object.
+        """
         self.working_dir = working_dir
         self.llm = llm
         self.matcher = matcher
@@ -44,6 +83,7 @@ class InsightsManager:
         self._rebuild_index()
 
     def _load_insights(self) -> List[Insight]:
+        """Load insights from the persistent JSON file."""
         if not os.path.exists(self.file_path):
             return []
 
@@ -89,6 +129,7 @@ class InsightsManager:
                 return []
 
     def _save_insights(self):
+        """Save the current list of insights to the persistent JSON file."""
         lock_file = self.file_path + ".lock"
 
         with file_lock(lock_file):
@@ -105,6 +146,7 @@ class InsightsManager:
             self._rebuild_index()
 
     def _rebuild_index(self):
+        """Rebuild the in-memory semantic index of insights for fast retrieval."""
         self._insight_index = []
 
         for inst in self.insights:
@@ -118,6 +160,23 @@ class InsightsManager:
         transcript: List[str],
         root_claims_status: Dict[str, str],
     ) -> "Insight":
+        """Extract a new insight from a completed case using an LLM.
+
+        It prompts the LLM with the case outcome and transcript to generate a
+        high-level strategic takeaway. It then checks if a similar insight
+        already exists; if so, it merges them. Otherwise, it adds the new
+        insight to the knowledge base.
+
+        Args:
+            case_id: The ID of the completed case.
+            case_context: A summary of the case facts.
+            transcript: The narrated debate transcript.
+            root_claims_status: A dictionary mapping root claim IDs to their
+                final status ('VALIDATED', 'DEFEATED').
+
+        Returns:
+            The newly created or updated `Insight` object.
+        """
         status_desc = "\n".join(
             [f"- {cid}: {status}" for cid, status in root_claims_status.items()]
         )
@@ -127,7 +186,7 @@ class InsightsManager:
         prompt = EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT.format(
             case_context=case_context,
             claims_status=status_desc,
-            transcript=transcript_text[:15000],
+            transcript=transcript_text[:15000],  # Truncate for context window
         )
 
         response = self.llm([Message(role="user", content=prompt)])
@@ -177,6 +236,16 @@ class InsightsManager:
         return target_insight
 
     def update_insight_topology(self, insight_content: str, task_layer: Any):
+        """Update the representative cases for an insight based on the TaskLayer graph.
+
+        After the task layer (case topology graph) is updated, this method
+        re-calculates the most central nodes for an insight's case cluster to
+        serve as its representatives.
+
+        Args:
+            insight_content: The content of the insight to update.
+            task_layer: The `TaskLayer` instance containing the case graph.
+        """
         target_insight = None
 
         for inst in self.insights:
@@ -202,6 +271,20 @@ class InsightsManager:
     def get_relevant_insights_by_side(
         self, context: str, top_k: int = 3
     ) -> Tuple[List[str], List[str]]:
+        """Retrieve the most relevant insights for a given context.
+
+        It performs a semantic search over the insight index and returns separate
+        lists of insights for the plaintiff and defendant, including common insights
+        in both.
+
+        Args:
+            context: The case context string to search by.
+            top_k: The maximum number of insights to return per side.
+
+        Returns:
+            A tuple containing two lists of strings: (plaintiff_insights,
+            defendant_insights).
+        """
         if not self._insight_index:
             return [], []
 
@@ -231,6 +314,16 @@ class InsightsManager:
     def find_cases_by_insight(
         self, insight_content: str, memory_retriever: Any = None, top_k: int = 3
     ) -> List[str]:
+        """Find the representative case IDs associated with a given insight.
+
+        Args:
+            insight_content: The text of the insight to look up.
+            memory_retriever: (Not currently used) For potential future use.
+            top_k: (Not currently used) For potential future use.
+
+        Returns:
+            A list of representative case IDs for that insight.
+        """
         target_insight = None
 
         for inst in self.insights:
