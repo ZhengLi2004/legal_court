@@ -51,7 +51,18 @@ def file_lock(lock_path: str, timeout: int = 10):
 
 
 def load_config(config_path: str = "configs/configs.yaml"):
-    """Load a YAML configuration file."""
+    """Load a YAML configuration file.
+
+    Args:
+        config_path: The path to the YAML configuration file.
+
+    Returns:
+        A dictionary containing the loaded configuration, or an empty dict
+        if the file does not exist.
+
+    Raises:
+        yaml.YAMLError: If the YAML file is malformed.
+    """
     if not os.path.exists(config_path):
         return {}
 

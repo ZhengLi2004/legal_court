@@ -201,11 +201,6 @@ def update_ui():
     """
     if state.engine.graph and chart_view:
         option = EChartsAdapter.parse_graph(state.engine.graph)
-
-        option["tooltip"]["formatter"] = (
-            ":(params) => { var c = params.data.full_content ? params.data.full_content : params.name; return c.replace(/(.{50})/g, '$1<br/>'); }"
-        )
-
         chart_view.options.clear()
         chart_view.options.update(option)
         chart_view.update()

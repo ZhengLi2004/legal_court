@@ -8,6 +8,8 @@ a batch of actions either succeeds or fails as a whole).
 """
 
 import copy
+
+import networkx as nx
 from typing import Dict, List, Optional, Tuple
 
 from mas.schema import AgentAction, AgentActionType
@@ -52,7 +54,8 @@ class GraphExecutor:
             index: The index of the action in the batch, for error reporting.
 
         Returns:
-            A string describing the validation error, or None if the action is valid.
+            A string containing semicolon-separated validation error messages,
+            or None if the action is valid.
         """
         errors = []
         prefix = f"第 {index + 1} 个动作 ({action.action_type.value})"
@@ -146,6 +149,29 @@ class GraphExecutor:
 
         return "; ".join(errors) if errors else None
 
+    def _check_would_create_cycle(self, source_id: str, target_id: str) -> bool:
+        """Check if adding an edge would create a directed cycle (acyclic axiom).
+
+        Checks if there is a path from target_id to source_id. If such a path exists,
+        adding the edge source_id -> target_id would create a directed cycle,
+        violating the acyclic axiom.
+
+        Args:
+            source_id: The source node ID.
+            target_id: The target node ID.
+
+        Returns:
+            True if adding the edge would create a cycle, False otherwise.
+        """
+        if not self.graph.graph.has_node(source_id) or not self.graph.graph.has_node(target_id):
+            return False
+
+        try:
+            return nx.has_path(self.graph.graph, target_id, source_id)
+        
+        except nx.NetworkXError:
+            return False
+
     def _apply_add_node(
         self,
         content: str,
@@ -228,6 +254,9 @@ class GraphExecutor:
             A log message describing the result of the operation.
         """
         try:
+            if self._check_would_create_cycle(source_id, target_id):
+                return f"⚠️ [警告] 添加边 {source_id} -> {target_id} 会产生循环，该操作已忽略（无环公理）。"
+
             result = self.graph.add_edge(source_id, target_id, edge_type)
             self.graph.touch_nodes([source_id, target_id], current_step)
 

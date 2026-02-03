@@ -72,6 +72,7 @@ class DebateEngine:
         self.round_idx: int = 0
         self.max_rounds: int = 10
         self.is_finished: bool = False
+        self.is_ready_for_adjudication: bool = False
         self.winner: str = "Unsettled"
         self.last_step_log: Dict[str, Any] = {}
         self.fact_es = None
@@ -115,7 +116,7 @@ class DebateEngine:
             case_data_path: The file path to the case data (JSONL format).
             case_data: A dictionary containing the case data. One of these two
                 arguments must be provided.
-            verbose: A boolean to enable verbose logging for the teams.
+            verbose: A boolean flag to enable detailed transcript logging in the DebateTeam.
 
         Raises:
             ValueError: If neither `case_data_path` nor `case_data` is provided.
@@ -199,6 +200,12 @@ class DebateEngine:
         logger.info(f">>> [System] Injected {len(claim_ids)} root claim nodes.")
         self.prev_stats["claim_nodes"] = self._count_claim_nodes()
 
+        self.graph.refresh_context(current_step=0)
+
+        logger.info(
+            f">>> [System] Graph refreshed. Nodes: {self.graph.graph.number_of_nodes()}, Edges: {self.graph.graph.number_of_edges()}"
+        )
+
         self.p_team = DebateTeam(
             "plaintiff",
             init_res.plaintiff_persona,
@@ -224,6 +231,18 @@ class DebateEngine:
         )
 
         logger.info(">>> [Engine] Setup complete.")
+
+        init_narrative = (
+            f"【系统初始化】\n"
+            f"案件案由：{cause}\n"
+            f"已注入 {fact_count} 个客观事实节点\n"
+            f"已注入 {len(claim_ids)} 个根诉求节点\n"
+            f"图谱状态：{self.graph.graph.number_of_nodes()} 个节点，{self.graph.graph.number_of_edges()} 条边\n"
+            f"系统已准备就绪，等待辩论开始。"
+        )
+
+        self.transcript.append(init_narrative)
+        logger.info(f">>> [Transcript Updated]:\n{init_narrative}")
 
         self.last_step_log = {
             "turn": "Setup",
@@ -376,46 +395,9 @@ class DebateEngine:
                     "Max Rounds Reached" if cond_max_rounds else "Convergence Reached"
                 )
 
-                logger.info(f">>> [Engine] Adjudication triggered. Reason: {reason}")
+                logger.info(f">>> [Engine] Adjudication ready. Reason: {reason}")
                 self.last_step_log["convergence"]["is_converged"] = True
-
-                logger.info(
-                    ">>> [Engine] Running Pre-Adjudication Garbage Collection..."
-                )
-
-                removed_count = self.graph.garbage_collect()
-
-                if removed_count > 0:
-                    logger.info(
-                        f"✅ [GC] Cleaned {removed_count} isolated nodes before adjudication."
-                    )
-
-                    self.last_step_log["convergence"]["gc_removed"] = removed_count
-
-                else:
-                    logger.info("✅ [GC] Graph is clean. No nodes removed.")
-
-                (
-                    self.judgment_document,
-                    self.root_claims_status,
-                ) = await self.legal_sys.adjudicate(
-                    self.raw_facts,
-                    self.graph,
-                    transcript=self.transcript,
-                )
-
-                logger.info(
-                    f">>> [Engine] root_claims_status: {self.root_claims_status}"
-                )
-
-                self.last_step_log["adjudication_result"] = {
-                    "document": self.judgment_document,
-                    "claims_status": {
-                        k: v.value for k, v in self.root_claims_status.items()
-                    },
-                }
-
-                self.is_finished = True
+                self.is_ready_for_adjudication = True
 
             if not self.is_finished:
                 self.current_turn = next_turn
@@ -425,6 +407,43 @@ class DebateEngine:
 
         finally:
             await self.close_resources()
+
+    async def adjudicate(self):
+        """Execute the adjudication process manually.
+
+        This method runs garbage collection and generates the judgment document.
+        It should be called when the debate has reached convergence or max rounds.
+        """
+        logger.info(">>> [Engine] Running Pre-Adjudication Garbage Collection...")
+        removed_count = self.graph.garbage_collect()
+
+        if removed_count > 0:
+            logger.info(
+                f"✅ [GC] Cleaned {removed_count} isolated nodes before adjudication."
+            )
+
+            self.last_step_log["convergence"]["gc_removed"] = removed_count
+
+        else:
+            logger.info("✅ [GC] Graph is clean. No nodes removed.")
+
+        (
+            self.judgment_document,
+            self.root_claims_status,
+        ) = await self.legal_sys.adjudicate(
+            self.raw_facts,
+            self.graph,
+            transcript=self.transcript,
+        )
+
+        logger.info(f">>> [Engine] root_claims_status: {self.root_claims_status}")
+
+        self.last_step_log["adjudication_result"] = {
+            "document": self.judgment_document,
+            "claims_status": {k: v.value for k, v in self.root_claims_status.items()},
+        }
+
+        self.is_finished = True
 
     def get_snapshot(self) -> Dict[str, Any]:
         """Return a snapshot of the current state of the debate.

@@ -15,3 +15,5 @@ sampling
 *.md
 context.txt
 .VSCode*
+.iflow
+*.pdf
