@@ -2,12 +2,11 @@
 
 This module provides the `DebateTeam` class, which encapsulates one side of the
 legal debate (either plaintiff or defendant). A team consists of a
-`ArgumentController` agent and several specialized `Worker` agents. This class
-manages the internal workflow of a single debate turn for one team.
+`ArgumentController` agent and several specialized `Worker` agents.
 """
 
 import asyncio
-from typing import Union
+from typing import Callable, Optional, Union
 
 from metagpt.logs import logger
 from metagpt.schema import Message
@@ -28,18 +27,13 @@ from .llm import GPTChat
 class DebateTeam:
     """Orchestrates the agents of one side (plaintiff or defendant) for a debate turn.
 
-    A `DebateTeam` follows a controller-worker architecture. The `ArgumentController`
-    first assesses the situation and dispatches tasks to the `FactWorker`,
-    `LawWorker`, and `RecallWorker`. These workers execute their tasks in parallel.
-    The controller then ingests the results and makes a final strategic decision,
-    which is translated into a set of actions on the debate graph.
-
     Attributes:
         side: The side the team represents, e.g., "plaintiff".
         controller: The `ArgumentController` agent for the team.
         fact_worker: The `FactWorker` agent.
         law_worker: The `LawWorker` agent.
         recall_worker: The `RecallWorker` agent.
+        on_state_change: Optional callback for state changes.
     """
 
     def __init__(
@@ -71,6 +65,7 @@ class DebateTeam:
         self.persona = persona
         self.graph_tool = graph_tool
         self.verbose = verbose
+        self.on_state_change: Optional[Callable[[str, str, dict], None]] = None
 
         self.controller = ArgumentController(
             name=f"{side}_Controller",
@@ -104,10 +99,39 @@ class DebateTeam:
         self.recall_worker.graph_tool = graph_tool
         self.max_internal_steps = 15
 
+    @property
+    def pipeline_step(self) -> ControllerPipelineStep:
+        """Get the current pipeline step from the controller."""
+        if self.controller and hasattr(self.controller, "pipeline_step"):
+            return self.controller.pipeline_step
+
+        return ControllerPipelineStep.IDLE
+
+    def _notify_state_change(self, event: str, data: dict = None):
+        """Notify listeners about state changes.
+
+        Args:
+            event: The event type (e.g., "step_start", "worker_dispatch").
+            data: Additional data about the event.
+        """
+        if self.on_state_change:
+            try:
+                self.on_state_change(self.side, event, data or {})
+
+            except Exception as e:
+                logger.warning(f"State change callback failed: {e}")
+
     def _get_worker_by_name(
         self, target_name: str
     ) -> Union[FactWorker, LawWorker, RecallWorker, None]:
-        """Retrieve a worker instance by its name string."""
+        """Retrieve a worker instance by its name string.
+
+        Args:
+            target_name: The name of the target worker.
+
+        Returns:
+            The worker instance or None if not found.
+        """
         if "FactWorker" in target_name:
             return self.fact_worker
 
@@ -122,14 +146,6 @@ class DebateTeam:
     async def run_turn(self, graph: ShadowGraph) -> dict:
         """Execute the workflow for a single debate turn.
 
-        This method orchestrates the internal steps of a turn:
-        1. Controller assesses needs and generates instructions for workers.
-        2. Worker tasks are executed in parallel.
-        3. Controller ingests worker reports.
-        4. Controller makes a final decision and generates graph actions.
-        The process continues in a loop until the controller completes its
-        action or a timeout is reached.
-
         Args:
             graph: The current `ShadowGraph` of the debate.
 
@@ -142,6 +158,7 @@ class DebateTeam:
         self.graph_tool.set_current_graph(graph)
         self.controller.reset_turn_state()
         self.controller.pipeline_step = ControllerPipelineStep.ASSESS_NEEDS
+        self._notify_state_change("turn_start", {"step": "ASSESS_NEEDS"})
         transcript = []
         final_result = None
         step_count = 0
@@ -149,6 +166,15 @@ class DebateTeam:
         while step_count < self.max_internal_steps:
             step_count += 1
             logger.debug(f"[{self.side}] Internal Step {step_count}")
+
+            self._notify_state_change(
+                "internal_step",
+                {
+                    "step_count": step_count,
+                    "pipeline_step": self.controller.pipeline_step.name,
+                },
+            )
+
             ctrl_msg = await self.controller._act()
             content = str(ctrl_msg.content)
 
@@ -163,14 +189,14 @@ class DebateTeam:
 
             if "Action Completed" in content:
                 final_result = content
+                self.controller.pipeline_step = ControllerPipelineStep.DONE
+                self._notify_state_change("turn_complete", {"result": "success"})
                 logger.info(f"[{self.side}] Turn Successfully Completed.")
                 break
 
             if "EXECUTION_FAILURE_RETRY" in content:
-                logger.warning(
-                    f"[{self.side}] Action failed. Controller will retry with internal error history."
-                )
-
+                logger.warning(f"[{self.side}] Action failed. Controller will retry.")
+                self._notify_state_change("retry", {"reason": "execution_failure"})
                 continue
 
             if "batch_instructions" in content:
@@ -180,7 +206,7 @@ class DebateTeam:
 
                     if not instructions_list:
                         logger.info(
-                            f"[{self.side}] No workers needed. Triggering ingest with empty list."
+                            f"[{self.side}] No workers needed. Triggering ingest."
                         )
 
                         self.controller.ingest_results([])
@@ -263,6 +289,9 @@ class DebateTeam:
             final_result = (
                 f"Timeout: Internal steps exhausted ({self.max_internal_steps})."
             )
+
+            self.controller.pipeline_step = ControllerPipelineStep.DONE
+            self._notify_state_change("turn_complete", {"result": "timeout"})
 
         return {
             "summary": final_result,

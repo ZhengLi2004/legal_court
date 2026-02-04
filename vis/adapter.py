@@ -2,23 +2,15 @@
 
 This module defines the `EChartsAdapter`, a utility class that bridges the gap
 between the application's internal data representation (the `ShadowGraph` based
-on `networkx`) and the configuration object required by the Apache ECharts
-charting library. It handles the translation of nodes, edges, and their
-properties (like type, status, and agent ownership) into visual attributes such
-as colors, sizes, and styles.
+on `networkx`) and the configuration object required by Apache ECharts.
 """
 
 import textwrap
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 
 class EChartsAdapter:
     """A static utility class to parse a debate graph into an ECharts option object.
-
-    This class provides static methods to handle the conversion. It contains a
-    predefined color scheme for different graph elements and logic to map node
-    and edge attributes to specific visual properties, creating a rich,
-    interactive, and informative graph visualization for the frontend.
 
     Attributes:
         COLORS: A dictionary mapping node types, statuses, and other properties
@@ -35,37 +27,51 @@ class EChartsAdapter:
         "BORDER_VALID": "#32CD32",
         "BORDER_DEFEATED": "#8B0000",
         "BORDER_HYPO": "#696969",
+        "EDGE_SUPPORT": "#32CD32",
+        "EDGE_CONFLICT": "#FF4500",
     }
+
+    @staticmethod
+    def _extract_enum_value(value: Any) -> str:
+        """Extract string value from enum or return string representation.
+
+        Args:
+            value: The value to extract from (may be enum or string).
+
+        Returns:
+            String representation of the value.
+        """
+        if value is None:
+            return ""
+
+        if hasattr(value, "value"):
+            return str(value.value)
+
+        if hasattr(value, "name"):
+            return str(value.name)
+
+        return str(value)
 
     @staticmethod
     def _get_category_name_and_color(node_data: Dict) -> Tuple[str, str, int, str]:
         """Determine the visual styling for a node based on its properties.
 
-        This helper method inspects a node's 'type', 'agent_id', and 'status'
-        attributes to assign it a legend category, a fill color, a symbol size,
-        and a border color. This logic centralizes the visual styling rules for
-        the graph.
-
         Args:
             node_data: A dictionary of attributes for a single graph node.
 
         Returns:
-            A tuple containing the category name (e.g., "Fact", "Plaintiff Claim"),
-            hex color code for the node's fill, an integer for the symbol size,
-            and a hex color code for the node's border.
+            A tuple containing the category name, hex color code for fill,
+            symbol size, and hex color code for border.
         """
-        n_type = node_data.get("type", "CLAIM")
+        n_type = EChartsAdapter._extract_enum_value(node_data.get("type", "CLAIM"))
+        n_type = n_type.upper()
+        agent_id = str(node_data.get("agent_id", "")).lower()
 
-        if hasattr(n_type, "value"):
-            n_type = n_type.value
+        status = EChartsAdapter._extract_enum_value(
+            node_data.get("status", "HYPOTHETICAL")
+        )
 
-        n_type = str(n_type)
-        agent_id = node_data.get("agent_id", "").lower()
-        status = node_data.get("status", "HYPOTHETICAL")
-
-        if hasattr(status, "value"):
-            status = status.value
-
+        status = status.upper()
         color = EChartsAdapter.COLORS["CLAIM_COMMON"]
         category = "观点"
         symbol_size = 20
@@ -73,12 +79,12 @@ class EChartsAdapter:
         if n_type == "FACT":
             color = EChartsAdapter.COLORS["FACT"]
             category = "事实"
-            symbol_size = 15
+            symbol_size = 18
 
         elif n_type == "LAW":
             color = EChartsAdapter.COLORS["LAW"]
             category = "法条"
-            symbol_size = 15
+            symbol_size = 18
 
         elif n_type == "CLAIM":
             symbol_size = 25
@@ -86,7 +92,7 @@ class EChartsAdapter:
             if "system" in agent_id or "init" in agent_id:
                 color = EChartsAdapter.COLORS["CLAIM_ROOT"]
                 category = "核心诉求"
-                symbol_size = 30
+                symbol_size = 35
 
             elif "plaintiff" in agent_id:
                 color = EChartsAdapter.COLORS["CLAIM_P"]
@@ -97,81 +103,103 @@ class EChartsAdapter:
                 category = "被告观点"
 
         border_color = EChartsAdapter.COLORS["BORDER_HYPO"]
+        border_width = 0
 
         if status == "VALIDATED":
             border_color = EChartsAdapter.COLORS["BORDER_VALID"]
+            border_width = 3
 
         elif status == "DEFEATED":
             border_color = EChartsAdapter.COLORS["BORDER_DEFEATED"]
+            border_width = 3
 
-        return category, color, symbol_size, border_color
+        return category, color, symbol_size, border_color, border_width
 
     @staticmethod
-    def parse_graph(graph_obj) -> Dict[str, Any]:
+    def parse_graph(
+        graph_obj, preferred_extension: Optional[Set[str]] = None
+    ) -> Dict[str, Any]:
         """Convert a graph object into an ECharts configuration.
-
-        This method iterates over the nodes and edges of the input graph,
-        translating each element into the corresponding structure required by
-        ECharts. It builds the `nodes`, `links`, and `categories` lists and
-        assembles them into the final ECharts option dictionary.
 
         Args:
             graph_obj: The graph object to parse. Can be a `ShadowGraph`
                 instance or a raw `networkx` graph.
+            preferred_extension: An optional set of node IDs that belong to the
+                BAF preferred extension.
 
         Returns:
-            A dictionary structured as a valid ECharts option object, ready to
-            be consumed by the frontend.
+            A dictionary structured as a valid ECharts option object.
         """
+        if graph_obj is None:
+            return {"series": []}
+
         if hasattr(graph_obj, "graph"):
             G = graph_obj.graph
 
         else:
             G = graph_obj
 
+        if G is None or not hasattr(G, "nodes"):
+            return {"series": []}
+
+        if preferred_extension is None:
+            preferred_extension = set()
+
         nodes = []
         links = []
         category_color_map = {}
 
         for n_id, n_data in G.nodes(data=True):
-            cat_name, color, size, border_color = (
+            cat_name, color, size, border_color, border_width = (
                 EChartsAdapter._get_category_name_and_color(n_data)
             )
 
             if cat_name not in category_color_map:
                 category_color_map[cat_name] = color
 
-            full_content = n_data.get("content", "")
+            full_content = str(n_data.get("content", ""))
             wrapped_content = "<br/>".join(textwrap.wrap(full_content, width=40))
 
             item_style = {
                 "color": color,
                 "borderColor": border_color,
-                "borderWidth": 3
-                if border_color != EChartsAdapter.COLORS["BORDER_HYPO"]
-                else 0,
+                "borderWidth": border_width,
             }
 
-            nodes.append(
-                {
-                    "id": str(n_id),
-                    "name": str(n_id),
-                    "value": wrapped_content,
-                    "symbolSize": size,
-                    "itemStyle": item_style,
-                    "category": cat_name,
-                    "label": {"show": False},
-                }
-            )
+            if str(n_id) in preferred_extension:
+                item_style["shadowBlur"] = 20
+                item_style["shadowColor"] = "#FFD700"
+                item_style["shadowOffsetX"] = 0
+                item_style["shadowOffsetY"] = 0
+
+            node_entry = {
+                "id": str(n_id),
+                "name": str(n_id),
+                "value": wrapped_content,
+                "symbolSize": size,
+                "itemStyle": item_style,
+                "category": cat_name,
+                "label": {
+                    "show": True,
+                    "position": "bottom",
+                    "fontSize": 10,
+                    "color": "#333",
+                    "formatter": "{b}",
+                },
+            }
+
+            nodes.append(node_entry)
 
         for u, v, e_data in G.edges(data=True):
-            e_type = e_data.get("type", "SUPPORT")
+            e_type = EChartsAdapter._extract_enum_value(e_data.get("type", "SUPPORT"))
+            e_type = e_type.upper()
+            is_support = e_type == "SUPPORT"
 
-            if hasattr(e_type, "value"):
-                e_type = e_type.value
-
-            is_support = str(e_type) == "SUPPORT"
-            color = "#32CD32" if is_support else "#FF4500"
+            color = (
+                EChartsAdapter.COLORS["EDGE_SUPPORT"]
+                if is_support
+                else EChartsAdapter.COLORS["EDGE_CONFLICT"]
+            )
 
             links.append(
                 {
@@ -180,9 +208,11 @@ class EChartsAdapter:
                     "lineStyle": {
                         "color": color,
                         "width": 2,
-                        "curveness": 0.1,
+                        "curveness": 0.15,
                         "type": "solid" if is_support else "dashed",
                     },
+                    "symbol": ["none", "arrow"],
+                    "symbolSize": [0, 8],
                 }
             )
 
@@ -194,22 +224,33 @@ class EChartsAdapter:
             )
 
         option = {
-            "title": {"text": "Debate Graph", "bottom": 0, "right": 0},
+            "title": {
+                "text": "辩论图谱",
+                "subtext": f"节点: {len(nodes)} | 边: {len(links)}",
+                "left": "center",
+                "top": 5,
+                "textStyle": {"fontSize": 14},
+                "subtextStyle": {"fontSize": 10},
+            },
             "tooltip": {
                 "trigger": "item",
                 "formatter": "{c}",
                 "confine": True,
-                "backgroundColor": "rgba(50,50,50,0.7)",
+                "backgroundColor": "rgba(50,50,50,0.85)",
                 "textStyle": {"color": "#fff", "fontSize": 12},
+                "extraCssText": "max-width: 400px; white-space: normal;",
             },
             "legend": [
                 {
-                    "data": categories_list,
+                    "data": [{"name": c["name"]} for c in categories_list],
                     "orient": "horizontal",
                     "left": "center",
-                    "top": "top",
+                    "bottom": 10,
+                    "textStyle": {"fontSize": 11},
                 }
             ],
+            "animationDuration": 0,
+            "animationDurationUpdate": 0,
             "series": [
                 {
                     "type": "graph",
@@ -218,11 +259,25 @@ class EChartsAdapter:
                     "links": links,
                     "categories": categories_list,
                     "roam": True,
-                    "label": {"show": False},
+                    "draggable": True,
+                    "label": {
+                        "show": True,
+                        "position": "bottom",
+                        "fontSize": 9,
+                    },
                     "force": {
-                        "repulsion": 300,
-                        "edgeLength": [50, 150],
-                        "gravity": 0.1,
+                        "repulsion": 350,
+                        "edgeLength": [80, 180],
+                        "gravity": 0.08,
+                    },
+                    "emphasis": {
+                        "focus": "adjacency",
+                        "lineStyle": {"width": 4},
+                        "itemStyle": {"shadowBlur": 15},
+                    },
+                    "lineStyle": {
+                        "opacity": 0.9,
+                        "curveness": 0.15,
                     },
                 }
             ],
