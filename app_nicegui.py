@@ -14,6 +14,8 @@ The application's state is managed by the `AppState` class to ensure data
 persistence across user interactions.
 """
 
+import asyncio
+
 from nicegui import ui
 
 from data.loader import CaseDataLoader
@@ -55,7 +57,7 @@ class LogView(ui.scroll_area):
                 "text-sm font-mono break-words whitespace-pre-wrap text-gray-800"
             )
 
-        self.scroll_to(percent=1.0)
+        self.run_method("scrollTo", 1.0)
 
     def clear(self):
         """Remove all lines from the log view."""
@@ -97,9 +99,9 @@ class AppState:
 
 
 state = AppState()
-chart_view = None
-log_view = None
-stats_label = None
+chart_view: ui.echart | None = None
+log_view: LogView | None = None
+stats_label: ui.label | None = None
 verdict_dialog = None
 verdict_content = None
 
@@ -107,40 +109,56 @@ verdict_content = None
 async def on_init_click():
     """Async event handler for the 'Initialize' button.
 
-    This function retrieves the currently selected case, displays a loading
-    dialog, and calls the `DebateEngine.setup()` method to prepare the
-    simulation. It then updates the UI to reflect the initial state.
+    Retrieves the currently selected case, displays a loading dialog, and
+    calls the ``DebateEngine.setup()`` method to prepare the simulation.
+    It then updates the UI to reflect the initial state.
+
+    Raises:
+        Displays a notification if no case is selected or if initialization fails.
     """
+    global state
     case = state.current_case
 
     if not case:
         ui.notify("请先选择一个案件", type="warning")
         return
 
-    with ui.dialog() as loading_dialog, ui.card():
+    loading_dialog = ui.dialog().props("persistent")
+
+    with loading_dialog, ui.card().classes("items-center"):
         ui.label("正在初始化案件...").classes("text-xl")
         ui.spinner(size="lg")
 
     loading_dialog.open()
+    await asyncio.sleep(0.1)
 
     try:
         ui.notify(f"正在初始化案件: {case.title}...")
         case_dict = case.model_dump()
         await state.engine.setup(case_data=case_dict, verbose=True)
         state.is_initialized = True
-        update_ui()
-        ui.notify("系统初始化完成！", type="positive")
 
-    finally:
+    except Exception as e:
+        ui.notify(f"初始化失败: {e}", type="negative")
         loading_dialog.close()
+        return
+
+    loading_dialog.close()
+    await asyncio.sleep(0.1)
+    await update_ui_async()
+    ui.notify("系统初始化完成！", type="positive")
 
 
 async def on_next_turn_click():
     """Async event handler for the 'Next Turn' button.
 
-    This function advances the debate by one step by calling `DebateEngine.step()`.
-    It shows a loading dialog during processing. After the step is complete,
-    it updates the UI. If the debate has finished, it opens the verdict dialog.
+    Advances the debate by one step by calling ``DebateEngine.step()``.
+    Shows a loading dialog during processing. After the step completes,
+    updates the UI. If the debate has finished, opens the verdict dialog.
+
+    Raises:
+        Displays a notification if the system is not initialized or if
+        the debate has already ended.
     """
     if not state.is_initialized:
         ui.notify("请先初始化系统", type="warning")
@@ -151,97 +169,142 @@ async def on_next_turn_click():
         return
 
     turn_name = state.engine.current_turn.value.capitalize()
+    loading_dialog = ui.dialog().props("persistent")
 
-    with ui.dialog() as step_dialog, ui.card():
+    with loading_dialog, ui.card().classes("items-center"):
         ui.label(f"正在运行 {turn_name} 回合...").classes("text-xl")
         ui.spinner(size="lg")
 
-    step_dialog.open()
+    loading_dialog.open()
+    await asyncio.sleep(0.1)
 
     try:
         await state.engine.step()
-        update_ui()
 
-        if state.engine.is_finished:
-            ui.notify("辩论结束，判决已生成！", type="positive")
+    except Exception as e:
+        ui.notify(f"执行失败: {e}", type="negative")
+        loading_dialog.close()
+        return
 
-            if verdict_dialog:
-                verdict_dialog.open()
+    loading_dialog.close()
+    await asyncio.sleep(0.1)
+    await update_ui_async()
 
-    finally:
-        step_dialog.close()
+    if state.engine.is_finished:
+        ui.notify("辩论结束，判决已生成！", type="positive")
+
+        if verdict_dialog:
+            verdict_dialog.open()
 
 
 def on_reset_click():
     """Event handler for the 'Reset' button.
 
-    This function resets the application to its initial state by creating a new
-    `DebateEngine` instance and clearing all UI components (graph, logs, stats).
+    Resets the application to its initial state by creating a new
+    ``DebateEngine`` instance and clearing all UI components.
     """
+    global state
     state.engine = DebateEngine(config=SystemConfig(), judge_config={})
     state.is_initialized = False
 
     if chart_view:
-        chart_view.options.clear()
-        chart_view.update()
+        chart_view.run_chart_method("clear")
+        chart_view.run_chart_method("setOption", {"series": []}, {"notMerge": True})
 
     if log_view:
         log_view.clear()
 
-    update_stats()
+    _update_stats()
     ui.notify("系统已重置", type="warning")
 
 
-def update_ui():
-    """Update all major UI components based on the current engine state.
+async def update_ui_async():
+    """Asynchronously update all major UI components.
 
-    This function is the central point for refreshing the user interface. It
-    re-parses the debate graph for the ECharts view, repopulates the log view
-    with the latest transcript, and updates the verdict dialog content.
+    This coroutine is the central point for refreshing the user interface.
+    It re-parses the debate graph for the ECharts view, repopulates the
+    log view with the latest transcript, and updates the verdict content.
     """
-    if state.engine.graph and chart_view:
+    _update_chart()
+    _update_log()
+    _update_stats()
+    _update_verdict()
+    await asyncio.sleep(0)
+
+
+def _update_chart():
+    """Update the ECharts graph visualization.
+
+    Parses the current debate graph from the engine and updates the
+    chart view with the new configuration.
+    """
+    if not chart_view:
+        return
+
+    if state.engine.graph:
         option = EChartsAdapter.parse_graph(state.engine.graph)
-        chart_view.options.clear()
-        chart_view.options.update(option)
+        chart_view.run_chart_method("setOption", option, {"notMerge": True})
         chart_view.update()
 
-    if log_view:
-        log_view.clear()
-
-        for line in state.engine.transcript:
-            log_view.push(line)
-            log_view.push("--------------------------------------------------")
-
-    update_stats()
-
-    if state.engine.is_finished and state.engine.judgment_document:
-        if verdict_content:
-            verdict_content.content = state.engine.judgment_document.replace(
-                "\n", "<br>"
-            )
+    else:
+        chart_view.options = {"series": []}
+        chart_view.update()
 
 
-def update_stats():
-    """Update the statistics label with the latest round, turn, and convergence info."""
-    if stats_label:
-        round_idx = state.engine.round_idx
-        snapshot = state.engine.get_snapshot()
-        last_log = snapshot.get("last_log", {}) if snapshot else {}
-        conv = last_log.get("convergence", {}).get("sma", 0.0) if last_log else 0.0
-        turn = state.engine.current_turn.value if state.engine.current_turn else "Ready"
+def _update_log():
+    """Update the log view with the latest transcript.
 
-        stats_label.text = (
-            f"Round: {round_idx} | Turn: {turn} | Convergence: {conv:.4f}"
-        )
+    Clears the existing log and repopulates it with all lines from
+    the engine's transcript.
+    """
+    if not log_view:
+        return
+
+    log_view.clear()
+
+    for line in state.engine.transcript:
+        log_view.push(line)
+        log_view.push("--------------------------------------------------")
+
+
+def _update_verdict():
+    """Update the verdict dialog content.
+
+    If the debate has finished and a judgment document exists, updates
+    the verdict content HTML with the formatted document.
+    """
+    if not state.engine.is_finished or not state.engine.judgment_document:
+        return
+
+    if verdict_content:
+        verdict_content.content = state.engine.judgment_document.replace("\n", "<br>")
+
+
+def _update_stats():
+    """Update the statistics label.
+
+    Displays the current round number, turn name, and convergence value
+    in the stats label.
+    """
+    if not stats_label:
+        return
+
+    round_idx = state.engine.round_idx
+    snapshot = state.engine.get_snapshot()
+    last_log = snapshot.get("last_log", {}) if snapshot else {}
+    conv = last_log.get("convergence", {}).get("sma", 0.0) if last_log else 0.0
+    turn = state.engine.current_turn.value if state.engine.current_turn else "Ready"
+    stats_label.text = f"Round: {round_idx} | Turn: {turn} | Convergence: {conv:.4f}"
 
 
 @ui.page("/")
 def index():
-    """Define the main page layout and initializes all UI components.
+    """Define the main page layout and initialize all UI components.
 
-    This function is decorated with `@ui.page('/')` and is called by NiceGUI to
-    build the user interface. It constructs the header, the main two-column
-    layout (graph and transcript), the control panel, and the verdict dialog.
+    This function is decorated with ``@ui.page('/')`` and is called by
+    NiceGUI to build the user interface. It constructs the header, the
+    main two-column layout (graph and transcript), the control panel,
+    and the verdict dialog.
     """
     global chart_view, log_view, stats_label, verdict_dialog, verdict_content
 
@@ -251,7 +314,9 @@ def index():
         with ui.row():
             ui.button("Reset", on_click=on_reset_click, color="red").props("flat")
 
-    with ui.dialog() as verdict_dialog, ui.card().classes("w-3/4 h-3/4"):
+    verdict_dialog = ui.dialog()
+
+    with verdict_dialog, ui.card().classes("w-3/4 h-3/4"):
         ui.label("🏛️ Civil Judgment").classes("text-2xl font-serif text-center w-full")
         ui.separator()
 
@@ -285,7 +350,7 @@ def index():
                         "text-gray-600 font-mono ml-auto"
                     )
 
-            chart_view = ui.echart({}).classes(
+            chart_view = ui.echart({"series": []}).classes(
                 "w-full flex-grow border rounded-lg shadow-sm bg-white"
             )
 

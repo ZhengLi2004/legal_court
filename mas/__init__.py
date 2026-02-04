@@ -5,3 +5,7 @@ to simulate legal arguments. It includes the debate engine, agent roles, memory
 systems, and data structures necessary to conduct and learn from adversarial
 legal proceedings.
 """
+
+from .baf import BAFCalculator, CollectiveAttackType
+
+__all__ = ["BAFCalculator", "CollectiveAttackType"]

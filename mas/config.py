@@ -129,6 +129,32 @@ class TopologyConfig:
 
 
 @dataclass
+class BAFConfig:
+    """Configuration for Bipolar Argumentation Framework (BAF) semantics.
+
+    This configuration controls whether BAF semantics are used for logical
+    verification of judgments and the parameters for BAF calculations.
+
+    Attributes:
+        enabled: Whether to enable BAF semantics for judgment verification
+        use_for_adjudication: Whether to use BAF during adjudication phase
+        use_for_propagation: Whether to use BAF-guided backpropagation
+        min_alignment_rate: Minimum alignment rate between LLM and BAF to accept BAF extension
+        enable_correction: Whether to apply BAF corrections to LLM judgments
+        log_attack_details: Whether to log detailed attack information
+        validate_llm_consistency: Whether to validate LLM judgment consistency with BAF
+    """
+
+    enabled: bool = True
+    use_for_adjudication: bool = True
+    use_for_propagation: bool = True
+    min_alignment_rate: float = 0.60
+    enable_correction: bool = True
+    log_attack_details: bool = False
+    validate_llm_consistency: bool = True
+
+
+@dataclass
 class SystemConfig:
     """The root configuration class that aggregates all other configs.
 
@@ -147,6 +173,7 @@ class SystemConfig:
     dedup: DeduplicationConfig = DeduplicationConfig()
     es: ESConfig = ESConfig()
     convergence: ConvergenceConfig = ConvergenceConfig()
+    baf: BAFConfig = BAFConfig()
 
     def __post_init__(self):
         """Create the root storage directory after initialization if it's missing."""
