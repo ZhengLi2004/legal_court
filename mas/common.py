@@ -217,38 +217,6 @@ class ShadowGraph:
 
                     self.graph.nodes[nid]["metadata"]["last_modified_step"] = step_index
 
-    def is_valid_connection(
-        self, src_id: str, tgt_id: str, edge_type: EdgeType
-    ) -> bool:
-        """Check if an edge between two nodes is logically valid.
-
-        Defines the rules for valid connections, e.g., a CLAIM cannot support a
-        FACT, and no node can be linked to a LAW node.
-
-        Args:
-            src_id: The ID of the source node.
-            tgt_id: The ID of the target node.
-            edge_type: The type of the proposed edge.
-
-        Returns:
-            True if the connection is valid, False otherwise.
-        """
-        if not self.graph.has_node(src_id) or not self.graph.has_node(tgt_id):
-            return False
-
-        src_type = self._get_node_type(src_id)
-        tgt_type = self._get_node_type(tgt_id)
-        s, t = src_type.value, tgt_type.value
-        F, _, C = NodeType.FACT.value, NodeType.LAW.value, NodeType.CLAIM.value
-
-        if tgt_type == NodeType.LAW:
-            return False
-
-        if edge_type == EdgeType.SUPPORT and s == C and t == F:
-            return False
-
-        return True
-
     def is_valid_evidence(self, node_id: str) -> bool:
         """Check if a node is a valid piece of evidence (FACT or LAW)."""
         if not self.graph.has_node(node_id):
@@ -423,11 +391,6 @@ class ShadowGraph:
 
             else:
                 return EdgeAddResult.TYPE_CLASH
-
-        if not self.is_valid_connection(source_id, target_id, edge_type):
-            raise ValueError(
-                f"Invalid connection: {edge_type} from {self._get_node_type(source_id)} to {self._get_node_type(target_id)}"
-            )
 
         self.graph.add_edge(source_id, target_id, type=edge_type)
         return EdgeAddResult.CREATED
