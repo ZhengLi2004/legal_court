@@ -35,25 +35,36 @@ class TranscriptView:
         self._last_count = 0
 
     def refresh(self, lines: list[str]):
-        """Update the transcript with new lines.
+        """Update the transcript with new lines using incremental rendering.
 
         Args:
             lines: A list of transcript lines to display.
         """
-        self._last_count = len(lines)
-        self.container.clear()
+        current_count = len(lines)
+
+        if self._last_count == -1 or current_count < self._last_count:
+            self.container.clear()
+            self._last_count = 0
+
+        if current_count == self._last_count:
+            if current_count == 0:
+                self.container.clear()
+
+                with self.container:
+                    ui.label("等待辩论开始...").classes(
+                        "text-gray-500 italic text-center py-8"
+                    )
+
+            return
+
+        if self._last_count == 0 and current_count > 0:
+            self.container.clear()
 
         with self.container:
-            if not lines:
-                ui.label("等待辩论开始...").classes(
-                    "text-gray-500 italic text-center py-8"
-                )
+            for i in range(self._last_count, current_count):
+                self._render_line(lines[i], i)
 
-                return
-
-            for i, line in enumerate(lines):
-                self._render_line(line, i)
-
+        self._last_count = current_count
         self.scroll_area.scroll_to(percent=1.0)
 
     def _render_line(self, line: str, index: int):
@@ -218,24 +229,40 @@ class AgentStateCard:
         """Render placeholder content."""
         ui.label("等待系统初始化...").classes("text-sm text-gray-500 italic py-2")
 
-    def _get_state_color(self, state_name: str) -> str:
-        """Get the color class for a given state.
+    def _get_display_info(self, raw_state: str) -> tuple[str, str]:
+        """Map raw backend state to display name and CSS color class.
+
+        Handles shortening of long state names (e.g., ASSESS_NEEDS -> ASSESS)
+        and resets DONE state to IDLE visually as requested.
 
         Args:
-            state_name: The name of the agent state.
+            raw_state: The raw state string from the backend engine.
 
         Returns:
-            The CSS color class string for the state.
+            A tuple containing (display_name, css_classes).
         """
+        name_map = {
+            "IDLE": "IDLE",
+            "ASSESS_NEEDS": "ASSESS",
+            "WAIT_FOR_WORKERS": "WAIT",
+            "INGEST_RESULTS": "INGEST",
+            "DECIDE_ACTION": "DECIDE",
+            "DONE": "IDLE",
+        }
+
+        display_name = name_map.get(raw_state, raw_state)
+
         colors = {
             "IDLE": "bg-gray-200 text-gray-700",
-            "ASSESS_NEEDS": "bg-yellow-200 text-yellow-800",
-            "WAIT_WORKERS": "bg-orange-200 text-orange-800",
-            "INGEST_RESULTS": "bg-blue-200 text-blue-800",
-            "DECIDE_ACTION": "bg-indigo-200 text-indigo-800",
+            "ASSESS": "bg-yellow-200 text-yellow-800",
+            "WAIT": "bg-orange-200 text-orange-800",
+            "INGEST": "bg-blue-200 text-blue-800",
+            "DECIDE": "bg-indigo-200 text-indigo-800",
             "DONE": "bg-green-200 text-green-800",
         }
-        return colors.get(state_name, "bg-gray-200 text-gray-700")
+
+        css = colors.get(display_name, "bg-gray-200 text-gray-700")
+        return display_name, css
 
     def refresh(self):
         """Update the agent state display."""
@@ -253,18 +280,21 @@ class AgentStateCard:
 
             return
 
-        p_state = "IDLE"
-        d_state = "IDLE"
+        p_raw = "IDLE"
+        d_raw = "IDLE"
 
         try:
             if self.state.engine.p_team:
-                p_state = self.state.engine.p_team.pipeline_step.name
+                p_raw = self.state.engine.p_team.pipeline_step.name
 
             if self.state.engine.d_team:
-                d_state = self.state.engine.d_team.pipeline_step.name
+                d_raw = self.state.engine.d_team.pipeline_step.name
 
         except Exception as e:
             print(f"Error getting agent state: {e}")
+
+        p_state, p_color = self._get_display_info(p_raw)
+        d_state, d_color = self._get_display_info(d_raw)
 
         with self.content:
             with ui.row().classes("items-center gap-2 w-full"):
@@ -272,8 +302,7 @@ class AgentStateCard:
                 ui.label("原告:").classes("text-sm font-medium w-12")
 
                 ui.label(p_state).classes(
-                    f"px-2 py-1 rounded text-xs font-bold flex-1 text-center "
-                    f"{self._get_state_color(p_state)}"
+                    f"px-2 py-1 rounded text-xs font-bold flex-1 text-center {p_color}"
                 )
 
             with ui.row().classes("items-center gap-2 w-full"):
@@ -281,8 +310,7 @@ class AgentStateCard:
                 ui.label("被告:").classes("text-sm font-medium w-12")
 
                 ui.label(d_state).classes(
-                    f"px-2 py-1 rounded text-xs font-bold flex-1 text-center "
-                    f"{self._get_state_color(d_state)}"
+                    f"px-2 py-1 rounded text-xs font-bold flex-1 text-center {d_color}"
                 )
 
         self.content.update()
@@ -426,9 +454,7 @@ class JudgmentPreviewCard:
                     ui.label("⚖️ 判决").classes("text-lg font-bold text-gray-700")
 
                     self.view_btn = (
-                        ui.button(
-                            "查看", icon="open_in_new", on_click=on_view_full
-                        )
+                        ui.button("查看", icon="open_in_new", on_click=on_view_full)
                         .props("flat dense")
                         .classes("text-xs")
                     )
@@ -554,9 +580,7 @@ class NodeDetailsPanel:
 
             ui.label("内容:").classes("text-sm font-medium mt-2")
             content = str(node_data.get("content", "N/A"))
-            display_content = (
-                content[:400] + "..." if len(content) > 400 else content
-            )
+            display_content = content[:400] + "..." if len(content) > 400 else content
 
             ui.label(display_content).classes(
                 "text-sm text-gray-700 break-words bg-gray-50 p-2 rounded"

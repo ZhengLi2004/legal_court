@@ -4,10 +4,11 @@ This module provides the LegalMASApp class which orchestrates
 the entire UI building, event handling, and state coordination.
 """
 
+import asyncio
 import traceback
 from typing import Optional
 
-from nicegui import ui
+from nicegui import ui, run
 from vis.adapter import EChartsAdapter
 
 from apps.state import AppState, ExecutionState
@@ -44,7 +45,6 @@ class LegalMASApp:
         self.verdict_dialog = None
         self.verdict_content = None
         self.auto_run_timer = None
-        self.poll_timer = None
         self.header_status: Optional[ui.label] = None
         self.header_spinner = None
         self.auto_btn = None
@@ -80,7 +80,59 @@ class LegalMASApp:
             self._build_right_panel()
 
         self._build_verdict_dialog()
-        self.poll_timer = ui.timer(1.0, self._poll_updates)
+
+    def _run_blocking_setup(self, case_dict: dict):
+        """Execute the engine setup in a separate thread with its own loop.
+
+        This helper function creates a new asyncio event loop to run the
+        engine setup coroutine. This is necessary because embedding model
+        loading is CPU-bound and blocks the main asyncio loop for too long,
+        causing WebSocket timeouts in the UI.
+
+        Args:
+            case_dict: The dictionary containing case data for initialization.
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            loop.run_until_complete(
+                self.state.engine.setup(case_data=case_dict, verbose=True)
+            )
+
+        finally:
+            loop.close()
+
+    def _run_blocking_step(self):
+        """Execute the engine step in a separate thread.
+
+        Creates a new event loop for the thread to run the async step method,
+        preventing the main UI loop from blocking during LLM inference or
+        graph processing.
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            loop.run_until_complete(self.state.engine.step())
+
+        finally:
+            loop.close()
+
+    def _run_blocking_adjudicate(self):
+        """Execute the adjudication process in a separate thread.
+
+        Similar to step, this runs the final judgment generation in isolation
+        to maintain UI responsiveness.
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            loop.run_until_complete(self.state.engine.adjudicate())
+
+        finally:
+            loop.close()
 
     def _build_header(self):
         """Build the header section."""
@@ -346,13 +398,7 @@ class LegalMASApp:
 
         try:
             case_dict = case.model_dump()
-            print("[DEBUG] Starting engine setup...")
-            await self.state.engine.setup(case_data=case_dict, verbose=True)
-
-            print(
-                f"[DEBUG] Engine setup complete. Graph: {self.state.engine.graph is not None}"
-            )
-
+            await run.io_bound(self._run_blocking_setup, case_dict)
             self.state.ui_state.execution_state = ExecutionState.IDLE
             self.state.ui_state.last_transcript_count = 0
             self.state.ui_state.last_node_count = 0
@@ -364,7 +410,6 @@ class LegalMASApp:
             ui.notify("✅ 初始化完成!", type="positive")
 
         except Exception as e:
-            print(f"[ERROR] Init failed: {e}")
             traceback.print_exc()
             ui.notify(f"❌ 初始化失败: {e}", type="negative")
             self.state.ui_state.execution_state = ExecutionState.IDLE
@@ -390,16 +435,17 @@ class LegalMASApp:
         self.state.ui_state.execution_state = ExecutionState.RUNNING_TURN
         self._set_loading(True, f"执行{turn_name}回合...")
         self._update_button_states()
+        live_monitor = ui.timer(0.2, self.agent_state_card.refresh)
 
         try:
-            await self.state.engine.step()
+            await run.io_bound(self._run_blocking_step)
 
             if (
                 self.state.engine.is_ready_for_adjudication
                 and not self.state.engine.is_finished
             ):
                 self._set_loading(True, "正在生成判决...")
-                await self.state.engine.adjudicate()
+                await run.io_bound(self._run_blocking_adjudicate)
 
             if self.state.engine.is_finished:
                 self.state.ui_state.execution_state = ExecutionState.FINISHED
@@ -419,7 +465,10 @@ class LegalMASApp:
             self._update_button_states()
 
         finally:
+            live_monitor.cancel()
             self._set_loading(False)
+            self._refresh_all()
+            self._update_button_states()
 
     def _toggle_auto_run(self):
         """Toggle auto-run mode."""
@@ -548,7 +597,9 @@ class LegalMASApp:
             source = edge.get("source", "")
             target = edge.get("target", "")
 
-            e_type = EChartsAdapter._extract_enum_value(edge.get("type", "SUPPORT")).upper()
+            e_type = EChartsAdapter._extract_enum_value(
+                edge.get("type", "SUPPORT")
+            ).upper()
 
             is_support = e_type == "SUPPORT"
 
@@ -648,51 +699,6 @@ class LegalMASApp:
         self._update_transcript()
         self._update_sidebar()
 
-    def _poll_updates(self):
-        """Poll for state changes and update UI."""
-        self._update_button_states()
-
-        if self.state.ui_state.replay_mode:
-            return
-
-        if not self.state.is_initialized:
-            return
-
-        current_transcript = (
-            len(self.state.engine.transcript) if self.state.engine.transcript else 0
-        )
-
-        if current_transcript != self.state.ui_state.last_transcript_count:
-            self.state.ui_state.last_transcript_count = current_transcript
-            self._update_transcript()
-            self._update_sidebar()
-
-        if self.state.engine.graph:
-            current_nodes = self.state.engine.graph.graph.number_of_nodes()
-            current_edges = self.state.engine.graph.graph.number_of_edges()
-
-            if (
-                current_nodes != self.state.ui_state.last_node_count
-                or current_edges != self.state.ui_state.last_edge_count
-            ):
-                self.state.ui_state.last_node_count = current_nodes
-                self.state.ui_state.last_edge_count = current_edges
-                self._update_graph()
-                self._update_sidebar()
-
-        total = (
-            len(self.state.engine.round_snapshots)
-            if self.state.engine.round_snapshots
-            else 0
-        )
-
-        if total > 0 and self.timeline_slider:
-            self.timeline_slider.props(f"min=0 max={total - 1}")
-
-            if not self.state.ui_state.replay_mode:
-                self.timeline_slider.value = total - 1
-                self.timeline_label.text = "实时模式"
-
     def _zoom_in(self):
         """Zoom in the graph."""
         if self.graph_chart:
@@ -717,9 +723,7 @@ class LegalMASApp:
         """Show the verdict dialog."""
         if self.state.engine.judgment_document:
             content = self.state.engine.judgment_document.replace("\n", "<br>")
-            self.verdict_content.content = (
-                f"<div class='text-justify'>{content}</div>"
-            )
+            self.verdict_content.content = f"<div class='text-justify'>{content}</div>"
 
         else:
             self.verdict_content.content = (
@@ -744,14 +748,39 @@ class LegalMASApp:
             self.header_status.update()
 
     def _refresh_all(self):
-        """Update all UI components."""
+        """Update all UI components and controls explicitly.
+
+        This method is called after blocking operations (init, next turn)
+        complete, replacing the need for periodic polling.
+        """
         self.state.ui_state.last_transcript_count = 0
         self.state.ui_state.last_node_count = 0
         self.state.ui_state.last_edge_count = 0
         self._update_graph()
         self._update_transcript()
         self._update_sidebar()
+        self._update_timeline_slider()
         self._update_button_states()
+
+    def _update_timeline_slider(self):
+        """Update the timeline slider range based on available snapshots."""
+        if not self.timeline_slider:
+            return
+
+        total = (
+            len(self.state.engine.round_snapshots)
+            if self.state.engine.round_snapshots
+            else 0
+        )
+
+        if total > 0:
+            self.timeline_slider.props(f"min=0 max={total - 1}")
+
+            if not self.state.ui_state.replay_mode:
+                self.timeline_slider.value = total - 1
+
+                if self.timeline_label:
+                    self.timeline_label.text = "实时模式"
 
     def _update_graph(self):
         """Update the graph visualization."""
