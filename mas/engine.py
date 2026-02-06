@@ -21,6 +21,7 @@ from .legal_system import LegalSystem
 from .llm import GPTChat
 from .narrator import GraphNarrator
 from .team import DebateTeam
+from roles.controller import ControllerPipelineStep
 
 
 class Turn(Enum):
@@ -147,158 +148,166 @@ class DebateEngine:
         """
         logger.info(">>> [Engine] Setting up...")
         self._notify_state_change("setup_start", None)
-        agent_llm = GPTChat(model_name=self.cfg.llm.model_name)
-        self.narrator = GraphNarrator(llm=agent_llm)
-        self.legal_sys = LegalSystem(config=self.cfg)
+        self._is_running = True
 
-        self.fact_es = FactEsTool(
-            es_host=self.cfg.es.host, embedding_func=self.legal_sys.ef
-        )
+        try:
+            agent_llm = GPTChat(model_name=self.cfg.llm.model_name)
+            self.narrator = GraphNarrator(llm=agent_llm)
+            self.legal_sys = LegalSystem(config=self.cfg)
 
-        self.law_es = LawEsTool(
-            es_host=self.cfg.es.host, embedding_func=self.legal_sys.ef
-        )
-
-        graph_tool = GraphTool(legal_system=self.legal_sys, llm=agent_llm)
-
-        if case_data is None and case_data_path:
-            with open(case_data_path, "r", encoding="utf-8") as f:
-                case_data = json.loads(f.readline())
-
-        if case_data is None:
-            raise ValueError("Either case_data_path or case_data must be provided.")
-
-        self.raw_facts = case_data.get("fact_finding", "")
-        cause = case_data.get("cause", ["未知案由"])
-
-        if isinstance(cause, list):
-            cause = cause[0] if cause else "未知案由"
-
-        initializer = CaseInitializer(agent_llm)
-        init_res = await initializer.initialize(self.raw_facts, cause)
-
-        self.graph, (p_insights_list, d_insights_list) = self.legal_sys.new_case(
-            self.raw_facts
-        )
-
-        p_insights_str = "\n".join([f"- {s}" for s in p_insights_list])
-        d_insights_str = "\n".join([f"- {s}" for s in d_insights_list])
-        self.legal_sys.step_counter = 0
-        self.prev_stats["claim_nodes"] = self._count_claim_nodes()
-        self.prev_stats["conflict_edges"] = 0
-        graph_tool.set_current_graph(self.graph)
-        logger.info(">>> [System] Injecting immutable facts...")
-        fact_count = 0
-        fact_ids = []
-
-        for fact_statement in init_res.fact_statements:
-            node_id, is_new = self.graph.add_node(
-                content=fact_statement,
-                node_type=NodeType.FACT,
-                agent_id="System_Init",
-                metadata={"is_objective_fact": True},
+            self.fact_es = FactEsTool(
+                es_host=self.cfg.es.host, embedding_func=self.legal_sys.ef
             )
 
-            if is_new:
-                fact_count += 1
-                fact_ids.append(node_id)
-
-        if fact_ids:
-            self.graph.touch_nodes(fact_ids, step_index=0)
-
-        logger.info(f">>> [System] Injected {fact_count} fact nodes.")
-        logger.info(">>> [System] Injecting root claims...")
-        claim_ids = []
-
-        for claim_statement in init_res.root_claim_actions:
-            node_id, is_new = self.graph.add_node(
-                content=claim_statement,
-                node_type=NodeType.CLAIM,
-                agent_id="System_Init",
-                metadata={"is_root_claim": True},
+            self.law_es = LawEsTool(
+                es_host=self.cfg.es.host, embedding_func=self.legal_sys.ef
             )
 
-            if is_new:
-                claim_ids.append(node_id)
+            graph_tool = GraphTool(legal_system=self.legal_sys, llm=agent_llm)
 
-        if claim_ids:
-            self.graph.touch_nodes(claim_ids, step_index=0)
+            if case_data is None and case_data_path:
+                with open(case_data_path, "r", encoding="utf-8") as f:
+                    case_data = json.loads(f.readline())
 
-        logger.info(f">>> [System] Injected {len(claim_ids)} root claim nodes.")
-        self.prev_stats["claim_nodes"] = self._count_claim_nodes()
-        self.graph.refresh_context(current_step=0)
+            if case_data is None:
+                raise ValueError(
+                    "Either case_data_path or case_data must be provided."
+                )
 
-        logger.info(
-            f">>> [System] Graph refreshed. "
-            f"Nodes: {self.graph.graph.number_of_nodes()}, "
-            f"Edges: {self.graph.graph.number_of_edges()}"
-        )
+            self.raw_facts = case_data.get("fact_finding", "")
+            cause = case_data.get("cause", ["未知案由"])
 
-        self.p_team = DebateTeam(
-            "plaintiff",
-            init_res.plaintiff_persona,
-            graph_tool,
-            self.fact_es,
-            self.law_es,
-            agent_llm,
-            self.legal_sys,
-            insights=p_insights_str,
-            verbose=verbose,
-        )
+            if isinstance(cause, list):
+                cause = cause[0] if cause else "未知案由"
 
-        self.p_team.on_state_change = self._handle_team_state_change
+            initializer = CaseInitializer(agent_llm)
+            init_res = await initializer.initialize(self.raw_facts, cause)
 
-        self.d_team = DebateTeam(
-            "defendant",
-            init_res.defendant_persona,
-            graph_tool,
-            self.fact_es,
-            self.law_es,
-            agent_llm,
-            self.legal_sys,
-            insights=d_insights_str,
-            verbose=verbose,
-        )
+            self.graph, (p_insights_list, d_insights_list) = self.legal_sys.new_case(
+                self.raw_facts
+            )
 
-        self.d_team.on_state_change = self._handle_team_state_change
-        logger.info(">>> [Engine] Setup complete.")
+            p_insights_str = "\n".join([f"- {s}" for s in p_insights_list])
+            d_insights_str = "\n".join([f"- {s}" for s in d_insights_list])
+            self.legal_sys.step_counter = 0
+            self.prev_stats["claim_nodes"] = self._count_claim_nodes()
+            self.prev_stats["conflict_edges"] = 0
+            graph_tool.set_current_graph(self.graph)
+            logger.info(">>> [System] Injecting immutable facts...")
+            fact_count = 0
+            fact_ids = []
 
-        init_narrative = (
-            f"【系统初始化】\n"
-            f"案件案由：{cause}\n"
-            f"已注入 {fact_count} 个客观事实节点\n"
-            f"已注入 {len(claim_ids)} 个根诉求节点\n"
-            f"图谱状态：{self.graph.graph.number_of_nodes()} 个节点，"
-            f"{self.graph.graph.number_of_edges()} 条边\n"
-            f"系统已准备就绪，等待辩论开始。"
-        )
+            for fact_statement in init_res.fact_statements:
+                node_id, is_new = self.graph.add_node(
+                    content=fact_statement,
+                    node_type=NodeType.FACT,
+                    agent_id="System_Init",
+                    metadata={"is_objective_fact": True},
+                )
 
-        self.transcript.append(init_narrative)
-        logger.info(f">>> [Transcript Updated]:\n{init_narrative}")
+                if is_new:
+                    fact_count += 1
+                    fact_ids.append(node_id)
 
-        self.last_step_log = {
-            "turn": "Setup",
-            "action": "System Initialized",
-            "details": f"{len(init_res.root_claim_actions)} initial claims/facts added.",
-        }
+            if fact_ids:
+                self.graph.touch_nodes(fact_ids, step_index=0)
 
-        initial_snapshot = self._create_snapshot(0, "Setup")
-        self.round_snapshots.append(initial_snapshot)
+            logger.info(f">>> [System] Injected {fact_count} fact nodes.")
+            logger.info(">>> [System] Injecting root claims...")
+            claim_ids = []
 
-        logger.info(
-            f">>> [Snapshot] Initial snapshot saved. "
-            f"Total snapshots: {len(self.round_snapshots)}"
-        )
+            for claim_statement in init_res.root_claim_actions:
+                node_id, is_new = self.graph.add_node(
+                    content=claim_statement,
+                    node_type=NodeType.CLAIM,
+                    agent_id="System_Init",
+                    metadata={"is_root_claim": True},
+                )
 
-        self._notify_state_change(
-            "setup_complete",
-            {
-                "fact_count": fact_count,
-                "claim_count": len(claim_ids),
-                "node_count": self.graph.graph.number_of_nodes(),
-                "edge_count": self.graph.graph.number_of_edges(),
-            },
-        )
+                if is_new:
+                    claim_ids.append(node_id)
+
+            if claim_ids:
+                self.graph.touch_nodes(claim_ids, step_index=0)
+
+            logger.info(f">>> [System] Injected {len(claim_ids)} root claim nodes.")
+            self.prev_stats["claim_nodes"] = self._count_claim_nodes()
+            self.graph.refresh_context(current_step=0)
+
+            logger.info(
+                f">>> [System] Graph refreshed. "
+                f"Nodes: {self.graph.graph.number_of_nodes()}, "
+                f"Edges: {self.graph.graph.number_of_edges()}"
+            )
+
+            self.p_team = DebateTeam(
+                "plaintiff",
+                init_res.plaintiff_persona,
+                graph_tool,
+                self.fact_es,
+                self.law_es,
+                agent_llm,
+                self.legal_sys,
+                insights=p_insights_str,
+                verbose=verbose,
+            )
+
+            self.p_team.on_state_change = self._handle_team_state_change
+
+            self.d_team = DebateTeam(
+                "defendant",
+                init_res.defendant_persona,
+                graph_tool,
+                self.fact_es,
+                self.law_es,
+                agent_llm,
+                self.legal_sys,
+                insights=d_insights_str,
+                verbose=verbose,
+            )
+
+            self.d_team.on_state_change = self._handle_team_state_change
+            logger.info(">>> [Engine] Setup complete.")
+
+            init_narrative = (
+                f"【系统初始化】\n"
+                f"案件案由：{cause}\n"
+                f"已注入 {fact_count} 个客观事实节点\n"
+                f"已注入 {len(claim_ids)} 个根诉求节点\n"
+                f"图谱状态：{self.graph.graph.number_of_nodes()} 个节点，"
+                f"{self.graph.graph.number_of_edges()} 条边\n"
+                f"系统已准备就绪，等待辩论开始。"
+            )
+
+            self.transcript.append(init_narrative)
+            logger.info(f">>> [Transcript Updated]:\n{init_narrative}")
+
+            self.last_step_log = {
+                "turn": "Setup",
+                "action": "System Initialized",
+                "details": f"{len(init_res.root_claim_actions)} initial claims/facts added.",
+            }
+
+            initial_snapshot = self._create_snapshot(0, "Setup")
+            self.round_snapshots.append(initial_snapshot)
+
+            logger.info(
+                f">>> [Snapshot] Initial snapshot saved. "
+                f"Total snapshots: {len(self.round_snapshots)}"
+            )
+
+            self._notify_state_change(
+                "setup_complete",
+                {
+                    "fact_count": fact_count,
+                    "claim_count": len(claim_ids),
+                    "node_count": self.graph.graph.number_of_nodes(),
+                    "edge_count": self.graph.graph.number_of_edges(),
+                },
+            )
+
+        finally:
+            self._is_running = False
 
     def _calculate_convergence(self) -> float:
         """Calculate the convergence score for the current turn.
@@ -569,6 +578,12 @@ class DebateEngine:
 
                 if not is_plaintiff_turn:
                     self.round_idx += 1
+
+            if self.p_team and self.p_team.controller:
+                self.p_team.controller.pipeline_step = ControllerPipelineStep.IDLE
+
+            if self.d_team and self.d_team.controller:
+                self.d_team.controller.pipeline_step = ControllerPipelineStep.IDLE
 
             turn_snapshot = self._create_snapshot(self.round_idx, turn_name_str)
             self.round_snapshots.append(turn_snapshot)

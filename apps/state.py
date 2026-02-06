@@ -5,7 +5,6 @@ including execution state, UI state, and global application state.
 """
 
 from dataclasses import dataclass, field
-from enum import Enum, auto
 from typing import Optional
 
 from data.loader import CaseDataLoader
@@ -13,21 +12,10 @@ from mas.config import SystemConfig
 from mas.engine import DebateEngine
 
 
-class ExecutionState(Enum):
-    """Represents the current execution state of the application."""
-
-    IDLE = auto()
-    INITIALIZING = auto()
-    RUNNING_TURN = auto()
-    AUTO_RUNNING = auto()
-    FINISHED = auto()
-
-
 @dataclass
 class UIState:
     """Centralized UI state management."""
 
-    execution_state: ExecutionState = ExecutionState.IDLE
     selected_node_id: Optional[str] = None
     auto_run_enabled: bool = False
     auto_run_interval: float = 2.5

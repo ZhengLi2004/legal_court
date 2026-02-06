@@ -11,7 +11,7 @@ from typing import Optional
 from nicegui import ui, run
 from vis.adapter import EChartsAdapter
 
-from apps.state import AppState, ExecutionState
+from apps.state import AppState
 from apps.components import (
     TranscriptView,
     StatusCard,
@@ -33,7 +33,6 @@ class LegalMASApp:
             state: The application state instance.
         """
         self.state = state
-
         self.status_card: Optional[StatusCard] = None
         self.agent_state_card: Optional[AgentStateCard] = None
         self.stats_card: Optional[StatsCard] = None
@@ -179,10 +178,6 @@ class LegalMASApp:
                     self.auto_btn = ui.button(
                         "自动", icon="autorenew", on_click=self._toggle_auto_run
                     ).props("color=amber disable")
-
-                    ui.button("重置", icon="refresh", on_click=self._on_reset).props(
-                        "color=red flat"
-                    )
 
                 with ui.row().classes("items-center gap-2"):
                     self.header_spinner = ui.spinner("dots", size="sm").classes(
@@ -351,17 +346,11 @@ class LegalMASApp:
         """Update button enabled/disabled states based on current state."""
         is_init = self.state.engine.graph is not None
         is_finished = self.state.engine.is_finished
-
-        is_running = self.state.ui_state.execution_state in (
-            ExecutionState.INITIALIZING,
-            ExecutionState.RUNNING_TURN,
-        )
-
+        is_running = self.state.engine._is_running
         is_auto = self.state.ui_state.auto_run_enabled
 
-        if is_running:
+        if is_init:
             self.init_btn.props("disable")
-
         else:
             self.init_btn.props(remove="disable")
 
@@ -392,14 +381,14 @@ class LegalMASApp:
             ui.notify("请先选择案例", type="warning")
             return
 
-        self.state.ui_state.execution_state = ExecutionState.INITIALIZING
         self._set_loading(True, "初始化中...")
+        self.init_btn.props("disable")
+        self.init_btn.update()
         self._update_button_states()
 
         try:
             case_dict = case.model_dump()
             await run.io_bound(self._run_blocking_setup, case_dict)
-            self.state.ui_state.execution_state = ExecutionState.IDLE
             self.state.ui_state.last_transcript_count = 0
             self.state.ui_state.last_node_count = 0
             self.state.ui_state.last_edge_count = 0
@@ -412,7 +401,6 @@ class LegalMASApp:
         except Exception as e:
             traceback.print_exc()
             ui.notify(f"❌ 初始化失败: {e}", type="negative")
-            self.state.ui_state.execution_state = ExecutionState.IDLE
             self._update_button_states()
 
         finally:
@@ -432,9 +420,11 @@ class LegalMASApp:
         turn = self.state.engine.current_turn
         turn_map = {"plaintiff": "原告", "defendant": "被告"}
         turn_name = turn_map.get(turn.value, turn.value)
-        self.state.ui_state.execution_state = ExecutionState.RUNNING_TURN
         self._set_loading(True, f"执行{turn_name}回合...")
-        self._update_button_states()
+        self.next_btn.props("disable")
+        self.next_btn.update()
+        self.auto_btn.props("disable")
+        self.auto_btn.update()
         live_monitor = ui.timer(0.2, self.agent_state_card.refresh)
 
         try:
@@ -448,11 +438,7 @@ class LegalMASApp:
                 await run.io_bound(self._run_blocking_adjudicate)
 
             if self.state.engine.is_finished:
-                self.state.ui_state.execution_state = ExecutionState.FINISHED
                 ui.notify("🏁 辩论结束，判决已生成!", type="positive")
-
-            else:
-                self.state.ui_state.execution_state = ExecutionState.IDLE
 
             self._refresh_all()
             self._update_button_states()
@@ -461,7 +447,6 @@ class LegalMASApp:
             print(f"[ERROR] Turn failed: {e}")
             traceback.print_exc()
             ui.notify(f"❌ 执行失败: {e}", type="negative")
-            self.state.ui_state.execution_state = ExecutionState.IDLE
             self._update_button_states()
 
         finally:
@@ -470,7 +455,7 @@ class LegalMASApp:
             self._refresh_all()
             self._update_button_states()
 
-    def _toggle_auto_run(self):
+    async def _toggle_auto_run(self):
         """Toggle auto-run mode."""
         if self.state.ui_state.auto_run_enabled:
             self.state.ui_state.auto_run_enabled = False
@@ -481,7 +466,7 @@ class LegalMASApp:
 
             self.auto_btn.props("color=amber")
             self.auto_btn.text = "自动"
-            self.state.ui_state.execution_state = ExecutionState.IDLE
+            self.auto_btn.update()
             self._update_button_states()
             ui.notify("⏹ 自动运行已停止", type="info")
 
@@ -495,9 +480,9 @@ class LegalMASApp:
                 return
 
             self.state.ui_state.auto_run_enabled = True
-            self.state.ui_state.execution_state = ExecutionState.AUTO_RUNNING
             self.auto_btn.props("color=red")
             self.auto_btn.text = "停止"
+            self.auto_btn.update()
             self._update_button_states()
             ui.notify("▶ 自动运行已启动", type="positive")
 
@@ -511,24 +496,10 @@ class LegalMASApp:
             return
 
         if self.state.engine.is_finished:
-            self._toggle_auto_run()
+            await self._toggle_auto_run()
             return
 
         await self._on_next_turn()
-
-    def _on_reset(self):
-        """Handle reset button click."""
-        if self.state.ui_state.auto_run_enabled:
-            self._toggle_auto_run()
-
-        self.state.reset()
-        self.state.ui_state = ExecutionState.IDLE
-        self._refresh_all()
-        self._clear_graph()
-        self.auto_btn.props("color=amber")
-        self.auto_btn.text = "自动"
-        self._update_button_states()
-        ui.notify("🔄 系统已重置", type="warning")
 
     def _on_node_click(self, e):
         """Handle node click in the graph.

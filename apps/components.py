@@ -9,7 +9,7 @@ from typing import Optional, Callable
 
 from nicegui import ui
 
-from apps.state import ExecutionState, AppState
+from apps.state import AppState
 
 
 class TranscriptView:
@@ -154,15 +154,6 @@ class StatusCard:
                             "font-mono text-green-600"
                         )
 
-                    ui.separator().classes("my-1")
-
-                    with ui.row().classes("justify-between items-center"):
-                        ui.label("执行状态:").classes("text-sm text-gray-600")
-
-                        self.state_badge = ui.badge("IDLE", color="gray").classes(
-                            "px-2"
-                        )
-
     def refresh(self):
         """Update the status card with current engine state."""
         self.round_label.text = str(self.state.engine.round_idx)
@@ -188,20 +179,6 @@ class StatusCard:
             conv = self.state.engine.convergence_history[-1]
 
         self.conv_label.text = f"{conv:.4f}"
-        exec_state = self.state.ui_state.execution_state
-
-        state_map = {
-            ExecutionState.IDLE: ("空闲", "gray"),
-            ExecutionState.INITIALIZING: ("初始化中", "yellow"),
-            ExecutionState.RUNNING_TURN: ("执行中", "blue"),
-            ExecutionState.AUTO_RUNNING: ("自动运行", "green"),
-            ExecutionState.FINISHED: ("已完成", "purple"),
-        }
-
-        text, color = state_map.get(exec_state, ("未知", "gray"))
-        self.state_badge.set_text(text)
-        self.state_badge._props["color"] = color
-        self.state_badge.update()
 
 
 class AgentStateCard:
@@ -232,8 +209,7 @@ class AgentStateCard:
     def _get_display_info(self, raw_state: str) -> tuple[str, str]:
         """Map raw backend state to display name and CSS color class.
 
-        Handles shortening of long state names (e.g., ASSESS_NEEDS -> ASSESS)
-        and resets DONE state to IDLE visually as requested.
+        Handles shortening of long state names (e.g., ASSESS_NEEDS -> ASSESS).
 
         Args:
             raw_state: The raw state string from the backend engine.
@@ -245,9 +221,8 @@ class AgentStateCard:
             "IDLE": "IDLE",
             "ASSESS_NEEDS": "ASSESS",
             "WAIT_FOR_WORKERS": "WAIT",
-            "INGEST_RESULTS": "INGEST",
-            "DECIDE_ACTION": "DECIDE",
-            "DONE": "IDLE",
+            "DECIDE": "DECIDE",
+            "DONE": "DONE",
         }
 
         display_name = name_map.get(raw_state, raw_state)
@@ -256,7 +231,6 @@ class AgentStateCard:
             "IDLE": "bg-gray-200 text-gray-700",
             "ASSESS": "bg-yellow-200 text-yellow-800",
             "WAIT": "bg-orange-200 text-orange-800",
-            "INGEST": "bg-blue-200 text-blue-800",
             "DECIDE": "bg-indigo-200 text-indigo-800",
             "DONE": "bg-green-200 text-green-800",
         }
@@ -493,10 +467,6 @@ class JudgmentPreviewCard:
         for _, indicator in self.phase_indicators.items():
             if is_finished:
                 indicator.text = "✅"
-
-            elif self.state.ui_state.execution_state == ExecutionState.RUNNING_TURN:
-                indicator.text = "🔄"
-
             else:
                 indicator.text = "⏳"
 
