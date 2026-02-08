@@ -45,27 +45,34 @@ class NodeDetailsPanel:
     def show_node(self, node_id: str):
         """Display details for the specified node.
 
+        Validates that the graph and node exist before attempting to
+        render details. Safely handles missing or unexpected attribute types.
+
         Args:
             node_id: The ID of the node to display.
         """
         if not self.state.engine.graph:
             return
 
-        if not self.state.engine.graph.graph.has_node(node_id):
+        if not node_id or not self.state.engine.graph.graph.has_node(node_id):
             return
 
         self.state.ui_state.selected_node_id = node_id
         self.state.ui_state.show_node_details = True
         self.card.visible = True
-        node_data = self.state.engine.graph.graph.nodes[node_id]
+        node_data = dict(self.state.engine.graph.graph.nodes[node_id])
         self.content.clear()
 
         with self.content:
-            ui.label(f"ID: {node_id}").classes("font-mono text-xs text-gray-500")
+            display_id = node_id if len(node_id) <= 80 else node_id[:77] + "..."
+            ui.label(f"ID: {display_id}").classes("font-mono text-xs text-gray-500")
             n_type = node_data.get("type", "N/A")
 
             if hasattr(n_type, "value"):
                 n_type = n_type.value
+
+            if hasattr(n_type, "name"):
+                n_type = n_type.name
 
             n_type = str(n_type).upper()
 
@@ -110,8 +117,14 @@ class NodeDetailsPanel:
                     ui.label(agent_id[:15]).classes("text-sm font-mono")
 
             ui.separator().classes("my-2")
-            in_edges = list(self.state.engine.graph.graph.in_edges(node_id))
-            out_edges = list(self.state.engine.graph.graph.out_edges(node_id))
+
+            try:
+                in_edges = list(self.state.engine.graph.graph.in_edges(node_id))
+                out_edges = list(self.state.engine.graph.graph.out_edges(node_id))
+
+            except Exception:
+                in_edges = []
+                out_edges = []
 
             ui.label(f"连接: {len(in_edges)} 入 | {len(out_edges)} 出").classes(
                 "text-sm text-gray-600"

@@ -4,22 +4,22 @@ This package provides a web-based graphical user interface for the
 Legal MAS debate simulation system using NiceGUI.
 """
 
-from apps.state import UIState, AppState, state
 from apps.app import LegalMASApp
 from apps.components import (
-    TranscriptView,
-    StatusCard,
     AgentStateCard,
-    StatsCard,
+    ConvergenceChart,
     JudgmentPreviewCard,
     NodeDetailsPanel,
-    ConvergenceChart,
+    StatsCard,
+    StatusCard,
+    TranscriptView,
 )
+from apps.state import AppState, UIState, create_app_state
 
 __all__ = [
     "UIState",
     "AppState",
-    "state",
+    "create_app_state",
     "LegalMASApp",
     "TranscriptView",
     "StatusCard",

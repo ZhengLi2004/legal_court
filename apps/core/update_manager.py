@@ -3,12 +3,14 @@
 This module provides UI update logic that manages all visual updates.
 """
 
-import traceback
+import logging
 
 from nicegui import ui
 
 from apps.core.app_orchestrator import AppOrchestrator
 from vis.adapter import EChartsAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateManager:
@@ -67,18 +69,30 @@ class UpdateManager:
         self.orchestrator.next_btn.update()
 
     def _update_graph(self):
-        """Update the graph visualization."""
+        """Update the graph visualization using the active data source.
+
+        In replay mode, renders the snapshot graph data. In live mode,
+        renders the current engine graph. This ensures the graph view
+        correctly reflects the selected time point.
+        """
         if not self.orchestrator.graph_chart:
             return
 
-        if not self.orchestrator.state.engine.graph:
+        graph_data = self.orchestrator._get_active_graph_data()
+
+        if not graph_data:
             self._clear_graph()
             return
 
         try:
+            preferred = None
+
+            if not self.orchestrator.state.ui_state.replay_mode:
+                preferred = self.orchestrator.state.engine.preferred_extension
+
             option = EChartsAdapter.parse_graph(
-                self.orchestrator.state.engine.graph,
-                preferred_extension=self.orchestrator.state.engine.preferred_extension,
+                graph_data,
+                preferred_extension=preferred,
             )
 
             self.orchestrator.graph_chart.run_chart_method(
@@ -88,8 +102,7 @@ class UpdateManager:
             self.orchestrator.chart_manager._resize_charts()
 
         except Exception as e:
-            print(f"[ERROR] Graph update error: {e}")
-            traceback.print_exc()
+            logger.error("Graph update error: %s", e, exc_info=True)
 
     def _clear_graph(self):
         """Clear the graph visualization."""
@@ -131,28 +144,42 @@ class UpdateManager:
         self.orchestrator._transcript_dirty = False
 
     def _update_sidebar(self):
-        """Update all sidebar cards, skipping invisible panels for performance."""
-        if self.orchestrator.state.ui_state.left_sidebar_visible:
-            if self.orchestrator.status_card:
-                self.orchestrator.status_card.refresh()
+        """Update all sidebar cards, skipping invisible panels for performance.
 
-            if self.orchestrator.agent_state_card:
-                self.orchestrator.agent_state_card.refresh()
+        When the left sidebar is hidden, marks a dirty flag so the sidebar will
+        be refreshed immediately after it becomes visible again.
+        """
+        if not self.orchestrator.state.ui_state.left_sidebar_visible:
+            self.orchestrator._sidebar_dirty = True
+            return
 
-            if self.orchestrator.stats_card:
-                self.orchestrator.stats_card.refresh()
+        if self.orchestrator.status_card:
+            self.orchestrator.status_card.refresh()
 
-            if self.orchestrator.judgment_card:
-                self.orchestrator.judgment_card.refresh()
+        if self.orchestrator.agent_state_card:
+            self.orchestrator.agent_state_card.refresh()
+
+        if self.orchestrator.stats_card:
+            self.orchestrator.stats_card.refresh()
+
+        if self.orchestrator.judgment_card:
+            self.orchestrator.judgment_card.refresh()
 
         if self.orchestrator.convergence_chart:
-            self.orchestrator.convergence_chart.refresh()
+            container = getattr(self.orchestrator, "convergence_container", None)
+
+            if container is None or container.visible:
+                self.orchestrator.convergence_chart.refresh()
+
+        self.orchestrator._sidebar_dirty = False
 
     def _update_timeline_slider(self) -> None:
         """Update the timeline slider range based on available snapshots.
 
         Synchronizes slider min/max and (in live mode) moves the thumb to the
-        latest snapshot without triggering replay mode.
+        latest snapshot. Uses a deterministic suppression flag to prevent
+        the slider's on_change handler from triggering unintended replay
+        mode transitions.
         """
         if not self.orchestrator.timeline_slider:
             return
@@ -160,43 +187,40 @@ class UpdateManager:
         snapshots = self.orchestrator.state.engine.round_snapshots or []
         total = len(snapshots)
 
-        if total <= 0:
-            self.orchestrator._suppress_timeline_events = True
+        self.orchestrator._suppress_timeline_events = True
+
+        try:
+            if total <= 0:
+                self.orchestrator.timeline_slider._props["min"] = 0
+                self.orchestrator.timeline_slider._props["max"] = 0
+                self.orchestrator.timeline_slider.value = 0
+                self.orchestrator.timeline_slider.update()
+                return
+
+            last_idx = total - 1
             self.orchestrator.timeline_slider._props["min"] = 0
-            self.orchestrator.timeline_slider._props["max"] = 0
-            self.orchestrator.timeline_slider.value = 0
+            self.orchestrator.timeline_slider._props["max"] = last_idx
+
+            if not self.orchestrator.state.ui_state.replay_mode:
+                self.orchestrator.timeline_slider.value = last_idx
+                self.orchestrator.state.ui_state.replay_round = last_idx
+
+                if self.orchestrator.timeline_label:
+                    self.orchestrator.timeline_label.text = "实时模式"
+
+            else:
+                self.orchestrator.timeline_slider.value = min(
+                    max(self.orchestrator.state.ui_state.replay_round, 0), last_idx
+                )
+
             self.orchestrator.timeline_slider.update()
 
+        finally:
             ui.timer(
-                0.05,
+                0.1,
                 lambda: setattr(self.orchestrator, "_suppress_timeline_events", False),
                 once=True,
             )
-            return
-
-        last_idx = total - 1
-        self.orchestrator._suppress_timeline_events = True
-        self.orchestrator.timeline_slider._props["min"] = 0
-        self.orchestrator.timeline_slider._props["max"] = last_idx
-
-        if not self.orchestrator.state.ui_state.replay_mode:
-            self.orchestrator.timeline_slider.value = last_idx
-            self.orchestrator.state.ui_state.replay_round = last_idx
-
-            if self.orchestrator.timeline_label:
-                self.orchestrator.timeline_label.text = "实时模式"
-        else:
-            self.orchestrator.timeline_slider.value = min(
-                max(self.orchestrator.state.ui_state.replay_round, 0), last_idx
-            )
-
-        self.orchestrator.timeline_slider.update()
-
-        ui.timer(
-            0.05,
-            lambda: setattr(self.orchestrator, "_suppress_timeline_events", False),
-            once=True,
-        )
 
     def _set_loading(self, loading: bool, message: str = ""):
         """Set loading state.

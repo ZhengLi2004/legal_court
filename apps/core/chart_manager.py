@@ -46,13 +46,14 @@ class ChartManager:
     ) -> None:
         """Continuously resize charts during a CSS width transition.
 
-        Side panels expand/collapse with a CSS width transition. During this time,
-        the center area width changes continuously. ECharts does not automatically
-        follow container size changes, so the canvas can appear to lag or overlap
-        with adjacent panels.
+        Side panels expand/collapse with a CSS width transition. During this
+        time, the center area width changes continuously. ECharts does not
+        automatically follow container size changes, so the canvas can appear
+        to lag or overlap with adjacent panels.
 
-        This method starts a short-lived timer to call `resize()` repeatedly during
-        the transition and performs one final resize at the end.
+        This method starts a short-lived timer to call ``resize()`` repeatedly
+        during the transition and performs one final resize at the end. All
+        timers are registered with the orchestrator for cleanup on disconnect.
 
         Args:
             duration: Total seconds to keep resizing. Should be slightly larger
@@ -70,7 +71,9 @@ class ChartManager:
             prev_stop.cancel()
 
         self._resize_charts()
-        self.orchestrator._chart_resize_timer = ui.timer(interval, self._resize_charts)
+        resize_timer = ui.timer(interval, self._resize_charts)
+        self.orchestrator._chart_resize_timer = resize_timer
+        self.orchestrator.register_timer(resize_timer)
 
         def _stop_and_finalize() -> None:
             timer = getattr(self.orchestrator, "_chart_resize_timer", None)
@@ -81,6 +84,6 @@ class ChartManager:
 
             self._resize_charts()
 
-        self.orchestrator._chart_resize_stop_timer = ui.timer(
-            duration, _stop_and_finalize, once=True
-        )
+        stop_timer = ui.timer(duration, _stop_and_finalize, once=True)
+        self.orchestrator._chart_resize_stop_timer = stop_timer
+        self.orchestrator.register_timer(stop_timer)

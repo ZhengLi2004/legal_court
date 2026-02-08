@@ -42,7 +42,7 @@ class UIBuilder:
             .panel-scroll { overflow-y: auto; overflow-x: hidden; }
             .sidebar-transition {
                 transition: width 0.25s ease-in-out;
-                overflow: hidden;
+                overflow-x: hidden;
             }
         </style>
         """
@@ -58,7 +58,11 @@ class UIBuilder:
         self._build_verdict_dialog()
 
     def _build_header(self):
-        """Build the header section with responsive layout."""
+        """Build the header section with responsive layout.
+
+        Uses bounded index setter to prevent out-of-range case selection
+        from crafted WebSocket messages.
+        """
         with (
             ui.header()
             .classes(
@@ -87,8 +91,8 @@ class UIBuilder:
                         options,
                         value=self.orchestrator.state.selected_index,
                         label="选择案例",
-                        on_change=lambda e: setattr(
-                            self.orchestrator.state, "selected_index", e.value
+                        on_change=lambda e: self.orchestrator.state.set_selected_index(
+                            e.value
                         ),
                     ).classes("w-56").props("dark dense outlined")
 
@@ -127,7 +131,11 @@ class UIBuilder:
                     ).props("flat round color=white dense").tooltip("切换右侧面板")
 
     def _build_left_sidebar(self):
-        """Build the left sidebar with status cards."""
+        """Build the left sidebar with status cards.
+
+        Places the convergence chart under the stats card as a collapsible section.
+        The chart is collapsed by default and uses a responsive height via CSS clamp.
+        """
         self.orchestrator.left_sidebar_container = ui.element("div").classes(
             "flex-shrink-0 h-full bg-white shadow-lg panel-scroll sidebar-transition"
         )
@@ -140,6 +148,7 @@ class UIBuilder:
             with ui.column().classes("w-64 p-3 gap-3"):
                 from apps.components import (
                     AgentStateCard,
+                    ConvergenceChart,
                     JudgmentPreviewCard,
                     StatsCard,
                     StatusCard,
@@ -157,6 +166,60 @@ class UIBuilder:
                     ui.element("div").classes("w-full"), self.orchestrator.state
                 )
 
+                with ui.card().classes("w-full p-0"):
+                    with ui.row().classes(
+                        "w-full items-center justify-between px-4 py-3"
+                    ):
+                        ui.label("📉 收敛曲线").classes(
+                            "text-sm font-bold text-gray-700"
+                        )
+
+                        toggle_btn = ui.button(icon="expand_more").props(
+                            "flat dense round"
+                        )
+
+                    ui.separator()
+
+                    self.orchestrator.convergence_container = ui.element("div").classes(
+                        "w-full px-3 pb-3"
+                    )
+
+                    self.orchestrator.convergence_container.visible = False
+
+                    with self.orchestrator.convergence_container:
+                        chart_host = (
+                            ui.element("div")
+                            .classes("w-full")
+                            .style("height: clamp(140px, 20vh, 260px);")
+                        )
+
+                        self.orchestrator.convergence_chart = ConvergenceChart(
+                            chart_host,
+                            self.orchestrator.state,
+                        )
+
+                    def _toggle_convergence() -> None:
+                        """Toggle the visibility of the convergence chart.
+
+                        When opening the chart, refreshes chart data and forces
+                        an ECharts resize so it renders correctly after being hidden.
+                        """
+                        is_open = not self.orchestrator.convergence_container.visible
+                        self.orchestrator.convergence_container.visible = is_open
+                        self.orchestrator.convergence_container.update()
+
+                        toggle_btn.props(
+                            f"icon={'expand_less' if is_open else 'expand_more'}"
+                        )
+
+                        toggle_btn.update()
+
+                        if is_open and self.orchestrator.convergence_chart:
+                            self.orchestrator.convergence_chart.refresh()
+                            self.orchestrator.chart_manager._resize_charts()
+
+                    toggle_btn.on("click", lambda: _toggle_convergence())
+
                 self.orchestrator.judgment_card = JudgmentPreviewCard(
                     ui.element("div").classes("w-full"),
                     self.orchestrator.state,
@@ -164,7 +227,11 @@ class UIBuilder:
                 )
 
     def _build_center_main(self):
-        """Build the center main view area."""
+        """Build the center main view area.
+
+        Keeps the graph as the primary focus. Moves the convergence chart to
+        the left sidebar and leaves only a compact replay control bar here.
+        """
         with ui.element("div").classes("flex-1 h-full flex flex-col p-2 gap-2 min-w-0"):
             with ui.card().classes("flex-1 flex flex-col min-h-0"):
                 with ui.row().classes(
@@ -199,58 +266,51 @@ class UIBuilder:
                         "click", self.orchestrator.event_handler._on_node_click
                     )
 
-            with ui.card().classes("h-28 flex-shrink-0"):
-                with ui.row().classes("w-full h-full gap-2 p-1"):
-                    with ui.element("div").classes("flex-1 h-full"):
-                        from apps.components import ConvergenceChart
+            with ui.card().classes("flex-shrink-0"):
+                with ui.row().classes("w-full items-center gap-2 px-3 py-2"):
+                    ui.label("回放").classes("text-xs font-bold text-gray-600 w-10")
 
-                        self.orchestrator.convergence_chart = ConvergenceChart(
-                            ui.element("div").classes("w-full h-full"),
-                            self.orchestrator.state,
-                        )
+                    ui.button(
+                        icon="skip_previous",
+                        on_click=self.orchestrator.event_handler._prev_snapshot,
+                    ).props("flat dense round size=sm")
 
-                    with ui.column().classes("w-48 h-full justify-center gap-1 px-2"):
-                        ui.label("回放控制").classes("text-xs font-bold text-gray-600")
-
-                        with ui.row().classes("w-full items-center gap-1"):
-                            ui.button(
-                                icon="skip_previous",
-                                on_click=self.orchestrator.event_handler._prev_snapshot,
-                            ).props("flat dense round size=sm")
-
-                            self.orchestrator.timeline_slider = ui.slider(
-                                min=0,
-                                max=0,
-                                step=1,
-                                value=0,
-                                on_change=lambda e: (
-                                    self.orchestrator.event_handler._on_timeline_change(
-                                        int(e.value)
-                                    )
-                                ),
-                            ).classes("flex-grow")
-
-                            ui.button(
-                                icon="skip_next",
-                                on_click=self.orchestrator.event_handler._next_snapshot,
-                            ).props("flat dense round size=sm")
-
-                        with ui.row().classes("w-full items-center justify-between"):
-                            self.orchestrator.timeline_label = ui.label(
-                                "实时模式"
-                            ).classes("text-xs text-gray-500 font-mono text-center")
-
-                            self.orchestrator.live_btn = (
-                                ui.button(
-                                    "实时",
-                                    on_click=self.orchestrator.event_handler._exit_replay,
-                                )
-                                .props("flat dense size=xs")
-                                .classes("text-xs")
+                    self.orchestrator.timeline_slider = ui.slider(
+                        min=0,
+                        max=0,
+                        step=1,
+                        value=0,
+                        on_change=lambda e: (
+                            self.orchestrator.event_handler._on_timeline_change(
+                                int(e.value)
                             )
+                        ),
+                    ).classes("flex-grow")
+
+                    ui.button(
+                        icon="skip_next",
+                        on_click=self.orchestrator.event_handler._next_snapshot,
+                    ).props("flat dense round size=sm")
+
+                    self.orchestrator.timeline_label = ui.label("实时模式").classes(
+                        "text-xs text-gray-500 font-mono min-w-[120px] text-right"
+                    )
+
+                    self.orchestrator.live_btn = (
+                        ui.button(
+                            "实时",
+                            on_click=self.orchestrator.event_handler._exit_replay,
+                        )
+                        .props("flat dense size=xs")
+                        .classes("text-xs")
+                    )
 
     def _build_right_panel(self):
-        """Build the right panel with transcript and node details."""
+        """Build the right panel with transcript and node details.
+
+        Uses a consistent 380px width for both the outer container and
+        the inner content div to prevent overflow.
+        """
         self.orchestrator.right_panel_container = ui.element("div").classes(
             "flex-shrink-0 h-full bg-white shadow-lg flex flex-col sidebar-transition"
         )
@@ -260,7 +320,9 @@ class UIBuilder:
         )
 
         with self.orchestrator.right_panel_container:
-            with ui.element("div").classes("w-96 flex flex-col h-full"):
+            with (
+                ui.element("div").classes("flex flex-col h-full").style("width: 380px")
+            ):
                 with ui.row().classes(
                     "justify-between items-center px-4 py-2 border-b flex-shrink-0"
                 ):
@@ -286,7 +348,11 @@ class UIBuilder:
                 )
 
     def _build_verdict_dialog(self):
-        """Build the verdict dialog."""
+        """Build the verdict dialog.
+
+        Content is rendered with ``sanitize=True`` (default) for defense
+        in depth. The event handler also escapes content before insertion.
+        """
         self.orchestrator.verdict_dialog = ui.dialog().props("maximized")
 
         with self.orchestrator.verdict_dialog:

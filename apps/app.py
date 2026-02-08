@@ -4,6 +4,8 @@ This module provides the LegalMASApp class which serves as a lightweight
 facade for the underlying AppOrchestrator and its subsystems.
 """
 
+from nicegui import ui
+
 from apps.core.app_orchestrator import AppOrchestrator
 from apps.core.chart_manager import ChartManager
 from apps.core.event_handler import EventHandler
@@ -69,6 +71,8 @@ class LegalMASApp:
     def build(self):
         """Build the entire application UI.
 
-        This method delegates to the UIBuilder's build method.
+        Registers a disconnect handler to clean up timers and resources
+        when the user closes the browser tab or navigates away.
         """
         self.orchestrator.ui_builder.build()
+        ui.on("disconnect", self.orchestrator.cleanup)
