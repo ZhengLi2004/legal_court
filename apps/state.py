@@ -28,6 +28,7 @@ class UIState:
     last_edge_count: int = 0
     left_sidebar_visible: bool = True
     right_panel_visible: bool = True
+    view_revision: int = 0
 
 
 @dataclass

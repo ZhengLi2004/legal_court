@@ -37,17 +37,21 @@ class TranscriptView:
     def refresh(self, lines: list[str]):
         """Update the transcript with new lines using incremental rendering.
 
+        Performs a full re-render when the line count decreases (indicating
+        a data source switch, e.g., entering replay mode), and incremental
+        append when new lines are added.
+
         Args:
             lines: A list of transcript lines to display.
         """
         current_count = len(lines)
 
-        if self._last_count == -1 or current_count < self._last_count:
+        if current_count < self._last_count:
             self.container.clear()
             self._last_count = 0
 
-        if current_count == self._last_count:
-            if current_count == 0:
+        if current_count == 0:
+            if self._last_count == 0:
                 self.container.clear()
 
                 with self.container:
@@ -55,6 +59,10 @@ class TranscriptView:
                         "text-gray-500 italic text-center py-8"
                     )
 
+            self._last_count = 0
+            return
+
+        if current_count == self._last_count:
             return
 
         if self._last_count == 0 and current_count > 0:

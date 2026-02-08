@@ -52,6 +52,8 @@ class LegalMASApp:
         self.timeline_slider = None
         self.timeline_label = None
         self.left_sidebar_container = None
+        self._suppress_timeline_events: bool = False
+        self._transcript_dirty: bool = False
 
     def build(self):
         """Build the entire application UI."""
@@ -61,12 +63,17 @@ class LegalMASApp:
             """
         <style>
             :root { --header-height: 56px; }
-            html, body { height: 100%; margin: 0; overflow: hidden; }
+            html, body { height: 100%; margin: 0; }
             .main-layout {
                 height: calc(100vh - var(--header-height));
                 min-height: 500px;
+                overflow: hidden;
             }
             .panel-scroll { overflow-y: auto; overflow-x: hidden; }
+            .sidebar-transition {
+                transition: width 0.25s ease-in-out;
+                overflow: hidden;
+            }
         </style>
         """
         )
@@ -134,7 +141,7 @@ class LegalMASApp:
             loop.close()
 
     def _build_header(self):
-        """Build the header section."""
+        """Build the header section with responsive layout."""
         with (
             ui.header()
             .classes(
@@ -142,12 +149,14 @@ class LegalMASApp:
             )
             .style("height: var(--header-height)")
         ):
-            with ui.row().classes("w-full items-center justify-between"):
-                with ui.row().classes("items-center gap-2"):
+            with ui.row().classes(
+                "w-full items-center justify-between flex-nowrap gap-3"
+            ):
+                with ui.row().classes("items-center gap-2 flex-shrink-0"):
                     ui.icon("balance").classes("text-2xl text-white")
                     ui.label("Legal MAS").classes("text-lg font-bold text-white")
 
-                with ui.row().classes("items-center gap-2"):
+                with ui.row().classes("items-center gap-2 flex-shrink min-w-0"):
                     if self.state.samples:
                         options = {
                             i: f"[{i + 1}] {c.title[:25]}..."
@@ -166,7 +175,7 @@ class LegalMASApp:
                         ),
                     ).classes("w-56").props("dark dense outlined")
 
-                with ui.row().classes("items-center gap-2"):
+                with ui.row().classes("items-center gap-2 flex-shrink-0"):
                     self.init_btn = ui.button(
                         "初始化", icon="rocket", on_click=self._on_init
                     ).props("color=white text-color=blue-800")
@@ -175,7 +184,7 @@ class LegalMASApp:
                         "下一步", icon="play_arrow", on_click=self._on_next_turn
                     ).props("color=green disable")
 
-                with ui.row().classes("items-center gap-2"):
+                with ui.row().classes("items-center gap-2 flex-shrink-0"):
                     self.header_spinner = ui.spinner("dots", size="sm").classes(
                         "text-white"
                     )
@@ -197,16 +206,15 @@ class LegalMASApp:
     def _build_left_sidebar(self):
         """Build the left sidebar with status cards."""
         self.left_sidebar_container = ui.element("div").classes(
-            "flex-shrink-0 h-full bg-white shadow-lg panel-scroll"
+            "flex-shrink-0 h-full bg-white shadow-lg panel-scroll sidebar-transition"
         )
 
-        if self.left_sidebar_container:
-            self.left_sidebar_container.style(
-                f"width: {'256px' if self.state.ui_state.left_sidebar_visible else '0px'}"
-            )
+        self.left_sidebar_container.style(
+            f"width: {'256px' if self.state.ui_state.left_sidebar_visible else '0px'}"
+        )
 
         with self.left_sidebar_container:
-            with ui.column().classes("w-full p-3 gap-3"):
+            with ui.column().classes("w-64 p-3 gap-3"):
                 self.status_card = StatusCard(
                     ui.element("div").classes("w-full"), self.state
                 )
@@ -301,32 +309,32 @@ class LegalMASApp:
     def _build_right_panel(self):
         """Build the right panel with transcript and node details."""
         self.right_panel_container = ui.element("div").classes(
-            "flex-shrink-0 h-full bg-white shadow-lg flex flex-col"
+            "flex-shrink-0 h-full bg-white shadow-lg flex flex-col sidebar-transition"
         )
 
-        if self.right_panel_container:
-            self.right_panel_container.style(
-                f"width: {'380px' if self.state.ui_state.right_panel_visible else '0px'}"
-            )
+        self.right_panel_container.style(
+            f"width: {'380px' if self.state.ui_state.right_panel_visible else '0px'}"
+        )
 
         with self.right_panel_container:
-            with ui.row().classes(
-                "justify-between items-center px-4 py-2 border-b flex-shrink-0"
-            ):
-                with ui.row().classes("items-center gap-2"):
-                    ui.icon("chat").classes("text-xl text-blue-600")
-                    ui.label("对话记录").classes("text-lg font-bold text-gray-700")
+            with ui.element("div").classes("w-96 flex flex-col h-full"):
+                with ui.row().classes(
+                    "justify-between items-center px-4 py-2 border-b flex-shrink-0"
+                ):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("chat").classes("text-xl text-blue-600")
+                        ui.label("对话记录").classes("text-lg font-bold text-gray-700")
 
-                self.transcript_count = ui.badge("0", color="blue")
+                    self.transcript_count = ui.badge("0", color="blue")
 
-            with ui.element("div").classes("flex-1 min-h-0 p-2"):
-                self.transcript_view = TranscriptView(
-                    ui.element("div").classes("w-full h-full"), self.state
+                with ui.element("div").classes("flex-1 min-h-0 p-2"):
+                    self.transcript_view = TranscriptView(
+                        ui.element("div").classes("w-full h-full"), self.state
+                    )
+
+                self.node_details_panel = NodeDetailsPanel(
+                    ui.element("div").classes("flex-shrink-0 px-2 pb-2"), self.state
                 )
-
-            self.node_details_panel = NodeDetailsPanel(
-                ui.element("div").classes("flex-shrink-0 px-2 pb-2"), self.state
-            )
 
     def _build_verdict_dialog(self):
         """Build the verdict dialog."""
@@ -353,19 +361,24 @@ class LegalMASApp:
                         )
 
     def _update_button_states(self):
-        """Update button enabled/disabled states based on current state."""
+        """Update button enabled/disabled states based on current state.
+
+        Considers initialization status, engine running state, finish state,
+        and whether the UI is currently in replay mode.
+        """
         is_init = self.state.engine.graph is not None
         is_finished = self.state.engine.is_finished
-        is_running = self.state.engine._is_running
+        in_replay = self.state.ui_state.replay_mode
 
         if is_init:
             self.init_btn.props("disable")
+
         else:
             self.init_btn.props(remove="disable")
 
         self.init_btn.update()
 
-        if is_init and not is_finished and not is_running:
+        if is_init and not is_finished and not in_replay:
             self.next_btn.props(remove="disable")
 
         else:
@@ -407,7 +420,11 @@ class LegalMASApp:
             self._set_loading(False)
 
     async def _on_next_turn(self):
-        """Handle next turn button click."""
+        """Handle next turn button click.
+
+        If in replay mode, automatically exits replay before proceeding.
+        Disables the next button during execution to prevent double-clicks.
+        """
         if not self.state.is_initialized:
             ui.notify("请先初始化", type="warning")
             return
@@ -416,6 +433,9 @@ class LegalMASApp:
             ui.notify("辩论已结束", type="info")
             self._show_verdict()
             return
+
+        if self.state.ui_state.replay_mode:
+            self._exit_replay()
 
         turn = self.state.engine.current_turn
         turn_map = {"plaintiff": "原告", "defendant": "被告"}
@@ -438,20 +458,15 @@ class LegalMASApp:
             if self.state.engine.is_finished:
                 ui.notify("🏁 辩论结束，判决已生成!", type="positive")
 
-            self._refresh_all()
-            self._update_button_states()
-
         except Exception as e:
             print(f"[ERROR] Turn failed: {e}")
             traceback.print_exc()
             ui.notify(f"❌ 执行失败: {e}", type="negative")
-            self._update_button_states()
 
         finally:
             live_monitor.cancel()
             self._set_loading(False)
             self._refresh_all()
-            self._update_button_states()
 
     def _on_node_click(self, e):
         """Handle node click in the graph.
@@ -563,32 +578,56 @@ class LegalMASApp:
 
         self.graph_chart.run_chart_method("setOption", option, {"notMerge": False})
 
-    def _on_timeline_change(self, value: int):
+    def _on_timeline_change(self, value: int) -> None:
         """Handle timeline slider change.
+
+        User-driven slider changes enter replay mode, except when the user moves
+        the slider to the latest snapshot. In that case, the UI automatically
+        exits replay mode and returns to live mode.
+
+        Programmatic slider updates are suppressed to avoid unintended mode
+        switches.
 
         Args:
             value: The timeline slider value representing the snapshot index.
         """
-        snapshots = self.state.engine.round_snapshots
+        if self._suppress_timeline_events:
+            return
+
+        snapshots = self.state.engine.round_snapshots or []
 
         if not snapshots:
             return
 
-        if 0 <= value < len(snapshots):
-            self.state.ui_state.replay_mode = True
-            self.state.ui_state.replay_round = value
-            snap = snapshots[value]
+        last_idx = len(snapshots) - 1
 
+        if value < 0 or value > last_idx:
+            return
+
+        self.state.ui_state.replay_round = value
+
+        if value == last_idx:
+            self.state.ui_state.replay_mode = False
+
+            if self.timeline_label:
+                self.timeline_label.text = "实时模式"
+
+            self._update_graph()
+            self._update_transcript()
+            self._update_button_states()
+            return
+
+        self.state.ui_state.replay_mode = True
+        snap = snapshots[value]
+
+        if self.timeline_label:
             self.timeline_label.text = (
                 f"回合 {snap.get('round_idx', value)} - {snap.get('turn', '')}"
             )
 
-            self._apply_snapshot(snap)
-            snap_transcript = snap.get("transcript", [])
-
-            if self.transcript_view:
-                self.transcript_view._last_count = -1  # Force refresh
-                self.transcript_view.refresh(snap_transcript)
+        self._update_graph()
+        self._update_transcript()
+        self._update_button_states()
 
     def _prev_snapshot(self):
         """Go to previous snapshot."""
@@ -610,43 +649,123 @@ class LegalMASApp:
             self.timeline_slider.value = new_val
             self._on_timeline_change(new_val)
 
-    def _exit_replay(self):
-        """Exit replay mode and return to live view."""
+    def _exit_replay(self) -> None:
+        """Exit replay mode and return to live view.
+
+        Keeps the slider position aligned with the latest snapshot through
+        `_refresh_all()` and `_update_timeline_slider()`.
+        """
         self.state.ui_state.replay_mode = False
-        self.state.ui_state.replay_round = 0
-        self.timeline_label.text = "实时模式"
-        self.state.ui_state.last_node_count = -1
-        self.state.ui_state.last_edge_count = -1
-        self.state.ui_state.last_transcript_count = -1
-        self._update_graph()
-        self._update_transcript()
-        self._update_sidebar()
+
+        if self.timeline_label:
+            self.timeline_label.text = "实时模式"
+
+        self._refresh_all()
 
     def _reset_graph(self):
-        """Reset graph view to default."""
+        """Reset graph view zoom/pan to default state.
+
+        Only dispatches a restore action without re-setting the option,
+        so the reset animation is not immediately overwritten.
+        """
         if self.graph_chart:
             self.graph_chart.run_chart_method("dispatchAction", {"type": "restore"})
-            self._update_graph()
 
-    def _toggle_left_sidebar(self):
-        """Toggle left sidebar visibility."""
+    def _toggle_left_sidebar(self) -> None:
+        """Toggle left sidebar visibility with a smooth transition.
+
+        Also triggers continuous chart resizing so the center ECharts canvases
+        follow the layout transition in real time.
+        """
         self.state.ui_state.left_sidebar_visible = (
             not self.state.ui_state.left_sidebar_visible
         )
-        if self.left_sidebar_container:
-            self.left_sidebar_container.style(
-                f"width: {'256px' if self.state.ui_state.left_sidebar_visible else '0px'}"
-            )
 
-    def _toggle_right_panel(self):
-        """Toggle right panel visibility."""
+        self.left_sidebar_container.style(
+            f"width: {'256px' if self.state.ui_state.left_sidebar_visible else '0px'}"
+        )
+
+        self.left_sidebar_container.update()
+        self._animate_chart_resize()
+
+    def _resize_charts(self) -> None:
+        """Resize all ECharts instances once.
+
+        This method is used for non-animated layout changes or post-render
+        corrections (e.g., after setOption). It keeps the implementation
+        centralized so callers do not need to know which charts exist.
+        """
+        if self.graph_chart:
+            self.graph_chart.run_chart_method("resize")
+
+        if self.convergence_chart and getattr(self.convergence_chart, "chart", None):
+            self.convergence_chart.chart.run_chart_method("resize")
+
+    def _animate_chart_resize(
+        self,
+        duration: float = 0.28,
+        interval: float = 0.05,
+    ) -> None:
+        """Continuously resize charts during a CSS width transition.
+
+        Side panels expand/collapse with a CSS width transition. During this time,
+        the center area width changes continuously. ECharts does not automatically
+        follow container size changes, so the canvas can appear to lag or overlap
+        with adjacent panels.
+
+        This method starts a short-lived timer to call `resize()` repeatedly during
+        the transition and performs one final resize at the end.
+
+        Args:
+            duration: Total seconds to keep resizing. Should be slightly larger
+                than the CSS transition duration (e.g., 0.25s -> 0.28s).
+            interval: Resize cadence in seconds (e.g., 0.05s).
+        """
+        prev_timer = getattr(self, "_chart_resize_timer", None)
+
+        if prev_timer:
+            prev_timer.cancel()
+
+        prev_stop = getattr(self, "_chart_resize_stop_timer", None)
+
+        if prev_stop:
+            prev_stop.cancel()
+
+        self._resize_charts()
+        self._chart_resize_timer = ui.timer(interval, self._resize_charts)
+
+        def _stop_and_finalize() -> None:
+            timer = getattr(self, "_chart_resize_timer", None)
+
+            if timer:
+                timer.cancel()
+                self._chart_resize_timer = None
+
+            self._resize_charts()
+
+        self._chart_resize_stop_timer = ui.timer(
+            duration, _stop_and_finalize, once=True
+        )
+
+    def _toggle_right_panel(self) -> None:
+        """Toggle right panel visibility with a smooth transition.
+
+        When the panel becomes visible, the transcript view is refreshed if it was
+        previously skipped while hidden.
+        """
         self.state.ui_state.right_panel_visible = (
             not self.state.ui_state.right_panel_visible
         )
-        if self.right_panel_container:
-            self.right_panel_container.style(
-                f"width: {'380px' if self.state.ui_state.right_panel_visible else '0px'}"
-            )
+
+        self.right_panel_container.style(
+            f"width: {'380px' if self.state.ui_state.right_panel_visible else '0px'}"
+        )
+
+        self.right_panel_container.update()
+        self._animate_chart_resize()
+
+        if self.state.ui_state.right_panel_visible and self._transcript_dirty:
+            self._update_transcript()
 
     def _show_verdict(self):
         """Show the verdict dialog."""
@@ -679,37 +798,64 @@ class LegalMASApp:
     def _refresh_all(self):
         """Update all UI components and controls explicitly.
 
-        This method is called after blocking operations (init, next turn)
-        complete, replacing the need for periodic polling.
+        Increments the view revision counter and triggers a full refresh
+        of all visual components. Called after blocking operations complete.
         """
-        self.state.ui_state.last_transcript_count = 0
-        self.state.ui_state.last_node_count = 0
-        self.state.ui_state.last_edge_count = 0
+        self.state.ui_state.view_revision += 1
         self._update_graph()
         self._update_transcript()
         self._update_sidebar()
         self._update_timeline_slider()
         self._update_button_states()
 
-    def _update_timeline_slider(self):
-        """Update the timeline slider range based on available snapshots."""
+    def _update_timeline_slider(self) -> None:
+        """Update the timeline slider range based on available snapshots.
+
+        Synchronizes slider min/max and (in live mode) moves the thumb to the
+        latest snapshot without triggering replay mode.
+        """
         if not self.timeline_slider:
             return
 
-        total = (
-            len(self.state.engine.round_snapshots)
-            if self.state.engine.round_snapshots
-            else 0
+        snapshots = self.state.engine.round_snapshots or []
+        total = len(snapshots)
+
+        if total <= 0:
+            self._suppress_timeline_events = True
+            self.timeline_slider._props["min"] = 0
+            self.timeline_slider._props["max"] = 0
+            self.timeline_slider.value = 0
+            self.timeline_slider.update()
+
+            ui.timer(
+                0.05,
+                lambda: setattr(self, "_suppress_timeline_events", False),
+                once=True,
+            )
+            return
+
+        last_idx = total - 1
+        self._suppress_timeline_events = True
+        self.timeline_slider._props["min"] = 0
+        self.timeline_slider._props["max"] = last_idx
+
+        if not self.state.ui_state.replay_mode:
+            self.timeline_slider.value = last_idx
+            self.state.ui_state.replay_round = last_idx
+
+            if self.timeline_label:
+                self.timeline_label.text = "实时模式"
+
+        else:
+            self.timeline_slider.value = min(
+                max(self.state.ui_state.replay_round, 0), last_idx
+            )
+
+        self.timeline_slider.update()
+
+        ui.timer(
+            0.05, lambda: setattr(self, "_suppress_timeline_events", False), once=True
         )
-
-        if total > 0:
-            self.timeline_slider.props(f"min=0 max={total - 1}")
-
-            if not self.state.ui_state.replay_mode:
-                self.timeline_slider.value = total - 1
-
-                if self.timeline_label:
-                    self.timeline_label.text = "实时模式"
 
     def _update_graph(self):
         """Update the graph visualization."""
@@ -727,6 +873,7 @@ class LegalMASApp:
             )
 
             self.graph_chart.run_chart_method("setOption", option, {"notMerge": True})
+            self._resize_charts()
 
         except Exception as e:
             print(f"[ERROR] Graph update error: {e}")
@@ -750,31 +897,82 @@ class LegalMASApp:
             )
 
     def _update_transcript(self):
-        """Update the transcript view."""
+        """Update the transcript view using the active data source.
+
+        If the right panel is hidden, skips the expensive UI update but records
+        a dirty flag. When the panel becomes visible again, a refresh will be
+        triggered to synchronize the view.
+        """
+        if not self.state.ui_state.right_panel_visible:
+            self._transcript_dirty = True
+            return
+
+        lines = self._get_active_transcript()
+
         if self.transcript_view:
-            lines = self.state.engine.transcript or []
             self.transcript_view.refresh(lines)
 
         if self.transcript_count:
-            count = (
-                len(self.state.engine.transcript) if self.state.engine.transcript else 0
-            )
-            self.transcript_count.set_text(str(count))
+            self.transcript_count.set_text(str(len(lines)))
             self.transcript_count.update()
 
+        self._transcript_dirty = False
+
     def _update_sidebar(self):
-        """Update all sidebar cards."""
-        if self.status_card:
-            self.status_card.refresh()
+        """Update all sidebar cards, skipping invisible panels for performance."""
+        if self.state.ui_state.left_sidebar_visible:
+            if self.status_card:
+                self.status_card.refresh()
 
-        if self.agent_state_card:
-            self.agent_state_card.refresh()
+            if self.agent_state_card:
+                self.agent_state_card.refresh()
 
-        if self.stats_card:
-            self.stats_card.refresh()
+            if self.stats_card:
+                self.stats_card.refresh()
 
-        if self.judgment_card:
-            self.judgment_card.refresh()
+            if self.judgment_card:
+                self.judgment_card.refresh()
 
         if self.convergence_chart:
             self.convergence_chart.refresh()
+
+    def _get_active_graph_data(self):
+        """Get the graph data for the current view mode.
+
+        Returns the snapshot graph data when in replay mode,
+        or the live engine graph when in live mode.
+
+        Returns:
+            The engine graph object (live mode) or a snapshot graph_data
+            dict (replay mode), or None if unavailable.
+        """
+        if self.state.ui_state.replay_mode:
+            snapshots = self.state.engine.round_snapshots
+            idx = self.state.ui_state.replay_round
+
+            if snapshots and 0 <= idx < len(snapshots):
+                return snapshots[idx].get("graph_data")
+
+            return None
+
+        return self.state.engine.graph
+
+    def _get_active_transcript(self):
+        """Get the transcript for the current view mode.
+
+        Returns the snapshot transcript when in replay mode,
+        or the live engine transcript when in live mode.
+
+        Returns:
+            A list of transcript line strings.
+        """
+        if self.state.ui_state.replay_mode:
+            snapshots = self.state.engine.round_snapshots
+            idx = self.state.ui_state.replay_round
+
+            if snapshots and 0 <= idx < len(snapshots):
+                return snapshots[idx].get("transcript", [])
+
+            return []
+
+        return self.state.engine.transcript or []
