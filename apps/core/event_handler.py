@@ -85,21 +85,25 @@ class EventHandler:
     async def _on_next_turn(self):
         """Handle next turn button click.
 
-        Acquires the state lock to prevent concurrent step execution.
-        If in replay mode, automatically exits replay before proceeding.
+        Runs the debate forward by one step. If the debate reaches completion,
+        it generates the judgment document (if applicable) but does not open
+        the verdict dialog automatically. Users can remain on the page to inspect
+        the graph/transcript/replay and click the dedicated verdict button when
+        they are ready.
         """
         if not self.orchestrator.state.is_initialized:
             ui.notify("请先初始化", type="warning")
             return
 
         if self.orchestrator.state.engine.is_finished:
-            ui.notify("辩论已结束", type="info")
-            self._show_verdict()
+            ui.notify("辩论已结束，可点击“宣读判决”查看", type="info")
             return
 
         if self.orchestrator.state._lock.locked():
             ui.notify("操作正在进行中，请稍候", type="info")
             return
+
+        verdict_ready = False
 
         async with self.orchestrator.state._lock:
             if self.orchestrator.state.ui_state.replay_mode:
@@ -108,11 +112,9 @@ class EventHandler:
             turn = self.orchestrator.state.engine.current_turn
             turn_map = {"plaintiff": "原告", "defendant": "被告"}
             turn_name = turn_map.get(turn.value, turn.value)
-
             self.orchestrator.update_manager._set_loading(
                 True, f"执行{turn_name}回合..."
             )
-
             self.orchestrator.next_btn.props("disable")
             self.orchestrator.next_btn.update()
             live_monitor = ui.timer(0.2, self.orchestrator.agent_state_card.refresh)
@@ -128,11 +130,12 @@ class EventHandler:
                     self.orchestrator.update_manager._set_loading(
                         True, "正在生成判决..."
                     )
-
                     await run.io_bound(self.orchestrator._run_blocking_adjudicate)
 
+                verdict_ready = bool(self.orchestrator.state.engine.judgment_document)
+
                 if self.orchestrator.state.engine.is_finished:
-                    ui.notify("🏁 辩论结束，判决已生成!", type="positive")
+                    ui.notify("🏁 辩论结束", type="positive")
 
             except Exception as e:
                 logger.error("Turn execution failed: %s", e, exc_info=True)
@@ -142,6 +145,11 @@ class EventHandler:
                 live_monitor.cancel()
                 self.orchestrator.update_manager._set_loading(False)
                 self.orchestrator.update_manager.refresh_all()
+
+        if self.orchestrator.state.engine.is_finished and verdict_ready:
+            ui.notify(
+                "判决已生成，你可以先查看图谱/回放，然后点击“宣读判决”打开", type="info"
+            )
 
     def _on_node_click(self, e):
         """Handle node click in the graph.
@@ -317,22 +325,28 @@ class EventHandler:
             self.orchestrator.update_manager._update_transcript()
 
     def _show_verdict(self):
-        """Show the verdict dialog with XSS-safe content rendering.
+        """Show the verdict dialog.
 
-        All judgment content is HTML-escaped before insertion to prevent
-        cross-site scripting attacks from LLM-generated output.
+        Renders the judgment document into a dialog. All model-generated content is
+        HTML-escaped to prevent XSS, then newlines are converted to ``<br>`` for display.
         """
+        if not getattr(self.orchestrator, "verdict_dialog", None) or not getattr(
+            self.orchestrator, "verdict_content", None
+        ):
+            ui.notify("判决对话框未初始化", type="warning")
+            return
+
         if self.orchestrator.state.engine.judgment_document:
-            raw_content = self.orchestrator.state.engine.judgment_document
-            safe_content = html.escape(raw_content).replace("\n", "<br>")
+            raw = self.orchestrator.state.engine.judgment_document
+            safe = html.escape(raw).replace("\n", "<br>")
 
             self.orchestrator.verdict_content.content = (
-                f"<div class='text-justify'>{safe_content}</div>"
+                f"<div class='text-justify'>{safe}</div>"
             )
 
         else:
             self.orchestrator.verdict_content.content = (
-                "<p class='text-gray-500 text-center py-8'>判决书尚未生成</p>"
+                "<p class='text-gray-500 text-center py-8'>判决内容尚未生成</p>"
             )
 
         self.orchestrator.verdict_dialog.open()

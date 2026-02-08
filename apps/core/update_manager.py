@@ -4,6 +4,7 @@ This module provides UI update logic that manages all visual updates.
 """
 
 import logging
+import traceback
 
 from nicegui import ui
 
@@ -45,12 +46,14 @@ class UpdateManager:
     def _update_button_states(self):
         """Update button enabled/disabled states based on current state.
 
-        Considers initialization status, engine running state, finish state,
-        and whether the UI is currently in replay mode.
+        Considers initialization status, finish state, and replay mode. Also
+        controls the verdict button visibility, which becomes available only
+        when a judgment document exists.
         """
         is_init = self.orchestrator.state.engine.graph is not None
         is_finished = self.orchestrator.state.engine.is_finished
         in_replay = self.orchestrator.state.ui_state.replay_mode
+        has_judgment = bool(self.orchestrator.state.engine.judgment_document)
 
         if is_init:
             self.orchestrator.init_btn.props("disable")
@@ -68,32 +71,84 @@ class UpdateManager:
 
         self.orchestrator.next_btn.update()
 
+        if getattr(self.orchestrator, "verdict_btn", None) is not None:
+            self.orchestrator.verdict_btn.visible = has_judgment
+
+            if has_judgment:
+                self.orchestrator.verdict_btn.props(remove="disable")
+
+            else:
+                self.orchestrator.verdict_btn.props("disable")
+
+            self.orchestrator.verdict_btn.update()
+
     def _update_graph(self):
         """Update the graph visualization using the active data source.
 
-        In replay mode, renders the snapshot graph data. In live mode,
-        renders the current engine graph. This ensures the graph view
-        correctly reflects the selected time point.
+        In replay mode, renders the snapshot payload. The snapshot payload can be
+        either a graph object (parsed by EChartsAdapter) or an ECharts option dict
+        (applied directly). This method also provides graceful fallback behavior
+        when snapshot graph payloads are missing or cannot be parsed.
+
+        This prevents the graph view from going blank when the user scrubs the
+        timeline.
         """
         if not self.orchestrator.graph_chart:
             return
 
-        graph_data = self.orchestrator._get_active_graph_data()
+        graph_payload = self.orchestrator._get_active_graph_data()
 
-        if not graph_data:
-            self._clear_graph()
+        if graph_payload is None:
+            msg = (
+                "回放图谱缺失"
+                if self.orchestrator.state.ui_state.replay_mode
+                else "无图谱数据"
+            )
+
+            self.orchestrator.graph_chart.run_chart_method(
+                "setOption",
+                {
+                    "title": {
+                        "text": msg,
+                        "left": "center",
+                        "top": "center",
+                        "textStyle": {"color": "#999"},
+                    },
+                    "series": [],
+                },
+                {"notMerge": True},
+            )
+
             return
 
+        def _looks_like_echarts_option(obj: object) -> bool:
+            """Check whether an object looks like a valid ECharts option dict.
+
+            Args:
+                obj: The object to check.
+
+            Returns:
+                True if the object is a dict containing typical ECharts option keys.
+            """
+            if not isinstance(obj, dict):
+                return False
+
+            return "series" in obj and isinstance(obj.get("series"), list)
+
         try:
-            preferred = None
+            if _looks_like_echarts_option(graph_payload):
+                option = graph_payload
 
-            if not self.orchestrator.state.ui_state.replay_mode:
-                preferred = self.orchestrator.state.engine.preferred_extension
+            else:
+                preferred = None
 
-            option = EChartsAdapter.parse_graph(
-                graph_data,
-                preferred_extension=preferred,
-            )
+                if not self.orchestrator.state.ui_state.replay_mode:
+                    preferred = self.orchestrator.state.engine.preferred_extension
+
+                option = EChartsAdapter.parse_graph(
+                    graph_payload,
+                    preferred_extension=preferred,
+                )
 
             self.orchestrator.graph_chart.run_chart_method(
                 "setOption", option, {"notMerge": True}
@@ -102,7 +157,42 @@ class UpdateManager:
             self.orchestrator.chart_manager._resize_charts()
 
         except Exception as e:
-            logger.error("Graph update error: %s", e, exc_info=True)
+            print(f"[ERROR] Graph update error: {e}")
+            traceback.print_exc()
+            live_graph = self.orchestrator.state.engine.graph
+
+            if self.orchestrator.state.ui_state.replay_mode and live_graph is not None:
+                try:
+                    option = EChartsAdapter.parse_graph(
+                        live_graph,
+                        preferred_extension=self.orchestrator.state.engine.preferred_extension,
+                    )
+
+                    option = dict(option) if isinstance(option, dict) else option
+
+                    if isinstance(option, dict):
+                        option.setdefault("title", {})
+
+                        option["title"].update(
+                            {
+                                "text": "回放解析失败（显示实时图谱）",
+                                "left": "center",
+                                "top": 10,
+                                "textStyle": {"color": "#999", "fontSize": 12},
+                            }
+                        )
+
+                    self.orchestrator.graph_chart.run_chart_method(
+                        "setOption", option, {"notMerge": True}
+                    )
+
+                    self.orchestrator.chart_manager._resize_charts()
+                    return
+
+                except Exception:
+                    pass
+
+            self._clear_graph()
 
     def _clear_graph(self):
         """Clear the graph visualization."""
@@ -161,9 +251,6 @@ class UpdateManager:
 
         if self.orchestrator.stats_card:
             self.orchestrator.stats_card.refresh()
-
-        if self.orchestrator.judgment_card:
-            self.orchestrator.judgment_card.refresh()
 
         if self.orchestrator.convergence_chart:
             container = getattr(self.orchestrator, "convergence_container", None)

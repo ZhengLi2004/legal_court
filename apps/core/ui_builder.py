@@ -60,8 +60,10 @@ class UIBuilder:
     def _build_header(self):
         """Build the header section with responsive layout.
 
-        Uses bounded index setter to prevent out-of-range case selection
-        from crafted WebSocket messages.
+        Includes a user-triggered verdict button which becomes available only
+        after the judgment document is generated. This ensures users can stay
+        on the page to inspect the graph and replay, then open the verdict
+        dialog when they are ready.
         """
         with (
             ui.header()
@@ -109,6 +111,14 @@ class UIBuilder:
                         on_click=self.orchestrator.event_handler._on_next_turn,
                     ).props("color=green disable")
 
+                    self.orchestrator.verdict_btn = ui.button(
+                        "宣读判决",
+                        icon="gavel",
+                        on_click=self.orchestrator.event_handler._show_verdict,
+                    ).props("color=white text-color=blue-800")
+
+                    self.orchestrator.verdict_btn.visible = False
+
                 with ui.row().classes("items-center gap-2 flex-shrink-0"):
                     self.orchestrator.header_spinner = ui.spinner(
                         "dots", size="sm"
@@ -133,8 +143,10 @@ class UIBuilder:
     def _build_left_sidebar(self):
         """Build the left sidebar with status cards.
 
-        Places the convergence chart under the stats card as a collapsible section.
-        The chart is collapsed by default and uses a responsive height via CSS clamp.
+        This sidebar contains system status, agent state, graph statistics, and
+        (optionally) auxiliary visualizations such as the convergence chart.
+
+        The judgment-related UI is intentionally removed.
         """
         self.orchestrator.left_sidebar_container = ui.element("div").classes(
             "flex-shrink-0 h-full bg-white shadow-lg panel-scroll sidebar-transition"
@@ -149,7 +161,6 @@ class UIBuilder:
                 from apps.components import (
                     AgentStateCard,
                     ConvergenceChart,
-                    JudgmentPreviewCard,
                     StatsCard,
                     StatusCard,
                 )
@@ -173,7 +184,6 @@ class UIBuilder:
                         ui.label("📉 收敛曲线").classes(
                             "text-sm font-bold text-gray-700"
                         )
-
                         toggle_btn = ui.button(icon="expand_more").props(
                             "flat dense round"
                         )
@@ -219,12 +229,6 @@ class UIBuilder:
                             self.orchestrator.chart_manager._resize_charts()
 
                     toggle_btn.on("click", lambda: _toggle_convergence())
-
-                self.orchestrator.judgment_card = JudgmentPreviewCard(
-                    ui.element("div").classes("w-full"),
-                    self.orchestrator.state,
-                    on_view_full=self.orchestrator.event_handler._show_verdict,
-                )
 
     def _build_center_main(self):
         """Build the center main view area.
@@ -350,8 +354,13 @@ class UIBuilder:
     def _build_verdict_dialog(self):
         """Build the verdict dialog.
 
-        Content is rendered with ``sanitize=True`` (default) for defense
-        in depth. The event handler also escapes content before insertion.
+        The judgment preview card is removed, but the verdict dialog remains.
+        The dialog HTML container uses ``sanitize=False`` because the event handler
+        inserts pre-escaped content and adds only minimal structural tags (e.g., ``<br>``).
+
+        Security:
+            The event handler must HTML-escape all model-generated content before
+            inserting it into this HTML container to prevent XSS.
         """
         self.orchestrator.verdict_dialog = ui.dialog().props("maximized")
 
@@ -363,10 +372,11 @@ class UIBuilder:
                 ):
                     with ui.row().classes("items-center gap-2"):
                         ui.icon("gavel").classes("text-3xl text-white")
-                        ui.label("民事判决书").classes("text-2xl font-serif text-white")
+                        ui.label("判决宣读").classes("text-2xl font-serif text-white")
 
                     ui.button(
-                        icon="close", on_click=self.orchestrator.verdict_dialog.close
+                        icon="close",
+                        on_click=self.orchestrator.verdict_dialog.close,
                     ).props("flat round color=white")
 
                 with ui.scroll_area().classes("flex-1"):

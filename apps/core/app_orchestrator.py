@@ -40,7 +40,6 @@ class AppOrchestrator:
         self.status_card: Optional[StatusCard] = None
         self.agent_state_card: Optional[AgentStateCard] = None
         self.stats_card: Optional[StatsCard] = None
-        self.judgment_card: Optional[JudgmentPreviewCard] = None
         self.transcript_view: Optional[TranscriptView] = None
         self.node_details_panel: Optional[NodeDetailsPanel] = None
         self.convergence_chart: Optional[ConvergenceChart] = None
@@ -52,6 +51,7 @@ class AppOrchestrator:
         self.header_spinner = None
         self.next_btn = None
         self.init_btn = None
+        self.verdict_btn = None
         self.transcript_count = None
         self.timeline_slider = None
         self.timeline_label = None
@@ -157,19 +157,35 @@ class AppOrchestrator:
     def _get_active_graph_data(self):
         """Get the graph data for the current view mode.
 
-        Returns the snapshot graph data when in replay mode,
-        or the live engine graph when in live mode.
+        In replay mode, tries to retrieve the snapshot graph payload from multiple
+        possible keys for compatibility with different snapshot schemas. In live
+        mode, returns the current engine graph object.
 
         Returns:
-            The engine graph object (live mode) or a snapshot graph_data
-            dict (replay mode), or None if unavailable.
+            The live engine graph object (live mode), or a snapshot payload (replay
+            mode). The snapshot payload may be:
+            - an engine graph-like object understood by EChartsAdapter, or
+            - an ECharts option dict, depending on how snapshots are stored.
+            Returns None if no suitable payload is available.
         """
         if self.state.ui_state.replay_mode:
-            snapshots = self.state.engine.round_snapshots
+            snapshots = self.state.engine.round_snapshots or []
             idx = self.state.ui_state.replay_round
 
-            if snapshots and 0 <= idx < len(snapshots):
-                return snapshots[idx].get("graph_data")
+            if not (0 <= idx < len(snapshots)):
+                return None
+
+            snap = snapshots[idx] or {}
+
+            for key in (
+                "graph_data",
+                "graph",
+                "graph_option",
+                "option",
+                "echarts_option",
+            ):
+                if key in snap and snap[key] is not None:
+                    return snap[key]
 
             return None
 
