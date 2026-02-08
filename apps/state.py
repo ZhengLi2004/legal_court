@@ -26,6 +26,8 @@ class UIState:
     last_transcript_count: int = 0
     last_node_count: int = 0
     last_edge_count: int = 0
+    left_sidebar_visible: bool = True
+    right_panel_visible: bool = True
 
 
 @dataclass

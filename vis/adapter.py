@@ -172,6 +172,16 @@ class EChartsAdapter:
                 item_style["shadowOffsetX"] = 0
                 item_style["shadowOffsetY"] = 0
 
+            n_type = EChartsAdapter._extract_enum_value(n_data.get("type", "CLAIM"))
+            n_type = n_type.upper()
+            agent_id = str(n_data.get("agent_id", "")).lower()
+
+            is_root_claim = (
+                n_type == "CLAIM" and 
+                (n_data.get("metadata", {}).get("is_root_claim", False) or
+                ("system" in agent_id or "init" in agent_id))
+            )
+
             node_entry = {
                 "id": str(n_id),
                 "name": str(n_id),
@@ -180,10 +190,11 @@ class EChartsAdapter:
                 "itemStyle": item_style,
                 "category": cat_name,
                 "label": {
-                    "show": True,
+                    "show": is_root_claim,
                     "position": "bottom",
-                    "fontSize": 10,
+                    "fontSize": 11,
                     "color": "#333",
+                    "fontWeight": "bold",
                     "formatter": "{b}",
                 },
             }

@@ -46,7 +46,6 @@ class LegalMASApp:
         self.auto_run_timer = None
         self.header_status: Optional[ui.label] = None
         self.header_spinner = None
-        self.auto_btn = None
         self.next_btn = None
         self.init_btn = None
         self.transcript_count = None
@@ -175,10 +174,6 @@ class LegalMASApp:
                         "下一步", icon="play_arrow", on_click=self._on_next_turn
                     ).props("color=green disable")
 
-                    self.auto_btn = ui.button(
-                        "自动", icon="autorenew", on_click=self._toggle_auto_run
-                    ).props("color=amber disable")
-
                 with ui.row().classes("items-center gap-2"):
                     self.header_spinner = ui.spinner("dots", size="sm").classes(
                         "text-white"
@@ -224,14 +219,6 @@ class LegalMASApp:
                     ui.label("🔗 辩论图谱").classes("text-lg font-bold text-gray-700")
 
                     with ui.row().classes("gap-1"):
-                        ui.button(icon="zoom_in", on_click=self._zoom_in).props(
-                            "flat dense round"
-                        )
-
-                        ui.button(icon="zoom_out", on_click=self._zoom_out).props(
-                            "flat dense round"
-                        )
-
                         ui.button(
                             icon="center_focus_strong", on_click=self._reset_graph
                         ).props("flat dense round")
@@ -347,7 +334,6 @@ class LegalMASApp:
         is_init = self.state.engine.graph is not None
         is_finished = self.state.engine.is_finished
         is_running = self.state.engine._is_running
-        is_auto = self.state.ui_state.auto_run_enabled
 
         if is_init:
             self.init_btn.props("disable")
@@ -356,22 +342,13 @@ class LegalMASApp:
 
         self.init_btn.update()
 
-        if is_init and not is_finished and not is_running and not is_auto:
+        if is_init and not is_finished and not is_running:
             self.next_btn.props(remove="disable")
 
         else:
             self.next_btn.props("disable")
 
         self.next_btn.update()
-
-        if is_init and not is_finished and not is_running:
-            self.auto_btn.props(remove="disable")
-
-        else:
-            if not is_auto:
-                self.auto_btn.props("disable")
-
-        self.auto_btn.update()
 
     async def _on_init(self):
         """Handle initialize button click."""
@@ -423,8 +400,6 @@ class LegalMASApp:
         self._set_loading(True, f"执行{turn_name}回合...")
         self.next_btn.props("disable")
         self.next_btn.update()
-        self.auto_btn.props("disable")
-        self.auto_btn.update()
         live_monitor = ui.timer(0.2, self.agent_state_card.refresh)
 
         try:
@@ -454,52 +429,6 @@ class LegalMASApp:
             self._set_loading(False)
             self._refresh_all()
             self._update_button_states()
-
-    async def _toggle_auto_run(self):
-        """Toggle auto-run mode."""
-        if self.state.ui_state.auto_run_enabled:
-            self.state.ui_state.auto_run_enabled = False
-
-            if self.auto_run_timer:
-                self.auto_run_timer.cancel()
-                self.auto_run_timer = None
-
-            self.auto_btn.props("color=amber")
-            self.auto_btn.text = "自动"
-            self.auto_btn.update()
-            self._update_button_states()
-            ui.notify("⏹ 自动运行已停止", type="info")
-
-        else:
-            if not self.state.is_initialized:
-                ui.notify("请先初始化", type="warning")
-                return
-
-            if self.state.engine.is_finished:
-                ui.notify("辩论已结束", type="info")
-                return
-
-            self.state.ui_state.auto_run_enabled = True
-            self.auto_btn.props("color=red")
-            self.auto_btn.text = "停止"
-            self.auto_btn.update()
-            self._update_button_states()
-            ui.notify("▶ 自动运行已启动", type="positive")
-
-            self.auto_run_timer = ui.timer(
-                self.state.ui_state.auto_run_interval, self._auto_run_step
-            )
-
-    async def _auto_run_step(self):
-        """Execute one step in auto-run mode."""
-        if not self.state.ui_state.auto_run_enabled:
-            return
-
-        if self.state.engine.is_finished:
-            await self._toggle_auto_run()
-            return
-
-        await self._on_next_turn()
 
     def _on_node_click(self, e):
         """Handle node click in the graph.
@@ -669,20 +598,6 @@ class LegalMASApp:
         self._update_graph()
         self._update_transcript()
         self._update_sidebar()
-
-    def _zoom_in(self):
-        """Zoom in the graph."""
-        if self.graph_chart:
-            self.graph_chart.run_chart_method(
-                "dispatchAction", {"type": "dataZoom", "zoom": 1.3}
-            )
-
-    def _zoom_out(self):
-        """Zoom out the graph."""
-        if self.graph_chart:
-            self.graph_chart.run_chart_method(
-                "dispatchAction", {"type": "dataZoom", "zoom": 0.7}
-            )
 
     def _reset_graph(self):
         """Reset graph view to default."""
