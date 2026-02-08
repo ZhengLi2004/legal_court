@@ -51,6 +51,7 @@ class LegalMASApp:
         self.transcript_count = None
         self.timeline_slider = None
         self.timeline_label = None
+        self.left_sidebar_container = None
 
     def build(self):
         """Build the entire application UI."""
@@ -185,11 +186,26 @@ class LegalMASApp:
                         "text-white/80 font-mono text-sm"
                     )
 
+                    ui.button(
+                        icon="menu_open", on_click=self._toggle_left_sidebar
+                    ).props("flat round color=white dense").tooltip("切换左侧边栏")
+
+                    ui.button(
+                        icon="view_sidebar", on_click=self._toggle_right_panel
+                    ).props("flat round color=white dense").tooltip("切换右侧面板")
+
     def _build_left_sidebar(self):
         """Build the left sidebar with status cards."""
-        with ui.element("div").classes(
-            "w-64 flex-shrink-0 h-full bg-white shadow-lg panel-scroll"
-        ):
+        self.left_sidebar_container = ui.element("div").classes(
+            "flex-shrink-0 h-full bg-white shadow-lg panel-scroll"
+        )
+
+        if self.left_sidebar_container:
+            self.left_sidebar_container.style(
+                f"width: {'256px' if self.state.ui_state.left_sidebar_visible else '0px'}"
+            )
+
+        with self.left_sidebar_container:
             with ui.column().classes("w-full p-3 gap-3"):
                 self.status_card = StatusCard(
                     ui.element("div").classes("w-full"), self.state
@@ -284,9 +300,16 @@ class LegalMASApp:
 
     def _build_right_panel(self):
         """Build the right panel with transcript and node details."""
-        with ui.element("div").classes(
-            "w-[380px] flex-shrink-0 h-full bg-white shadow-lg flex flex-col"
-        ):
+        self.right_panel_container = ui.element("div").classes(
+            "flex-shrink-0 h-full bg-white shadow-lg flex flex-col"
+        )
+
+        if self.right_panel_container:
+            self.right_panel_container.style(
+                f"width: {'380px' if self.state.ui_state.right_panel_visible else '0px'}"
+            )
+
+        with self.right_panel_container:
             with ui.row().classes(
                 "justify-between items-center px-4 py-2 border-b flex-shrink-0"
             ):
@@ -604,6 +627,26 @@ class LegalMASApp:
         if self.graph_chart:
             self.graph_chart.run_chart_method("dispatchAction", {"type": "restore"})
             self._update_graph()
+
+    def _toggle_left_sidebar(self):
+        """Toggle left sidebar visibility."""
+        self.state.ui_state.left_sidebar_visible = (
+            not self.state.ui_state.left_sidebar_visible
+        )
+        if self.left_sidebar_container:
+            self.left_sidebar_container.style(
+                f"width: {'256px' if self.state.ui_state.left_sidebar_visible else '0px'}"
+            )
+
+    def _toggle_right_panel(self):
+        """Toggle right panel visibility."""
+        self.state.ui_state.right_panel_visible = (
+            not self.state.ui_state.right_panel_visible
+        )
+        if self.right_panel_container:
+            self.right_panel_container.style(
+                f"width: {'380px' if self.state.ui_state.right_panel_visible else '0px'}"
+            )
 
     def _show_verdict(self):
         """Show the verdict dialog."""
