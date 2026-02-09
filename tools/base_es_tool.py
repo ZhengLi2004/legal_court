@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 
 from elasticsearch import AsyncElasticsearch
 
-from mas.utils import EmbeddingFunc
+from tools.embedding import EmbeddingFunc
 
 
 class BaseEsTool:

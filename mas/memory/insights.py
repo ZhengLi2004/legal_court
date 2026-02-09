@@ -13,11 +13,11 @@ from enum import Enum
 from typing import Any, Dict, List, Tuple
 
 from prompts.common_prompts import EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT
+from tools.embedding import cosine_similarity, file_lock
+from tools.llm import GPTChat, Message
+from tools.matcher import SemanticMatcher
 
-from .config import SystemConfig
-from .llm import GPTChat, Message
-from .semantic_matcher import SemanticMatcher
-from .utils import cosine_similarity, file_lock
+from ..config import SystemConfig
 
 
 class InsightSide(str, Enum):

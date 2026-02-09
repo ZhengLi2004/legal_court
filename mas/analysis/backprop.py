@@ -13,7 +13,7 @@ from typing import List, Optional, Set
 
 from metagpt.logs import logger
 
-from .common import EdgeType, NodeStatus, ShadowGraph
+from ..core.graph import EdgeType, NodeStatus, ShadowGraph
 
 
 class BackPropagator:
@@ -110,7 +110,7 @@ class BackPropagator:
         self,
         graph: ShadowGraph,
         baf_extension: Set[str],
-        root_claims_status: Optional[dict] = None
+        root_claims_status: Optional[dict] = None,
     ) -> ShadowGraph:
         """Perform BAF-guided backpropagation on the graph.
 
@@ -147,7 +147,9 @@ class BackPropagator:
                 validated_set.add(nid)
                 queue.append(nid)
 
-        logger.info(f"[BackPropagator] Marked {len(validated_set)} nodes as VALIDATED from BAF extension")
+        logger.info(
+            f"[BackPropagator] Marked {len(validated_set)} nodes as VALIDATED from BAF extension"
+        )
 
         while queue:
             curr_id = queue.pop()
@@ -162,7 +164,9 @@ class BackPropagator:
                         validated_set.add(pred_id)
                         queue.append(pred_id)
 
-        logger.info(f"[BackPropagator] After support propagation: {len(validated_set)} VALIDATED nodes")
+        logger.info(
+            f"[BackPropagator] After support propagation: {len(validated_set)} VALIDATED nodes"
+        )
         defeated_count = 0
 
         for val_id in validated_set:
@@ -193,10 +197,7 @@ class BackPropagator:
         return graph
 
     def _verify_root_claim_alignment(
-        self,
-        graph: ShadowGraph,
-        root_claims_status: dict,
-        validated_set: Set[str]
+        self, graph: ShadowGraph, root_claims_status: dict, validated_set: Set[str]
     ):
         """Verify that root claim statuses align with propagation results.
 
@@ -217,11 +218,13 @@ class BackPropagator:
             actual_status = graph.graph.nodes[root_id]["status"]
 
             if expected_status != actual_status:
-                mismatches.append({
-                    "root_id": root_id,
-                    "expected": expected_status,
-                    "actual": actual_status
-                })
+                mismatches.append(
+                    {
+                        "root_id": root_id,
+                        "expected": expected_status,
+                        "actual": actual_status,
+                    }
+                )
 
         if mismatches:
             logger.warning(

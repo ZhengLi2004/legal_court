@@ -8,7 +8,7 @@ analogous arguments in historical cases.
 
 from typing import List, Optional, Tuple
 
-from .utils import EmbeddingFunc, cosine_similarity
+from .embedding import EmbeddingFunc, cosine_similarity
 
 
 class SemanticMatcher:

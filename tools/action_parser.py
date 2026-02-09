@@ -12,7 +12,7 @@ from typing import List, Union
 
 from pydantic import ValidationError
 
-from mas.schema import AgentAction
+from mas.core.schemas import AgentAction
 from tools.json_utils import extract_json_from_text
 
 

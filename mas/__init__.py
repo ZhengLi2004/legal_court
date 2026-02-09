@@ -1,11 +1,12 @@
 """A multi-agent system (MAS) for simulating legal debates.
 
 This package provides the core components for a multi-agent system designed
-to simulate legal arguments. It includes the debate engine, agent roles, memory
-systems, and data structures necessary to conduct and learn from adversarial
-legal proceedings.
+to simulate legal arguments.
 """
 
-from .baf import BAFCalculator, CollectiveAttackType
+from .core.engine import DebateEngine
+from .core.graph import ShadowGraph
+from .core.schemas import AgentAction
+from .core.system import LegalSystem
 
-__all__ = ["BAFCalculator", "CollectiveAttackType"]
+__all__ = ["DebateEngine", "LegalSystem", "ShadowGraph", "AgentAction"]

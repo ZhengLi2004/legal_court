@@ -19,7 +19,7 @@ from typing import Dict, List, Set, Tuple
 
 from metagpt.logs import logger
 
-from .common import EdgeType, NodeStatus, ShadowGraph
+from ..core.graph import EdgeType, ShadowGraph
 
 
 class CollectiveAttackType:
@@ -71,11 +71,7 @@ class BAFCalculator:
         all_nodes = set(self.graph.graph.nodes())
 
         self.collective_attacks = {
-            node_id: {
-                "direct": [],
-                "support_based": [],
-                "indirect": []
-            }
+            node_id: {"direct": [], "support_based": [], "indirect": []}
             for node_id in all_nodes
         }
 
@@ -87,7 +83,9 @@ class BAFCalculator:
             if data.get("type") == EdgeType.SUPPORT:
                 for tgt_attacks in self.collective_attacks[tgt]["direct"]:
                     if src not in self.collective_attacks[tgt_attacks]["support_based"]:
-                        self.collective_attacks[tgt_attacks]["support_based"].append(src)
+                        self.collective_attacks[tgt_attacks]["support_based"].append(
+                            src
+                        )
 
         for node_id in all_nodes:
             direct_attackers = self.collective_attacks[node_id]["direct"]
@@ -95,21 +93,30 @@ class BAFCalculator:
             for attacker in direct_attackers:
                 for attacker_target in self.collective_attacks[attacker]["direct"]:
                     if attacker_target != node_id:  # Avoid self-attack
-                        if node_id not in self.collective_attacks[attacker_target]["indirect"]:
-                            self.collective_attacks[attacker_target]["indirect"].append(node_id)
+                        if (
+                            node_id
+                            not in self.collective_attacks[attacker_target]["indirect"]
+                        ):
+                            self.collective_attacks[attacker_target]["indirect"].append(
+                                node_id
+                            )
 
         for node_id in all_nodes:
             all_attackers = (
-                self.collective_attacks[node_id]["direct"] +
-                self.collective_attacks[node_id]["support_based"] +
-                self.collective_attacks[node_id]["indirect"]
+                self.collective_attacks[node_id]["direct"]
+                + self.collective_attacks[node_id]["support_based"]
+                + self.collective_attacks[node_id]["indirect"]
             )
 
             self.attack_matrix[node_id] = set(all_attackers)
 
         total_direct = sum(len(v["direct"]) for v in self.collective_attacks.values())
-        total_support = sum(len(v["support_based"]) for v in self.collective_attacks.values())
-        total_indirect = sum(len(v["indirect"]) for v in self.collective_attacks.values())
+        total_support = sum(
+            len(v["support_based"]) for v in self.collective_attacks.values()
+        )
+        total_indirect = sum(
+            len(v["indirect"]) for v in self.collective_attacks.values()
+        )
 
         logger.info(
             f"[BAF] Found {total_direct} direct, {total_support} support-based, "
@@ -233,14 +240,16 @@ class BAFCalculator:
             if len(adm_set) == max_size:
                 preferred.append(adm_set)
 
-        logger.info(f"[BAF] Found {len(preferred)} preferred extensions (size={max_size})")
+        logger.info(
+            f"[BAF] Found {len(preferred)} preferred extensions (size={max_size})"
+        )
         return preferred
 
     def match_with_llm_judgment(
         self,
         preferred_extensions: List[Set[str]],
         llm_validated: Set[str],
-        llm_defeated: Set[str]
+        llm_defeated: Set[str],
     ) -> Tuple[Set[str], Dict[str, str]]:
         """Match preferred extensions with LLM judgment.
 
@@ -270,7 +279,7 @@ class BAFCalculator:
             return set(), {"error": "No preferred extensions"}
 
         best_extension = None
-        best_score = float('-inf')
+        best_score = float("-inf")
         best_details = {}
 
         for i, ext in enumerate(preferred_extensions):
@@ -280,10 +289,10 @@ class BAFCalculator:
             defeated_out_ext = llm_defeated - ext
 
             score = (
-                len(validated_in_ext) * 1 +
-                len(validated_out_ext) * -1 +
-                len(defeated_in_ext) * -1 +
-                len(defeated_out_ext) * 1
+                len(validated_in_ext) * 1
+                + len(validated_out_ext) * -1
+                + len(defeated_in_ext) * -1
+                + len(defeated_out_ext) * 1
             )
 
             details = {
@@ -294,7 +303,7 @@ class BAFCalculator:
                 "validated_out_ext": len(validated_out_ext),
                 "defeated_in_ext": len(defeated_in_ext),
                 "defeated_out_ext": len(defeated_out_ext),
-                "hypothetical_in_ext": len(ext - llm_validated - llm_defeated)
+                "hypothetical_in_ext": len(ext - llm_validated - llm_defeated),
             }
 
             logger.debug(f"[BAF] Extension {i}: score={score}, {details}")
@@ -318,10 +327,7 @@ class BAFCalculator:
         return best_extension, best_details
 
     def _calculate_alignment_rate(
-        self,
-        extension: Set[str],
-        llm_validated: Set[str],
-        llm_defeated: Set[str]
+        self, extension: Set[str], llm_validated: Set[str], llm_defeated: Set[str]
     ) -> float:
         """Calculate alignment rate between extension and LLM judgment.
 
@@ -351,7 +357,9 @@ class BAFCalculator:
         """
         return self.collective_attacks
 
-    def validate_consistency(self, llm_validated: Set[str], llm_defeated: Set[str]) -> Dict:
+    def validate_consistency(
+        self, llm_validated: Set[str], llm_defeated: Set[str]
+    ) -> Dict:
         """Validate consistency of LLM judgment with BAF semantics.
 
         Checks if the LLM judgment is logically consistent according to BAF:
@@ -370,27 +378,33 @@ class BAFCalculator:
         overlap = llm_validated & llm_defeated
 
         if overlap:
-            issues.append({
-                "type": "overlap",
-                "message": f"Nodes marked as both VALIDATED and DEFEATED: {overlap}"
-            })
+            issues.append(
+                {
+                    "type": "overlap",
+                    "message": f"Nodes marked as both VALIDATED and DEFEATED: {overlap}",
+                }
+            )
 
         if not self.is_conflict_free(llm_validated):
-            issues.append({
-                "type": "internal_conflict",
-                "message": "VALIDATED nodes attack each other"
-            })
+            issues.append(
+                {
+                    "type": "internal_conflict",
+                    "message": "VALIDATED nodes attack each other",
+                }
+            )
 
         for node in llm_validated:
             if not self.defends(llm_validated, node):
-                issues.append({
-                    "type": "undefended",
-                    "message": f"VALIDATED node {node} is not defended"
-                })
+                issues.append(
+                    {
+                        "type": "undefended",
+                        "message": f"VALIDATED node {node} is not defended",
+                    }
+                )
 
         return {
             "is_consistent": len(issues) == 0,
             "issues": issues,
             "validated_count": len(llm_validated),
-            "defeated_count": len(llm_defeated)
+            "defeated_count": len(llm_defeated),
         }

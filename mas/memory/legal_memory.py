@@ -15,11 +15,12 @@ from typing import Dict, List, Set, Tuple
 import chromadb
 from chromadb.utils import embedding_functions
 
-from .common import LegalMessage, NodeStatus, NodeType, ShadowGraph
-from .config import SystemConfig
-from .memory_base import MASMemoryBase
-from .task_layer import TaskLayer
-from .utils import file_lock
+from tools.embedding import file_lock
+
+from ..config import SystemConfig
+from ..core.graph import LegalMessage, NodeStatus, NodeType, ShadowGraph
+from .base import MASMemoryBase
+from .topology import TaskLayer
 
 
 @dataclass

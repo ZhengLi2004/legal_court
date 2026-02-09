@@ -12,9 +12,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from .common import LegalMessage
-from .config import SystemConfig
-from .utils import EmbeddingFunc
+from tools.embedding import EmbeddingFunc
+
+from ..config import SystemConfig
+from ..core.graph import LegalMessage
 
 
 @dataclass

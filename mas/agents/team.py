@@ -18,10 +18,10 @@ from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
 from tools.json_utils import extract_json_from_text
 from tools.law_es_tool import LawEsTool
+from tools.llm import GPTChat
 
-from .common import ShadowGraph
-from .legal_system import LegalSystem
-from .llm import GPTChat
+from ..core.graph import ShadowGraph
+from ..core.system import LegalSystem
 
 
 class DebateTeam:

@@ -8,11 +8,11 @@ modifications.
 
 from typing import List, Union
 
-from mas.common import NodeType, ShadowGraph
-from mas.graph_ops import GraphExecutor
-from mas.legal_system import LegalSystem
-from mas.llm import LLMCallable
-from mas.schema import AgentAction
+from mas.analysis.executor import GraphExecutor
+from mas.core.graph import NodeType, ShadowGraph
+from mas.core.schemas import AgentAction
+from mas.core.system import LegalSystem
+from tools.llm import LLMCallable
 
 
 class GraphTool:

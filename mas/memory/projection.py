@@ -7,9 +7,10 @@ cases to inform its current strategy.
 
 from typing import List
 
-from .common import LegalMessage, ShadowGraph
-from .config import SystemConfig
-from .semantic_matcher import SemanticMatcher
+from tools.matcher import SemanticMatcher
+
+from ..config import SystemConfig
+from ..core.graph import LegalMessage, ShadowGraph
 
 
 class GraphProjector:

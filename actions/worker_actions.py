@@ -13,13 +13,13 @@ from typing import List
 from metagpt.actions import Action
 from metagpt.logs import logger
 
-from mas.common import ShadowGraph
-from mas.legal_system import LegalSystem
-from mas.utils import cosine_similarity
+from mas.core.graph import ShadowGraph
+from mas.core.system import LegalSystem
 from prompts.common_prompts import (
     ANALYZE_RECALL_PROMPT,
     DECOMPOSE_SEARCH_INTENT_PROMPT,
 )
+from tools.embedding import cosine_similarity
 from tools.json_utils import extract_json_from_text
 
 

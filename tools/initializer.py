@@ -12,13 +12,13 @@ from typing import List
 
 from metagpt.logs import logger
 
-from mas.llm import GPTChat, Message
 from prompts.common_prompts import (
     DECOMPOSE_FACTS_PROMPT,
     GENERATE_PERSONA_PROMPT,
     GENERATE_ROOT_CLAIM_PROMPT,
 )
 from tools.json_utils import extract_json_from_text
+from tools.llm import GPTChat, Message
 
 
 @dataclass

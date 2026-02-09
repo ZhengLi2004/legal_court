@@ -9,7 +9,7 @@ historical cases), and generating the final graph operations for a turn.
 
 from metagpt.actions import Action
 
-from mas.schema import AGENT_ACTION_SCHEMA_DESC
+from mas.core.schemas import AGENT_ACTION_SCHEMA_DESC
 from prompts.common_prompts import (
     ASSESS_FACT_NEEDS_PROMPT,
     ASSESS_LAW_NEEDS_PROMPT,

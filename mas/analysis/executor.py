@@ -8,15 +8,15 @@ a batch of actions either succeeds or fails as a whole).
 """
 
 import copy
-
-import networkx as nx
 from typing import Dict, List, Optional, Tuple
 
-from mas.schema import AgentAction, AgentActionType
+import networkx as nx
 
-from .common import EdgeAddResult, EdgeType, NodeType, ShadowGraph
-from .config import SystemConfig
-from .semantic_matcher import SemanticMatcher
+from mas.core.schemas import AgentAction, AgentActionType
+from tools.matcher import SemanticMatcher
+
+from ..config import SystemConfig
+from ..core.graph import EdgeAddResult, EdgeType, NodeType, ShadowGraph
 
 
 class GraphExecutor:
@@ -163,12 +163,14 @@ class GraphExecutor:
         Returns:
             True if adding the edge would create a cycle, False otherwise.
         """
-        if not self.graph.graph.has_node(source_id) or not self.graph.graph.has_node(target_id):
+        if not self.graph.graph.has_node(source_id) or not self.graph.graph.has_node(
+            target_id
+        ):
             return False
 
         try:
             return nx.has_path(self.graph.graph, target_id, source_id)
-        
+
         except nx.NetworkXError:
             return False
 

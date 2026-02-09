@@ -9,9 +9,11 @@ GUI is not available.
 """
 
 import asyncio
+
 from metagpt.logs import logger
-from mas.engine import DebateEngine
+
 from mas.config import SystemConfig
+from mas.core.engine import DebateEngine
 
 DATA_FILE = "data/sampling/cleaned_samples.jsonl"
 

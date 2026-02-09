@@ -10,10 +10,10 @@ from typing import List
 
 from metagpt.logs import logger
 
-from mas.common import ShadowGraph
-from mas.llm import GPTChat
-from mas.schema import AgentAction, AgentActionType
+from mas.core.graph import ShadowGraph
+from mas.core.schemas import AgentAction, AgentActionType
 from prompts.common_prompts import NARRATOR_POLISH_PROMPT
+from tools.llm import GPTChat
 
 
 class GraphNarrator:

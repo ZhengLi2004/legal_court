@@ -14,7 +14,7 @@ from typing import List, Literal, Optional, Protocol
 
 from openai import OpenAI
 
-from .config import SystemConfig
+from mas.config import SystemConfig
 
 _CONFIG = SystemConfig().llm
 completion_tokens, prompt_tokens = 0, 0

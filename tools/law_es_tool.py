@@ -6,7 +6,7 @@ configured specifically for querying an index of legal articles and statutes.
 
 from typing import Any, Dict, List
 
-from mas.utils import EmbeddingFunc
+from tools.embedding import EmbeddingFunc
 
 from .base_es_tool import BaseEsTool
 

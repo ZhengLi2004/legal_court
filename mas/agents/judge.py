@@ -16,10 +16,10 @@ from typing import Dict, List, Optional, Set, Tuple
 from metagpt.logs import logger
 
 from prompts.common_prompts import JUDGE_EVALUATE_PROMPT, JUDGE_EXTRACT_VERDICT_PROMPT
+from tools.llm import GPTChat, Message
 
-from .baf import BAFCalculator
-from .common import NodeStatus, ShadowGraph
-from .llm import GPTChat, Message
+from ..analysis.baf import BAFCalculator
+from ..core.graph import NodeStatus, ShadowGraph
 
 
 class BaseJudge(ABC):
@@ -198,7 +198,7 @@ class LLMJudge(BaseJudge):
         judgment_document: str,
         graph: ShadowGraph,
         use_baf: bool = True,
-        baf_config: Optional[Dict] = None
+        baf_config: Optional[Dict] = None,
     ) -> Tuple[Dict[str, NodeStatus], Optional[Dict]]:
         """Extract verdicts with BAF semantic verification.
 
@@ -226,13 +226,11 @@ class LLMJudge(BaseJudge):
         llm_verdict = await self.extract_verdict(judgment_document, graph)
 
         llm_validated = {
-            nid for nid, status in llm_verdict.items()
-            if status == NodeStatus.VALIDATED
+            nid for nid, status in llm_verdict.items() if status == NodeStatus.VALIDATED
         }
 
         llm_defeated = {
-            nid for nid, status in llm_verdict.items()
-            if status == NodeStatus.DEFEATED
+            nid for nid, status in llm_verdict.items() if status == NodeStatus.DEFEATED
         }
 
         logger.info(
@@ -263,7 +261,7 @@ class LLMJudge(BaseJudge):
             return llm_verdict, {
                 "baf_used": True,
                 "error": "No preferred extensions",
-                "consistency_report": consistency_report
+                "consistency_report": consistency_report,
             }
 
         best_extension, match_details = baf_calculator.match_with_llm_judgment(
@@ -288,7 +286,7 @@ class LLMJudge(BaseJudge):
             "chosen_extension": match_details.get("chosen_extension", []),
             "match_score": match_details.get("score", 0),
             "alignment_rate": match_details.get("alignment_rate", 0),
-            "fusion_corrections": self._count_corrections(llm_verdict, fusion_verdict)
+            "fusion_corrections": self._count_corrections(llm_verdict, fusion_verdict),
         }
 
         return fusion_verdict, baf_details
@@ -298,7 +296,7 @@ class LLMJudge(BaseJudge):
         llm_verdict: Dict[str, NodeStatus],
         baf_extension: Set[str],
         graph: ShadowGraph,
-        match_details: Dict
+        match_details: Dict,
     ) -> Dict[str, NodeStatus]:
         """Fuse LLM judgment with BAF preferred extension.
 
@@ -335,24 +333,21 @@ class LLMJudge(BaseJudge):
 
             elif llm_status == NodeStatus.DEFEATED and in_baf_extension:
                 logger.info(
-                    f"[Judge] BAF correction: {claim_id} was DEFEATED, "
-                    "now VALIDATED"
+                    f"[Judge] BAF correction: {claim_id} was DEFEATED, now VALIDATED"
                 )
 
                 fused_verdict[claim_id] = NodeStatus.VALIDATED
 
             elif llm_status == NodeStatus.VALIDATED and not in_baf_extension:
                 logger.info(
-                    f"[Judge] BAF correction: {claim_id} was VALIDATED, "
-                    "now DEFEATED"
+                    f"[Judge] BAF correction: {claim_id} was VALIDATED, now DEFEATED"
                 )
 
                 fused_verdict[claim_id] = NodeStatus.DEFEATED
 
             elif llm_status == NodeStatus.HYPOTHETICAL and in_baf_extension:
                 logger.info(
-                    f"[Judge] BAF inference: {claim_id} was UNMENTIONED, "
-                    "now VALIDATED"
+                    f"[Judge] BAF inference: {claim_id} was UNMENTIONED, now VALIDATED"
                 )
 
                 fused_verdict[claim_id] = NodeStatus.VALIDATED
@@ -363,9 +358,7 @@ class LLMJudge(BaseJudge):
         return fused_verdict
 
     def _count_corrections(
-        self,
-        llm_verdict: Dict[str, NodeStatus],
-        fused_verdict: Dict[str, NodeStatus]
+        self, llm_verdict: Dict[str, NodeStatus], fused_verdict: Dict[str, NodeStatus]
     ) -> Dict[str, int]:
         """Count corrections made by BAF.
 
@@ -383,13 +376,22 @@ class LLMJudge(BaseJudge):
         for claim_id, llm_status in llm_verdict.items():
             fused_status = fused_verdict.get(claim_id)
 
-            if llm_status == NodeStatus.VALIDATED and fused_status == NodeStatus.DEFEATED:
+            if (
+                llm_status == NodeStatus.VALIDATED
+                and fused_status == NodeStatus.DEFEATED
+            ):
                 validated_to_defeated += 1
 
-            elif llm_status == NodeStatus.DEFEATED and fused_status == NodeStatus.VALIDATED:
+            elif (
+                llm_status == NodeStatus.DEFEATED
+                and fused_status == NodeStatus.VALIDATED
+            ):
                 defeated_to_validated += 1
 
-            elif llm_status == NodeStatus.HYPOTHETICAL and fused_status == NodeStatus.VALIDATED:
+            elif (
+                llm_status == NodeStatus.HYPOTHETICAL
+                and fused_status == NodeStatus.VALIDATED
+            ):
                 hypothetical_to_validated += 1
 
         return {
@@ -397,15 +399,17 @@ class LLMJudge(BaseJudge):
             "defeated_to_validated": defeated_to_validated,
             "hypothetical_to_validated": hypothetical_to_validated,
             "total_corrections": (
-                validated_to_defeated + defeated_to_validated + hypothetical_to_validated
-            )
+                validated_to_defeated
+                + defeated_to_validated
+                + hypothetical_to_validated
+            ),
         }
 
     async def extract_verdict_wrapper(
         self,
         judgment_document: str,
         graph: ShadowGraph,
-        use_baf_semantics: bool = False
+        use_baf_semantics: bool = False,
     ) -> Tuple[Dict[str, NodeStatus], Optional[Dict]]:
         """Wrapper method for verdict extraction with optional BAF semantics.
 

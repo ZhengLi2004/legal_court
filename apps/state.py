@@ -10,7 +10,7 @@ from typing import Optional
 
 from data.loader import CaseDataLoader
 from mas.config import SystemConfig
-from mas.engine import DebateEngine
+from mas.core.engine import DebateEngine
 
 
 @dataclass

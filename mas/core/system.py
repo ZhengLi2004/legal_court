@@ -10,19 +10,19 @@ from typing import Dict, List, Tuple
 
 from metagpt.logs import logger
 
-from mas.schema import AgentAction
+from mas.core.schemas import AgentAction
+from tools.embedding import EmbeddingFunc, cosine_similarity
+from tools.llm import GPTChat
+from tools.matcher import SemanticMatcher
 
-from .backprop import BackPropagator
-from .common import LegalMessage, NodeStatus, NodeType, ShadowGraph
-from .config import SystemConfig
-from .graph_ops import GraphExecutor
-from .insights_manager import InsightsManager
-from .judge import LLMJudge
-from .legal_memory import LegalGMemory
-from .llm import GPTChat
-from .projection import GraphProjector
-from .semantic_matcher import SemanticMatcher
-from .utils import EmbeddingFunc, cosine_similarity
+from ..agents.judge import LLMJudge
+from ..analysis.backprop import BackPropagator
+from ..analysis.executor import GraphExecutor
+from ..config import SystemConfig
+from ..memory.insights import InsightsManager
+from ..memory.legal_memory import LegalGMemory
+from ..memory.projection import GraphProjector
+from .graph import LegalMessage, NodeStatus, NodeType, ShadowGraph
 
 
 class LegalSystem:

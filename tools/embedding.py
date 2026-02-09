@@ -18,7 +18,7 @@ import numpy as np
 import portalocker
 import yaml
 
-from .config import SystemConfig
+from mas.config import SystemConfig
 
 
 @contextlib.contextmanager

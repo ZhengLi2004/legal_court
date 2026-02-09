@@ -10,18 +10,18 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from metagpt.logs import logger
 
+from roles.controller import ControllerPipelineStep
 from tools.fact_es_tool import FactEsTool
 from tools.graph_tool import GraphTool
 from tools.initializer import CaseInitializer
 from tools.law_es_tool import LawEsTool
+from tools.llm import GPTChat
 
-from .common import EdgeType, NodeStatus, NodeType, ShadowGraph
-from .config import SystemConfig
-from .legal_system import LegalSystem
-from .llm import GPTChat
-from .narrator import GraphNarrator
-from .team import DebateTeam
-from roles.controller import ControllerPipelineStep
+from ..agents.narrator import GraphNarrator
+from ..agents.team import DebateTeam
+from ..config import SystemConfig
+from .graph import EdgeType, NodeStatus, NodeType, ShadowGraph
+from .system import LegalSystem
 
 
 class Turn(Enum):
@@ -170,9 +170,7 @@ class DebateEngine:
                     case_data = json.loads(f.readline())
 
             if case_data is None:
-                raise ValueError(
-                    "Either case_data_path or case_data must be provided."
-                )
+                raise ValueError("Either case_data_path or case_data must be provided.")
 
             self.raw_facts = case_data.get("fact_finding", "")
             cause = case_data.get("cause", ["未知案由"])
@@ -641,7 +639,7 @@ class DebateEngine:
 
         logger.info(">>> [Engine] Running BAF calculation...")
 
-        from .baf import BAFCalculator
+        from ..analysis.baf import BAFCalculator
 
         baf_calc = BAFCalculator(self.graph)
         preferred_extensions = baf_calc.find_preferred_extensions()
