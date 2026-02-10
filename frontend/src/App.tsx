@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@xyflow/react/dist/style.css";
-
 import { createCompatAdapter } from "./compat";
+
 import {
   DebugBundlePanel,
   GraphDiffPanel,
@@ -12,10 +12,14 @@ import {
 
 import type {
   DebateSnapshot,
+  DemoKeyframe,
+  DemoRunResult,
   DebugBundleView,
   GraphDiffView,
   GraphView,
+  MemoryInsightItem,
   MemoryView,
+  ReplayExportView,
   SnapshotIndexItem,
   TimelineEvent,
   TurnArtifact,
@@ -37,6 +41,12 @@ interface AuditRow {
   status: "accepted" | "rejected" | "unknown";
   axiom: string;
   reason: string;
+}
+
+interface MemoryRepresentativeChange {
+  content: string;
+  before: string[];
+  after: string[];
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -145,6 +155,26 @@ function App() {
   const [selectedTurnUid, setSelectedTurnUid] = useState<string>("");
   const [debugBundle, setDebugBundle] = useState<DebugBundleView | null>(null);
   const [debugBundleLoading, setDebugBundleLoading] = useState<boolean>(false);
+  const [demoRunning, setDemoRunning] = useState<boolean>(false);
+  const [demoResult, setDemoResult] = useState<DemoRunResult | null>(null);
+  const [demoKeyframes, setDemoKeyframes] = useState<DemoKeyframe[]>([]);
+
+  const [failureMode, setFailureMode] = useState<
+    "off" | "es_unavailable" | "llm_timeout"
+  >("off");
+
+  const [replayExport, setReplayExport] = useState<ReplayExportView | null>(
+    null,
+  );
+
+  const [memoryNewInsights, setMemoryNewInsights] = useState<string[]>([]);
+
+  const [memoryRetainedInsights, setMemoryRetainedInsights] = useState<
+    string[]
+  >([]);
+
+  const [memoryRepresentativeChanges, setMemoryRepresentativeChanges] =
+    useState<MemoryRepresentativeChange[]>([]);
 
   const [streamStatus, setStreamStatus] = useState<"idle" | "ws" | "poll">(
     "idle",
@@ -251,9 +281,38 @@ function App() {
     return rows.slice(-60).reverse();
   }, [turnArtifacts]);
 
+  const warningEvents = useMemo(
+    () => timeline.filter((row) => row.event === "session_warning"),
+    [timeline],
+  );
+
+  const latestWarningText = useMemo(() => {
+    if (!warningEvents.length) {
+      return "";
+    }
+
+    const latest = warningEvents[warningEvents.length - 1];
+    const payload = asRecord(latest.data);
+    const kind = asString(payload.kind);
+    const stage = asString(payload.stage);
+    const message = asString(payload.message);
+
+    return [stage, kind, message].filter(Boolean).join(" | ");
+  }, [warningEvents]);
+
   const appendLog = (message: string): void => {
     const row = `${new Date().toISOString()} ${message}`;
     setLogs((prev) => [row, ...prev].slice(0, 80));
+  };
+
+  const jumpToInsightReplay = async (
+    item: MemoryInsightItem,
+  ): Promise<void> => {
+    const linkedRound = Number.isFinite(item.linkedRound)
+      ? item.linkedRound
+      : 0;
+    await loadReplayRound(linkedRound);
+    appendLog(`memory insight jump: round=${linkedRound} | ${item.content}`);
   };
 
   const syncSnapshotIndex = (
@@ -456,10 +515,60 @@ function App() {
 
     try {
       const result = await adapter.insight.getMemory(sessionId);
+      const prevInsights = memoryView?.insightSummaries ?? [];
+      const previousInsightItems = memoryView?.insightItems ?? [];
+
+      const newInsights = result.insightSummaries.filter(
+        (item) => !prevInsights.includes(item),
+      );
+
+      const retainedInsights = result.insightSummaries.filter((item) =>
+        prevInsights.includes(item),
+      );
+
+      const previousRepresentatives = new Map<string, Set<string>>();
+
+      previousInsightItems.forEach((item) => {
+        previousRepresentatives.set(
+          item.content,
+          new Set(item.representatives),
+        );
+      });
+
+      const changedRepresentatives: MemoryRepresentativeChange[] = [];
+
+      result.insightItems.forEach((item) => {
+        const previous = previousRepresentatives.get(item.content);
+
+        if (!previous) {
+          return;
+        }
+
+        const current = new Set(item.representatives);
+        const isSameSize = previous.size === current.size;
+
+        const hasOnlyKnown = [...current].every((caseId) =>
+          previous.has(caseId),
+        );
+
+        if (!isSameSize || !hasOnlyKnown) {
+          changedRepresentatives.push({
+            content: item.content,
+            before: [...previous].sort(),
+            after: [...current].sort(),
+          });
+        }
+      });
+
       setMemoryView(result);
+      setMemoryNewInsights(newInsights);
+      setMemoryRetainedInsights(retainedInsights);
+      setMemoryRepresentativeChanges(changedRepresentatives);
 
       if (!silent) {
-        appendLog(`loadMemory: insights=${result.insightSummaries.length}`);
+        appendLog(
+          `loadMemory: insights=${result.insightSummaries.length}, changed-representatives=${changedRepresentatives.length}`,
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -592,10 +701,15 @@ function App() {
     }
   };
 
-  const loadReplayRound = async (): Promise<void> => {
+  const loadReplayRound = async (targetRound?: number): Promise<void> => {
     if (!sessionId) {
       return;
     }
+
+    const resolvedRound =
+      typeof targetRound === "number" && Number.isFinite(targetRound)
+        ? targetRound
+        : replayToRound;
 
     setBusyAction("loadReplayRound");
     setError("");
@@ -603,13 +717,14 @@ function App() {
     try {
       const graph = await adapter.graph.getGraphAtRound(
         sessionId,
-        replayToRound,
+        resolvedRound,
       );
 
       setGraphView(graph);
+      setReplayToRound(resolvedRound);
 
       appendLog(
-        `loadReplayRound: round=${replayToRound}, nodes=${graph.nodes.length}, edges=${graph.edges.length}`,
+        `loadReplayRound: round=${resolvedRound}, nodes=${graph.nodes.length}, edges=${graph.edges.length}`,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -673,6 +788,202 @@ function App() {
       }
     } finally {
       setDebugBundleLoading(false);
+    }
+  };
+
+  const loadDemoKeyframes = async (
+    options: { silent?: boolean } = {},
+  ): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    const silent = options.silent === true;
+
+    if (!silent) {
+      setBusyAction("loadDemoKeyframes");
+    }
+
+    try {
+      const rows = await adapter.insight.getDemoKeyframes(sessionId);
+      setDemoKeyframes(rows);
+
+      if (!silent) {
+        appendLog(`loadDemoKeyframes: items=${rows.length}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+
+      if (!silent) {
+        setError(message);
+        appendLog(`loadDemoKeyframes failed: ${message}`);
+      }
+    } finally {
+      if (!silent) {
+        setBusyAction("");
+      }
+    }
+  };
+
+  const runDemo = async (): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    setBusyAction("runDemo");
+    setError("");
+    setDemoRunning(true);
+
+    try {
+      const result = await adapter.insight.runDemo(sessionId, {
+        maxSteps: 20,
+        autoAdjudicate: true,
+        captureKeyframes: true,
+      });
+
+      setDemoResult(result);
+      setDemoKeyframes(result.keyframes);
+
+      appendLog(
+        `runDemo: steps=${result.stepsExecuted}, endedBy=${result.endedBy}, keyframes=${result.keyframes.length}`,
+      );
+
+      const refreshed = await adapter.getSnapshot(sessionId);
+      setPreviousSnapshot(snapshot);
+      setSnapshot(refreshed);
+
+      await Promise.all([
+        loadSnapshots({ silent: true }),
+        loadGraph({ silent: true }),
+        loadMemory({ silent: true }),
+        loadTurnArtifacts({ silent: true }),
+        loadDebugBundle({ silent: true }),
+      ]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      appendLog(`runDemo failed: ${message}`);
+    } finally {
+      setDemoRunning(false);
+      setBusyAction("");
+    }
+  };
+
+  const jumpToKeyframe = async (frame: DemoKeyframe): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    setReplayToRound(frame.round);
+
+    try {
+      const graph = await adapter.graph.getGraphAtRound(sessionId, frame.round);
+      setGraphView(graph);
+
+      if (frame.turnUid) {
+        setSelectedTurnUid(frame.turnUid);
+        await loadTurnArtifacts({ silent: true, turnUid: frame.turnUid });
+      }
+
+      appendLog(
+        `jumpToKeyframe: ${frame.reason} round=${frame.round} turn=${frame.turnUid || "-"}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      appendLog(`jumpToKeyframe failed: ${message}`);
+    }
+  };
+
+  const setFailureSimulationMode = async (
+    mode: "off" | "es_unavailable" | "llm_timeout",
+  ): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    setBusyAction("setFailureSimulation");
+
+    try {
+      await adapter.insight.setFailureSimulation(
+        sessionId,
+        "es_unavailable",
+        mode === "es_unavailable",
+      );
+
+      await adapter.insight.setFailureSimulation(
+        sessionId,
+        "llm_timeout",
+        mode === "llm_timeout",
+      );
+
+      setFailureMode(mode);
+      appendLog(`setFailureSimulation: mode=${mode}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      appendLog(`setFailureSimulation failed: ${message}`);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const exportReplayJson = async (): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    setBusyAction("exportReplayJson");
+
+    try {
+      const summary = await adapter.insight.exportReplayJson(sessionId);
+      setReplayExport(summary);
+      const content = JSON.stringify(summary.raw ?? summary, null, 2);
+      const blob = new Blob([content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${sessionId}-replay.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+
+      appendLog(
+        `exportReplayJson: events=${summary.eventCount}, artifacts=${summary.artifactCount}, snapshots=${summary.snapshotCount}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      appendLog(`exportReplayJson failed: ${message}`);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const exportGraphGexf = async (): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    setBusyAction("exportGraphGexf");
+
+    try {
+      const blob = await adapter.insight.exportGraphGexf(
+        sessionId,
+        replayToRound,
+      );
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${sessionId}-round-${replayToRound}.gexf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      appendLog(`exportGraphGexf: round=${replayToRound}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      appendLog(`exportGraphGexf failed: ${message}`);
+    } finally {
+      setBusyAction("");
     }
   };
 
@@ -745,6 +1056,7 @@ function App() {
     void loadMemory({ silent: true });
     void loadTurnArtifacts({ silent: true });
     void loadDebugBundle({ silent: true });
+    void loadDemoKeyframes({ silent: true });
   }, [sessionId]);
 
   useEffect(() => {
@@ -759,6 +1071,7 @@ function App() {
     void loadMemory({ silent: true });
     void loadTurnArtifacts({ silent: true });
     void loadDebugBundle({ silent: true });
+    void loadDemoKeyframes({ silent: true });
 
     if (round > 0) {
       void loadDiffWithRounds(fromRound, round, "autoLoadDiff", {
@@ -966,6 +1279,34 @@ function App() {
         >
           Load Debug Bundle
         </button>
+
+        <button
+          disabled={Boolean(busyAction) || !sessionId || demoRunning}
+          onClick={() => void runDemo()}
+        >
+          Run Demo
+        </button>
+
+        <button
+          disabled={Boolean(busyAction) || !sessionId}
+          onClick={() => void loadDemoKeyframes()}
+        >
+          Load Keyframes
+        </button>
+
+        <button
+          disabled={Boolean(busyAction) || !sessionId}
+          onClick={() => void exportReplayJson()}
+        >
+          Export Replay JSON
+        </button>
+
+        <button
+          disabled={Boolean(busyAction) || !sessionId}
+          onClick={() => void exportGraphGexf()}
+        >
+          Export Graph GEXF
+        </button>
       </section>
 
       {busyAction && <p className="hint">running: {busyAction}</p>}
@@ -1034,7 +1375,10 @@ function App() {
           </p>
 
           <p className="line">
-            memory insights: {memoryView?.insightSummaries.length ?? "-"}
+            memory insights:{" "}
+            {memoryView?.insightItems.length ??
+              memoryView?.insightSummaries.length ??
+              "-"}
           </p>
 
           <p className="line">timeline events: {timeline.length || "-"}</p>
@@ -1101,21 +1445,241 @@ function App() {
           <p className="line">
             static={memoryView?.staticHistoryCount ?? "-"}, dynamic-law=
             {memoryView?.dynamicLawCaseCount ?? "-"}, task-layer-nodes=
-            {memoryView?.taskLayerNodeCount ?? "-"}
+            {memoryView?.taskLayerNodeCount ?? "-"}, task-layer-edges=
+            {memoryView?.taskLayerEdgeCount ?? "-"}
+          </p>
+
+          <p className="line">
+            representative cases:{" "}
+            {memoryView?.representativeCaseIds.length ?? 0}
           </p>
 
           <div className="scrollbox">
-            {memoryView?.insightSummaries.length ? (
-              memoryView.insightSummaries.map((line, idx) => (
-                <p className="log" key={`${line}-${idx}`}>
-                  {line}
-                </p>
+            {memoryView?.insightItems.length ? (
+              memoryView.insightItems.map((item, idx) => (
+                <div className="log" key={`memory-preview-${idx}`}>
+                  <p className="line">
+                    [{item.side}] {item.content}
+                  </p>
+
+                  <p className="line">
+                    reps({item.representativeCount}):{" "}
+                    {item.representatives.join(", ") || "-"}
+                  </p>
+                </div>
               ))
             ) : (
               <p className="hint">
                 No insight summaries yet (this can be normal before enough
                 rounds accumulate).
               </p>
+            )}
+          </div>
+        </article>
+
+        <article className="card wide">
+          <h2>Memory Deep View</h2>
+
+          <div className="memory-grid">
+            <section className="memory-pane">
+              <h3>Insights Layer</h3>
+              <p className="line">new: {memoryNewInsights.length}</p>
+              <p className="line">retained: {memoryRetainedInsights.length}</p>
+
+              <p className="line">
+                representative changed: {memoryRepresentativeChanges.length}
+              </p>
+
+              <div className="scrollbox">
+                {memoryView?.insightItems.length ? (
+                  memoryView.insightItems.map((item, idx) => {
+                    const isNew = memoryNewInsights.includes(item.content);
+
+                    return (
+                      <button
+                        className={`timeline-row ${isNew ? "timeline-row-selected" : ""}`}
+                        key={`memory-insight-${idx}`}
+                        onClick={() => {
+                          void jumpToInsightReplay(item);
+                        }}
+                        type="button"
+                      >
+                        <span>{item.side}</span>
+                        <span>{item.content}</span>
+                        <span>r{item.linkedRound}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="hint">No insights this round.</p>
+                )}
+              </div>
+            </section>
+
+            <section className="memory-pane">
+              <h3>TaskLayer Layer</h3>
+
+              <p className="line">
+                node_count: {memoryView?.taskLayerNodeCount ?? "-"}
+              </p>
+
+              <p className="line">
+                edge_count: {memoryView?.taskLayerEdgeCount ?? "-"}
+              </p>
+
+              <p className="line">
+                static_history_count: {memoryView?.staticHistoryCount ?? "-"}
+              </p>
+
+              <p className="line">
+                dynamic_law_case_count: {memoryView?.dynamicLawCaseCount ?? "-"}
+              </p>
+
+              <div className="scrollbox">
+                {memoryRepresentativeChanges.length ? (
+                  memoryRepresentativeChanges.map((item, idx) => (
+                    <div className="audit-row" key={`rep-change-${idx}`}>
+                      <p className="audit-head">{item.content}</p>
+
+                      <p className="audit-reason">
+                        before: {item.before.join(", ") || "-"}
+                      </p>
+
+                      <p className="audit-reason">
+                        after: {item.after.join(", ") || "-"}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="hint">No representative-case changes.</p>
+                )}
+              </div>
+            </section>
+
+            <section className="memory-pane">
+              <h3>Case Snapshots Layer</h3>
+              <p className="line">click one round to jump replay context</p>
+
+              <div className="scrollbox">
+                {(memoryView?.caseSnapshots.length
+                  ? memoryView.caseSnapshots
+                  : snapshotIndex
+                ).length ? (
+                  (memoryView?.caseSnapshots.length
+                    ? memoryView.caseSnapshots.map((item) => ({
+                        round: item.round,
+                        turn: item.turn,
+                        nodeCount: item.nodeCount,
+                        edgeCount: item.edgeCount,
+                      }))
+                    : snapshotIndex
+                  ).map((item) => (
+                    <button
+                      className="timeline-row"
+                      key={`memory-round-${item.round}`}
+                      onClick={() => {
+                        void loadReplayRound(item.round);
+                      }}
+                      type="button"
+                    >
+                      <span>r{item.round}</span>
+                      <span>{item.turn || "unknown"}</span>
+
+                      <span>
+                        N{item.nodeCount}/E{item.edgeCount}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="hint">No snapshot index yet.</p>
+                )}
+              </div>
+            </section>
+          </div>
+        </article>
+
+        <article className="card wide">
+          <h2>Demo Mode & Failure Simulation</h2>
+
+          <div className="sub-actions">
+            <button
+              disabled={Boolean(busyAction) || !sessionId || demoRunning}
+              onClick={() => void runDemo()}
+              type="button"
+            >
+              {demoRunning ? "Running Demo..." : "Run Demo"}
+            </button>
+
+            <button
+              disabled={Boolean(busyAction) || !sessionId}
+              onClick={() => void loadDemoKeyframes()}
+              type="button"
+            >
+              Refresh Keyframes
+            </button>
+
+            <label className="graph-control">
+              Failure Mode
+              <select
+                value={failureMode}
+                onChange={(event) =>
+                  void setFailureSimulationMode(
+                    event.target.value as
+                      | "off"
+                      | "es_unavailable"
+                      | "llm_timeout",
+                  )
+                }
+              >
+                <option value="off">off</option>
+                <option value="es_unavailable">es_unavailable</option>
+                <option value="llm_timeout">llm_timeout</option>
+              </select>
+            </label>
+          </div>
+
+          <p className="line">
+            demo status: {demoResult?.status ?? "-"} | endedBy:{" "}
+            {demoResult?.endedBy ?? "-"} | steps:{" "}
+            {demoResult?.stepsExecuted ?? "-"}
+          </p>
+
+          <p className="line">
+            failure mode: {failureMode} | warnings: {warningEvents.length}
+          </p>
+
+          {latestWarningText ? (
+            <p className="error">latest warning: {latestWarningText}</p>
+          ) : null}
+
+          {replayExport ? (
+            <p className="line">
+              latest export: events={replayExport.eventCount}, artifacts=
+              {replayExport.artifactCount}, snapshots=
+              {replayExport.snapshotCount}
+            </p>
+          ) : null}
+
+          <div className="scrollbox">
+            {demoKeyframes.length ? (
+              [...demoKeyframes]
+                .sort((a, b) => a.round - b.round || a.ts - b.ts)
+                .map((frame, idx) => (
+                  <button
+                    className="timeline-row"
+                    key={`${frame.reason}-${idx}-${frame.round}`}
+                    onClick={() => {
+                      void jumpToKeyframe(frame);
+                    }}
+                    type="button"
+                  >
+                    <span>r{frame.round}</span>
+                    <span>{frame.reason || frame.event}</span>
+                    <span>{frame.turnUid || "-"}</span>
+                  </button>
+                ))
+            ) : (
+              <p className="hint">No demo keyframes yet.</p>
             )}
           </div>
         </article>

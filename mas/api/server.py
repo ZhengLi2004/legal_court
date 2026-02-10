@@ -35,6 +35,21 @@ class SetupSessionRequest(BaseModel):
     case_data: Optional[Dict[str, Any]] = Field(default=None)
 
 
+class DemoRunRequest(BaseModel):
+    """Request body for demo run endpoint."""
+
+    max_steps: int = Field(default=20, ge=1, le=500)
+    auto_adjudicate: bool = Field(default=True)
+    capture_keyframes: bool = Field(default=True)
+
+
+class FailureSimulationRequest(BaseModel):
+    """Request body for failure simulation endpoint."""
+
+    kind: str = Field(pattern="^(es_unavailable|llm_timeout)$")
+    enabled: bool = Field(default=True)
+
+
 def _default_case_file() -> Path:
     return (
         Path(__file__).resolve().parents[2]
@@ -408,6 +423,98 @@ def create_app(
                 event_limit=event_limit,
                 include_snapshot=include_snapshot,
                 include_artifact=include_artifact,
+            )
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/v1/sessions/{session_id}/demo/run")
+    async def run_demo(
+        session_id: str,
+        body: Optional[DemoRunRequest] = None,
+    ) -> Dict[str, Any]:
+        payload = body or DemoRunRequest()
+
+        try:
+            return await manager.run_demo_session(
+                session_id=session_id,
+                max_steps=payload.max_steps,
+                auto_adjudicate=payload.auto_adjudicate,
+                capture_keyframes=payload.capture_keyframes,
+            )
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Demo run failed: {exc}"
+            ) from exc
+
+    @app.get("/api/v1/sessions/{session_id}/demo/keyframes")
+    async def get_demo_keyframes(session_id: str) -> Dict[str, Any]:
+        try:
+            rows = manager.get_demo_keyframes(session_id=session_id)
+            return {"items": rows, "total": len(rows)}
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/v1/sessions/{session_id}/simulate/failure")
+    async def set_failure_simulation(
+        session_id: str,
+        body: FailureSimulationRequest,
+    ) -> Dict[str, Any]:
+        try:
+            return manager.set_failure_simulation(
+                session_id=session_id,
+                kind=body.kind,
+                enabled=body.enabled,
+            )
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/v1/sessions/{session_id}/export/replay.json")
+    async def export_replay_json(
+        session_id: str,
+        events_limit: int = Query(5000, ge=1, le=50000),
+        artifacts_limit: int = Query(5000, ge=1, le=50000),
+    ) -> Dict[str, Any]:
+        try:
+            return manager.export_replay_bundle(
+                session_id=session_id,
+                include_events_limit=events_limit,
+                include_artifacts_limit=artifacts_limit,
+            )
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/v1/sessions/{session_id}/export/graph.gexf")
+    async def export_graph_gexf(
+        session_id: str,
+        round_idx: Optional[int] = Query(default=None, ge=0),
+    ) -> Response:
+        try:
+            payload = manager.export_graph_gexf(
+                session_id=session_id,
+                round_idx=round_idx,
+            )
+
+            filename = (
+                f"{session_id}-round-{round_idx}.gexf"
+                if round_idx is not None
+                else f"{session_id}.gexf"
+            )
+
+            return Response(
+                content=payload,
+                media_type="application/gexf+xml",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
 
         except KeyError as exc:

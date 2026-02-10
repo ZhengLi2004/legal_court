@@ -1,6 +1,9 @@
 import {
   normalizeDebugBundle,
+  normalizeDemoKeyframes,
+  normalizeDemoRunResult,
   normalizeMemory,
+  normalizeReplayExport,
   normalizeTimeline,
   normalizeTurnArtifacts,
 } from "../protocol";
@@ -9,9 +12,12 @@ import { withQuery } from "../client";
 import type { CompatClient } from "../client";
 
 import type {
+  DemoKeyframe,
+  DemoRunResult,
   DebugBundleView,
   InsightAdapter,
   MemoryView,
+  ReplayExportView,
   SessionAdapter,
   TimelineEvent,
   TurnArtifact,
@@ -245,5 +251,112 @@ export class InsightDomainAdapter implements InsightAdapter {
         sessionId,
       );
     }
+  }
+
+  async runDemo(
+    sessionId: string,
+    options: {
+      maxSteps?: number;
+      autoAdjudicate?: boolean;
+      captureKeyframes?: boolean;
+    } = {},
+  ): Promise<DemoRunResult> {
+    const raw = await this.client.callWithCandidates([
+      {
+        method: "POST",
+        path: `/api/v1/sessions/${sessionId}/demo/run`,
+        body: {
+          max_steps: options.maxSteps ?? 20,
+          auto_adjudicate: options.autoAdjudicate ?? true,
+          capture_keyframes: options.captureKeyframes ?? true,
+        },
+      },
+    ]);
+
+    return normalizeDemoRunResult(raw, sessionId);
+  }
+
+  async getDemoKeyframes(sessionId: string): Promise<DemoKeyframe[]> {
+    const raw = await this.client.callWithCandidates([
+      {
+        method: "GET",
+        path: `/api/v1/sessions/${sessionId}/demo/keyframes`,
+      },
+    ]);
+
+    return normalizeDemoKeyframes(raw);
+  }
+
+  async setFailureSimulation(
+    sessionId: string,
+    kind: "es_unavailable" | "llm_timeout",
+    enabled: boolean,
+  ): Promise<{
+    sessionId: string;
+    failureSimulation: Record<string, boolean>;
+  }> {
+    const raw = await this.client.callWithCandidates([
+      {
+        method: "POST",
+        path: `/api/v1/sessions/${sessionId}/simulate/failure`,
+        body: { kind, enabled },
+      },
+    ]);
+
+    const row =
+      raw !== null && typeof raw === "object"
+        ? (raw as Record<string, unknown>)
+        : {};
+
+    const failureRaw = row.failure_simulation;
+
+    const failureSimulation =
+      failureRaw !== null && typeof failureRaw === "object"
+        ? (failureRaw as Record<string, boolean>)
+        : {};
+
+    return {
+      sessionId:
+        typeof row.session_id === "string"
+          ? row.session_id
+          : typeof row.sessionId === "string"
+            ? row.sessionId
+            : sessionId,
+      failureSimulation,
+    };
+  }
+
+  async exportReplayJson(sessionId: string): Promise<ReplayExportView> {
+    const raw = await this.client.callWithCandidates([
+      {
+        method: "GET",
+        path: `/api/v1/sessions/${sessionId}/export/replay.json`,
+      },
+    ]);
+
+    return normalizeReplayExport(raw, sessionId);
+  }
+
+  async exportGraphGexf(sessionId: string, round?: number): Promise<Blob> {
+    if (this.client.transportKind === "mock") {
+      const mockPayload =
+        '<?xml version="1.0" encoding="UTF-8"?>\n<gexf version="1.2"><graph mode="static" defaultedgetype="directed"></graph></gexf>';
+
+      return new Blob([mockPayload], { type: "application/gexf+xml" });
+    }
+
+    const query =
+      typeof round === "number" && Number.isFinite(round)
+        ? `?round_idx=${Math.max(0, Math.floor(round))}`
+        : "";
+
+    const url = `${this.client.baseUrl}/api/v1/sessions/${sessionId}/export/graph.gexf${query}`;
+    const response = await fetch(url, { method: "GET" });
+
+    if (!response.ok) {
+      throw new Error(`exportGraphGexf failed: HTTP ${response.status}`);
+    }
+
+    return await response.blob();
   }
 }

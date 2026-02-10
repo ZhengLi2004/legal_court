@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import time
 import uuid
@@ -10,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+import networkx as nx
 
 
 def utc_now_iso() -> str:
@@ -141,6 +144,11 @@ class DebateSession:
     next_seq: int = 1
     event_subscribers: List[asyncio.Queue] = field(default_factory=list)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    demo_keyframes: List[Dict[str, Any]] = field(default_factory=list)
+
+    failure_simulation: Dict[str, bool] = field(
+        default_factory=lambda: {"es_unavailable": False, "llm_timeout": False}
+    )
 
 
 class SessionManager:
@@ -258,6 +266,30 @@ class SessionManager:
                 return session
 
             try:
+                if session.failure_simulation.get("es_unavailable", False):
+                    self._record_event(
+                        session_id,
+                        event="session_warning",
+                        source="api",
+                        data={
+                            "stage": "step",
+                            "kind": "es_unavailable",
+                            "message": "Simulated ES unavailable; degrade continue",
+                        },
+                    )
+
+                if session.failure_simulation.get("llm_timeout", False):
+                    self._record_event(
+                        session_id,
+                        event="session_warning",
+                        source="api",
+                        data={
+                            "stage": "step",
+                            "kind": "llm_timeout",
+                            "message": "Simulated LLM timeout; degrade continue",
+                        },
+                    )
+
                 await session.engine.step()
                 session.last_error = ""
                 session.status = self._derive_status(session.engine)
@@ -290,6 +322,18 @@ class SessionManager:
                 return session
 
             try:
+                if session.failure_simulation.get("llm_timeout", False):
+                    self._record_event(
+                        session_id,
+                        event="session_warning",
+                        source="api",
+                        data={
+                            "stage": "adjudicate",
+                            "kind": "llm_timeout",
+                            "message": "Simulated LLM timeout flag enabled",
+                        },
+                    )
+
                 await session.engine.adjudicate()
                 session.last_error = ""
                 session.status = self._derive_status(session.engine)
@@ -408,6 +452,375 @@ class SessionManager:
             return getter(turn_uid=turn_uid, limit=limit)
 
         return []
+
+    def set_failure_simulation(
+        self, session_id: str, kind: str, enabled: bool
+    ) -> Dict[str, Any]:
+        """Enable or disable per-session failure simulation flags."""
+        session = self.get_session(session_id)
+        key = str(kind).strip().lower()
+
+        if key not in {"es_unavailable", "llm_timeout"}:
+            raise ValueError(f"Unsupported failure kind: {kind}")
+
+        session.failure_simulation[key] = bool(enabled)
+        session.updated_at = utc_now_iso()
+
+        self._record_event(
+            session_id=session_id,
+            event="failure_simulation_set",
+            source="api",
+            data={"kind": key, "enabled": bool(enabled)},
+        )
+
+        return {
+            "session_id": session_id,
+            "failure_simulation": dict(session.failure_simulation),
+            "updated_at": session.updated_at,
+        }
+
+    def _graph_data_for_export(
+        self, session: DebateSession, round_idx: Optional[int] = None
+    ) -> Dict[str, Any]:
+        snapshots = getattr(session.engine, "round_snapshots", [])
+
+        if isinstance(round_idx, int) and isinstance(snapshots, list):
+            if 0 <= round_idx < len(snapshots):
+                row = snapshots[round_idx]
+
+                if isinstance(row, dict):
+                    graph_data = row.get("graph_data", {})
+
+                    if isinstance(graph_data, dict):
+                        return graph_data
+
+        getter = getattr(session.engine, "get_serializable_snapshot", None)
+
+        if callable(getter):
+            payload = getter()
+
+            if isinstance(payload, dict):
+                graph_data = payload.get("graph_data", {})
+
+                if isinstance(graph_data, dict):
+                    return graph_data
+
+        return {"nodes": [], "edges": []}
+
+    def export_graph_gexf(
+        self, session_id: str, round_idx: Optional[int] = None
+    ) -> bytes:
+        """Export current or historical graph as GEXF bytes."""
+        session = self.get_session(session_id)
+        graph_data = self._graph_data_for_export(session, round_idx=round_idx)
+        graph = nx.DiGraph()
+
+        for node in graph_data.get("nodes", []):
+            if not isinstance(node, dict):
+                continue
+
+            node_id = str(node.get("id", "")).strip()
+
+            if not node_id:
+                continue
+
+            attrs: Dict[str, Any] = {}
+
+            for key, value in node.items():
+                if key == "id":
+                    continue
+
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    attrs[str(key)] = value
+
+                else:
+                    attrs[str(key)] = json.dumps(
+                        _to_json_safe(value), ensure_ascii=False
+                    )
+
+            graph.add_node(node_id, **attrs)
+
+        for edge in graph_data.get("edges", []):
+            if not isinstance(edge, dict):
+                continue
+
+            source = str(edge.get("source", "")).strip()
+            target = str(edge.get("target", "")).strip()
+
+            if not source or not target:
+                continue
+
+            attrs = {}
+
+            for key, value in edge.items():
+                if key in {"source", "target"}:
+                    continue
+
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    attrs[str(key)] = value
+
+                else:
+                    attrs[str(key)] = json.dumps(
+                        _to_json_safe(value), ensure_ascii=False
+                    )
+
+            graph.add_edge(source, target, **attrs)
+
+        buffer = io.BytesIO()
+        nx.write_gexf(graph, buffer, encoding="utf-8")
+        return buffer.getvalue()
+
+    def export_replay_bundle(
+        self,
+        session_id: str,
+        include_events_limit: int = 5000,
+        include_artifacts_limit: int = 5000,
+    ) -> Dict[str, Any]:
+        """Export a complete replay bundle for offline analysis."""
+        session = self.get_session(session_id)
+        getter = getattr(session.engine, "get_serializable_snapshot", None)
+        snapshot_payload = getter() if callable(getter) else {}
+
+        if not isinstance(snapshot_payload, dict):
+            snapshot_payload = {}
+
+        snapshots = getattr(session.engine, "round_snapshots", [])
+
+        if not isinstance(snapshots, list):
+            snapshots = []
+
+        events = self.get_event_history(
+            session_id=session_id,
+            limit=max(1, int(include_events_limit)),
+        )
+
+        artifacts = self.get_turn_artifacts(
+            session_id=session_id,
+            turn_uid=None,
+            limit=max(1, int(include_artifacts_limit)),
+        )
+
+        return {
+            "session": {
+                "session_id": session.session_id,
+                "status": session.status,
+                "created_at": session.created_at,
+                "updated_at": session.updated_at,
+                "failure_simulation": dict(session.failure_simulation),
+            },
+            "snapshot": snapshot_payload,
+            "snapshot_index": self.get_snapshot_index(session_id),
+            "snapshots": _to_json_safe(snapshots),
+            "events": events,
+            "turn_artifacts": _to_json_safe(artifacts),
+            "debug_bundle": self.build_debug_bundle(
+                session_id=session_id,
+                event_limit=50,
+                include_snapshot=True,
+                include_artifact=True,
+            ),
+            "metadata": {
+                "generated_at": utc_now_iso(),
+                "event_count": len(events),
+                "artifact_count": len(artifacts),
+                "snapshot_count": len(snapshots),
+            },
+        }
+
+    def _make_keyframe(
+        self,
+        session_id: str,
+        event: str,
+        reason: str,
+        round_idx: Optional[int],
+        turn_uid: str,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        payload = {
+            "session_id": session_id,
+            "event": event,
+            "reason": reason,
+            "round_idx": int(round_idx or 0),
+            "turn_uid": turn_uid,
+            "ts_ms": int(time.time() * 1000),
+        }
+
+        if extra:
+            payload["data"] = _to_json_safe(extra)
+
+        return payload
+
+    async def run_demo_session(
+        self,
+        session_id: str,
+        max_steps: int = 20,
+        auto_adjudicate: bool = True,
+        capture_keyframes: bool = True,
+    ) -> Dict[str, Any]:
+        """Run a deterministic demo loop and capture keyframes."""
+        session = self.get_session(session_id)
+
+        if session.status == "CREATED":
+            await self.setup_session(session_id)
+
+        keyframes: List[Dict[str, Any]] = []
+        seen_reasons: set[str] = set()
+        first_conflict_seen = False
+        first_retry_seen = False
+        steps_executed = 0
+        ended_by = "max_steps"
+
+        if capture_keyframes:
+            keyframes.append(
+                self._make_keyframe(
+                    session_id=session_id,
+                    event="demo_start",
+                    reason="demo_start",
+                    round_idx=getattr(session.engine, "round_idx", 0),
+                    turn_uid=session.last_turn_uid,
+                )
+            )
+
+        for _ in range(max(1, int(max_steps))):
+            engine = session.engine
+
+            if getattr(engine, "is_finished", False):
+                ended_by = "finished"
+                break
+
+            if getattr(engine, "is_ready_for_adjudication", False):
+                if capture_keyframes and "ready_for_adjudication" not in seen_reasons:
+                    keyframes.append(
+                        self._make_keyframe(
+                            session_id=session_id,
+                            event="adjudication_ready",
+                            reason="ready_for_adjudication",
+                            round_idx=getattr(engine, "round_idx", 0),
+                            turn_uid=session.last_turn_uid,
+                        )
+                    )
+
+                    seen_reasons.add("ready_for_adjudication")
+
+                if auto_adjudicate:
+                    await self.adjudicate_session(session_id)
+                    steps_executed += 1
+                    ended_by = "adjudicated"
+
+                    if capture_keyframes:
+                        keyframes.append(
+                            self._make_keyframe(
+                                session_id=session_id,
+                                event="adjudication_complete",
+                                reason="adjudication_complete",
+                                round_idx=getattr(session.engine, "round_idx", 0),
+                                turn_uid=session.last_turn_uid,
+                            )
+                        )
+
+                    break
+
+                ended_by = "ready_for_adjudication"
+                break
+
+            await self.step_session(session_id)
+            steps_executed += 1
+            engine = session.engine
+            current_round = int(getattr(engine, "round_idx", 0))
+            turn_uid = session.last_turn_uid
+
+            if (
+                capture_keyframes
+                and current_round == 1
+                and "first_round" not in seen_reasons
+            ):
+                keyframes.append(
+                    self._make_keyframe(
+                        session_id=session_id,
+                        event="turn_complete",
+                        reason="first_round",
+                        round_idx=current_round,
+                        turn_uid=turn_uid,
+                    )
+                )
+
+                seen_reasons.add("first_round")
+
+            snapshot_getter = getattr(engine, "get_serializable_snapshot", None)
+            graph_stats = {}
+
+            if callable(snapshot_getter):
+                snap = snapshot_getter()
+
+                if isinstance(snap, dict):
+                    row = snap.get("graph_stats", {})
+
+                    if isinstance(row, dict):
+                        graph_stats = row
+
+            conflict_count = int(graph_stats.get("edge_conflict_count", 0) or 0)
+
+            if capture_keyframes and conflict_count > 0 and not first_conflict_seen:
+                keyframes.append(
+                    self._make_keyframe(
+                        session_id=session_id,
+                        event="turn_complete",
+                        reason="first_conflict_edge",
+                        round_idx=current_round,
+                        turn_uid=turn_uid,
+                        extra={"conflict_count": conflict_count},
+                    )
+                )
+
+                first_conflict_seen = True
+
+            artifacts = self.get_turn_artifacts(session_id, limit=1)
+
+            if (
+                capture_keyframes
+                and artifacts
+                and not first_retry_seen
+                and isinstance(artifacts[-1], dict)
+            ):
+                retry_history = artifacts[-1].get("retry_history", [])
+
+                if isinstance(retry_history, list) and len(retry_history) > 0:
+                    keyframes.append(
+                        self._make_keyframe(
+                            session_id=session_id,
+                            event="turn_complete",
+                            reason="first_retry",
+                            round_idx=current_round,
+                            turn_uid=turn_uid,
+                            extra={"retry_count": len(retry_history)},
+                        )
+                    )
+
+                    first_retry_seen = True
+
+        session.demo_keyframes = keyframes
+        session.updated_at = utc_now_iso()
+
+        return {
+            "session": {
+                "session_id": session_id,
+                "status": session.status,
+                "updated_at": session.updated_at,
+            },
+            "keyframes": keyframes,
+            "demo_summary": {
+                "steps_executed": steps_executed,
+                "ended_by": ended_by,
+            },
+            "snapshot": getattr(
+                session.engine, "get_serializable_snapshot", lambda: {}
+            )(),
+        }
+
+    def get_demo_keyframes(self, session_id: str) -> List[Dict[str, Any]]:
+        """Return stored demo keyframes."""
+        session = self.get_session(session_id)
+        return _to_json_safe(session.demo_keyframes)
 
     def build_debug_bundle(
         self,

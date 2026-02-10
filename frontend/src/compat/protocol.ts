@@ -1,4 +1,8 @@
 import type {
+  MemoryCaseSnapshot,
+  MemoryInsightItem,
+  DemoKeyframe,
+  DemoRunResult,
   DebateMetrics,
   DebatePhase,
   DebateSnapshot,
@@ -8,6 +12,7 @@ import type {
   GraphNode,
   GraphView,
   MemoryView,
+  ReplayExportView,
   SnapshotIndexItem,
   TimelineEvent,
   TurnArtifact,
@@ -82,6 +87,49 @@ function parseNodes(value: unknown): GraphNode[] {
       type: asString(row.type, "UNKNOWN"),
       label: asString(row.label ?? row.content, id),
       status: asString(row.status) || undefined,
+    };
+  });
+}
+
+function parseMemoryInsightItems(value: unknown): MemoryInsightItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item) => {
+    const row = asRecord(item);
+    const cases = asStringList(row.cases);
+    const representatives = asStringList(row.representatives);
+
+    return {
+      content: asString(row.content),
+      side: asString(row.side, "COMMON"),
+      cases,
+      representatives,
+      caseCount: asNumber(row.case_count ?? row.caseCount, cases.length),
+      representativeCount: asNumber(
+        row.representative_count ?? row.representativeCount,
+        representatives.length,
+      ),
+      linkedRound: asNumber(row.linked_round ?? row.linkedRound, 0),
+    };
+  });
+}
+
+function parseMemoryCaseSnapshots(value: unknown): MemoryCaseSnapshot[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item, index) => {
+    const row = asRecord(item);
+
+    return {
+      round: asNumber(row.round_idx ?? row.round, index),
+      turn: asString(row.turn),
+      ts: asNumber(row.ts_ms ?? row.ts, 0),
+      nodeCount: asNumber(row.node_count ?? row.nodeCount, 0),
+      edgeCount: asNumber(row.edge_count ?? row.edgeCount, 0),
     };
   });
 }
@@ -280,6 +328,8 @@ export function normalizeMemory(
   const payload = unwrapPayload(raw);
   const insights = payload.insights ?? payload.insight_summaries;
   const taskLayer = asRecord(payload.task_layer);
+  const insightItems = parseMemoryInsightItems(payload.insight_items);
+  const caseSnapshots = parseMemoryCaseSnapshots(payload.case_snapshots);
 
   return {
     sessionId: asString(
@@ -287,6 +337,8 @@ export function normalizeMemory(
       fallbackSessionId,
     ),
     insightSummaries: asStringList(insights),
+    insightItems,
+    representativeCaseIds: asStringList(payload.representative_case_ids),
     staticHistoryCount: asNumber(
       payload.static_history_count ?? payload.staticHistoryCount,
     ),
@@ -296,6 +348,10 @@ export function normalizeMemory(
     taskLayerNodeCount: asNumber(
       taskLayer.node_count ?? payload.task_layer_node_count,
     ),
+    taskLayerEdgeCount: asNumber(
+      taskLayer.edge_count ?? payload.task_layer_edge_count,
+    ),
+    caseSnapshots,
     raw,
   };
 }
@@ -411,6 +467,95 @@ export function normalizeDebugBundle(
     ),
     latestTurnArtifact: normalizedArtifact,
     generatedAt: asString(payload.generated_at ?? payload.generatedAt),
+    raw,
+  };
+}
+
+export function normalizeDemoKeyframes(raw: unknown): DemoKeyframe[] {
+  const payload = unwrapPayload(raw);
+  const list = payload.items ?? payload.keyframes ?? raw;
+
+  if (!Array.isArray(list)) {
+    return [];
+  }
+
+  return list.map((item) => {
+    const row = asRecord(item);
+
+    return {
+      sessionId: asString(row.session_id ?? row.sessionId),
+      event: asString(row.event, "event"),
+      reason: asString(row.reason, ""),
+      round: asNumber(row.round_idx ?? row.round),
+      turnUid: asString(row.turn_uid ?? row.turnUid),
+      ts: asNumber(row.ts_ms ?? row.ts, Date.now()),
+      data: row.data,
+      raw: item,
+    };
+  });
+}
+
+export function normalizeDemoRunResult(
+  raw: unknown,
+  fallbackSessionId = "local-session",
+): DemoRunResult {
+  const payload = unwrapPayload(raw);
+  const session = asRecord(payload.session);
+  const summary = asRecord(payload.demo_summary ?? payload.summary);
+
+  const keyframes = normalizeDemoKeyframes(
+    payload.keyframes ?? payload.items ?? [],
+  );
+
+  return {
+    sessionId: asString(
+      session.session_id ?? payload.session_id ?? payload.sessionId,
+      fallbackSessionId,
+    ),
+    status: asString(session.status ?? payload.status, "UNKNOWN"),
+    stepsExecuted: asNumber(
+      summary.steps_executed ?? summary.stepsExecuted ?? payload.steps_executed,
+    ),
+    endedBy: asString(
+      summary.ended_by ?? summary.endedBy ?? payload.ended_by,
+      "unknown",
+    ),
+    keyframes,
+    raw,
+  };
+}
+
+export function normalizeReplayExport(
+  raw: unknown,
+  fallbackSessionId = "local-session",
+): ReplayExportView {
+  const payload = unwrapPayload(raw);
+  const session = asRecord(payload.session);
+  const metadata = asRecord(payload.metadata);
+  const events = payload.events;
+  const artifacts = payload.turn_artifacts ?? payload.turnArtifacts;
+  const snapshots = payload.snapshots ?? payload.snapshot_list;
+
+  const eventCount = Array.isArray(events)
+    ? events.length
+    : asNumber(metadata.event_count ?? metadata.eventCount, 0);
+
+  const artifactCount = Array.isArray(artifacts)
+    ? artifacts.length
+    : asNumber(metadata.artifact_count ?? metadata.artifactCount, 0);
+
+  const snapshotCount = Array.isArray(snapshots)
+    ? snapshots.length
+    : asNumber(metadata.snapshot_count ?? metadata.snapshotCount, 0);
+
+  return {
+    sessionId: asString(
+      session.session_id ?? payload.session_id ?? payload.sessionId,
+      fallbackSessionId,
+    ),
+    eventCount,
+    artifactCount,
+    snapshotCount,
     raw,
   };
 }

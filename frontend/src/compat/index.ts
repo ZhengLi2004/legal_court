@@ -4,6 +4,8 @@ export type { AdapterOptions } from "./client";
 export type {
   AdapterCapabilities,
   CreateSessionInput,
+  DemoKeyframe,
+  DemoRunResult,
   DebateMetrics,
   DebatePhase,
   DebateSnapshot,
@@ -16,6 +18,9 @@ export type {
   GraphView,
   InsightAdapter,
   MemoryView,
+  MemoryInsightItem,
+  MemoryCaseSnapshot,
+  ReplayExportView,
   SessionAdapter,
   SnapshotIndexItem,
   TimelineEvent,

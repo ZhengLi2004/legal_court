@@ -420,6 +420,31 @@ h2 {
   overflow: auto;
 }
 
+.memory-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.78rem;
+  align-items: start;
+}
+
+.memory-pane {
+  border: 1px solid rgb(59 130 246 / 0.22);
+  border-radius: 12px;
+  background: rgb(248 250 252 / 0.88);
+  padding: 0.68rem;
+  min-height: 250px;
+}
+
+.memory-pane h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+
+.memory-pane .scrollbox {
+  max-height: 260px;
+}
+
 @media (max-width: 980px) {
   .topbar {
     flex-direction: column;
@@ -441,6 +466,10 @@ h2 {
   .graph-canvas {
     height: 420px;
   }
+
+  .memory-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
@@ -452,5 +481,9 @@ h2 {
   .session-row {
     grid-template-columns: 1fr;
     gap: 0.2rem;
+  }
+
+  .memory-grid {
+    grid-template-columns: 1fr;
   }
 }

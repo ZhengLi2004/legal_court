@@ -75,10 +75,32 @@ export interface GraphDiffView {
 export interface MemoryView {
   sessionId: string;
   insightSummaries: string[];
+  insightItems: MemoryInsightItem[];
+  representativeCaseIds: string[];
   staticHistoryCount: number;
   dynamicLawCaseCount: number;
   taskLayerNodeCount: number;
+  taskLayerEdgeCount: number;
+  caseSnapshots: MemoryCaseSnapshot[];
   raw?: unknown;
+}
+
+export interface MemoryInsightItem {
+  content: string;
+  side: string;
+  cases: string[];
+  representatives: string[];
+  caseCount: number;
+  representativeCount: number;
+  linkedRound: number;
+}
+
+export interface MemoryCaseSnapshot {
+  round: number;
+  turn: string;
+  ts: number;
+  nodeCount: number;
+  edgeCount: number;
 }
 
 export interface TimelineEvent {
@@ -127,6 +149,34 @@ export interface DebugBundleView {
   recentEvents: TimelineEvent[];
   latestTurnArtifact?: TurnArtifact;
   generatedAt: string;
+  raw?: unknown;
+}
+
+export interface DemoKeyframe {
+  sessionId: string;
+  event: string;
+  reason: string;
+  round: number;
+  turnUid: string;
+  ts: number;
+  data?: unknown;
+  raw?: unknown;
+}
+
+export interface DemoRunResult {
+  sessionId: string;
+  status: string;
+  stepsExecuted: number;
+  endedBy: string;
+  keyframes: DemoKeyframe[];
+  raw?: unknown;
+}
+
+export interface ReplayExportView {
+  sessionId: string;
+  eventCount: number;
+  artifactCount: number;
+  snapshotCount: number;
   raw?: unknown;
 }
 
@@ -179,6 +229,26 @@ export interface InsightAdapter {
       includeArtifact?: boolean;
     },
   ): Promise<DebugBundleView>;
+
+  runDemo(
+    sessionId: string,
+    options?: {
+      maxSteps?: number;
+      autoAdjudicate?: boolean;
+      captureKeyframes?: boolean;
+    },
+  ): Promise<DemoRunResult>;
+
+  getDemoKeyframes(sessionId: string): Promise<DemoKeyframe[]>;
+
+  setFailureSimulation(
+    sessionId: string,
+    kind: "es_unavailable" | "llm_timeout",
+    enabled: boolean,
+  ): Promise<{ sessionId: string; failureSimulation: Record<string, boolean> }>;
+
+  exportReplayJson(sessionId: string): Promise<ReplayExportView>;
+  exportGraphGexf(sessionId: string, round?: number): Promise<Blob>;
 }
 
 export interface EngineAdapter extends SessionAdapter {

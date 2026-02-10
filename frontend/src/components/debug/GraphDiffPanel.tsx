@@ -13,6 +13,7 @@ import {
 import type { GraphDiffView, GraphView, TurnArtifact } from "../../compat";
 type FocusMode = "all" | "changed" | "changedNeighbors" | "rejected";
 type ChainMode = "all" | "support" | "conflict";
+type LayoutMode = "distanceFlow" | "typeLanes";
 type Lane = "FACT" | "LAW" | "CLAIM" | "OTHER";
 const LANE_ORDER: Lane[] = ["FACT", "LAW", "CLAIM", "OTHER"];
 
@@ -284,6 +285,7 @@ export function GraphDiffPanel({
 }: GraphDiffPanelProps) {
   const [focusMode, setFocusMode] = useState<FocusMode>("changedNeighbors");
   const [chainMode, setChainMode] = useState<ChainMode>("all");
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>("distanceFlow");
   const [hopDepth, setHopDepth] = useState<number>(2);
   const [selectedClaimId, setSelectedClaimId] = useState<string>("auto");
 
@@ -419,16 +421,102 @@ export function GraphDiffPanel({
     }
 
     const positionedNodes: Node[] = [];
+    const decorateNode = (
+      node: GraphView["nodes"][number],
+      x: number,
+      y: number,
+    ): void => {
+      const isAdded = addedNodeIds.has(node.id);
+      const isRejected = rejectedNodeIds.has(node.id);
+      const isChanged = statusChangedNodeIds.has(node.id);
+      const isReused = reusedNodeIds.has(node.id);
+      const lane = laneForType(node.type);
+      const inChain = chain.nodeIds.has(node.id);
+      let borderColor = "#64748b";
+      let background = "#f8fafc";
+      let borderStyle: "solid" | "dashed" = "solid";
 
-    for (const lane of LANE_ORDER) {
-      const laneNodes = lanes.get(lane) ?? [];
+      if (isAdded) {
+        borderColor = "#16a34a";
+        background = "#dcfce7";
+      } else if (isRejected) {
+        borderColor = "#e11d48";
+        background = "#ffe4e6";
+      } else if (isChanged) {
+        borderColor = "#2563eb";
+        background = "#dbeafe";
+      } else if (isReused) {
+        borderColor = "#0ea5e9";
+        borderStyle = "dashed";
+        background = "#ecfeff";
+      }
 
-      laneNodes.sort((a, b) => {
-        const da = distances.get(a.id) ?? 999;
-        const db = distances.get(b.id) ?? 999;
+      const tags = [
+        isAdded ? "Added" : "",
+        isChanged ? "Status" : "",
+        isRejected ? "Rejected" : "",
+      ]
+        .filter(Boolean)
+        .join(" • ");
+
+      const densityOpacity =
+        resolvedClaimId && !inChain && focusMode !== "all" ? 0.48 : 1;
+
+      positionedNodes.push({
+        id: node.id,
+        position: { x, y },
+        data: {
+          label: (
+            <div>
+              <strong>{shortId(node.id)}</strong>
+
+              <div style={{ fontSize: "0.74rem", marginTop: 2 }}>
+                {lane} {node.status ? `• ${node.status}` : ""}
+              </div>
+
+              <div style={{ fontSize: "0.72rem", marginTop: 3, opacity: 0.86 }}>
+                {truncate(node.label || "")}
+              </div>
+
+              {tags ? (
+                <div style={{ fontSize: "0.7rem", marginTop: 3 }}>{tags}</div>
+              ) : null}
+            </div>
+          ),
+        },
+        style: {
+          border: `2px ${borderStyle} ${borderColor}`,
+          borderRadius: 10,
+          padding: 6,
+          width: 175,
+          background,
+          color: "#0f172a",
+          opacity: densityOpacity,
+        },
+      });
+    };
+
+    if (layoutMode === "distanceFlow") {
+      const laneSlots = new Map<string, number>();
+
+      const maxDistance = Math.max(
+        0,
+        ...filteredNodes.map((node) => distances.get(node.id) ?? 0),
+      );
+
+      const orderedNodes = [...filteredNodes].sort((a, b) => {
+        const da = distances.get(a.id) ?? maxDistance + 1;
+        const db = distances.get(b.id) ?? maxDistance + 1;
 
         if (da !== db) {
           return da - db;
+        }
+
+        const la = LANE_ORDER.indexOf(laneForType(a.type));
+        const lb = LANE_ORDER.indexOf(laneForType(b.type));
+
+        if (la !== lb) {
+          return la - lb;
         }
 
         const ga = degree.get(a.id) ?? 0;
@@ -441,80 +529,43 @@ export function GraphDiffPanel({
         return a.id.localeCompare(b.id);
       });
 
-      laneNodes.forEach((node, index) => {
-        const isAdded = addedNodeIds.has(node.id);
-        const isRejected = rejectedNodeIds.has(node.id);
-        const isChanged = statusChangedNodeIds.has(node.id);
-        const isReused = reusedNodeIds.has(node.id);
-        const inChain = chain.nodeIds.has(node.id);
-        let borderColor = "#64748b";
-        let background = "#f8fafc";
-        let borderStyle: "solid" | "dashed" = "solid";
+      for (const node of orderedNodes) {
+        const lane = laneForType(node.type);
+        const laneOrder = Math.max(0, LANE_ORDER.indexOf(lane));
+        const dist = distances.get(node.id) ?? maxDistance + 1;
+        const slotKey = `${dist}:${lane}`;
+        const slot = laneSlots.get(slotKey) ?? 0;
+        laneSlots.set(slotKey, slot + 1);
+        const x = 48 + dist * 240;
+        const y = 48 + laneOrder * 150 + slot * 92;
+        decorateNode(node, x, y);
+      }
+    } else {
+      for (const lane of LANE_ORDER) {
+        const laneNodes = lanes.get(lane) ?? [];
 
-        if (isAdded) {
-          borderColor = "#16a34a";
-          background = "#dcfce7";
-        } else if (isRejected) {
-          borderColor = "#e11d48";
-          background = "#ffe4e6";
-        } else if (isChanged) {
-          borderColor = "#2563eb";
-          background = "#dbeafe";
-        } else if (isReused) {
-          borderColor = "#0ea5e9";
-          borderStyle = "dashed";
-          background = "#ecfeff";
-        }
+        laneNodes.sort((a, b) => {
+          const da = distances.get(a.id) ?? 999;
+          const db = distances.get(b.id) ?? 999;
 
-        const tags = [
-          isAdded ? "Added" : "",
-          isChanged ? "Status" : "",
-          isRejected ? "Rejected" : "",
-        ]
-          .filter(Boolean)
-          .join(" • ");
+          if (da !== db) {
+            return da - db;
+          }
 
-        const densityOpacity =
-          resolvedClaimId && !inChain && focusMode !== "all" ? 0.48 : 1;
+          const ga = degree.get(a.id) ?? 0;
+          const gb = degree.get(b.id) ?? 0;
 
-        positionedNodes.push({
-          id: node.id,
-          position: {
-            x: 40 + index * 200,
-            y: LANE_Y[lane],
-          },
-          data: {
-            label: (
-              <div>
-                <strong>{shortId(node.id)}</strong>
+          if (ga !== gb) {
+            return gb - ga;
+          }
 
-                <div style={{ fontSize: "0.74rem", marginTop: 2 }}>
-                  {lane} {node.status ? `• ${node.status}` : ""}
-                </div>
-
-                <div
-                  style={{ fontSize: "0.72rem", marginTop: 3, opacity: 0.86 }}
-                >
-                  {truncate(node.label || "")}
-                </div>
-
-                {tags ? (
-                  <div style={{ fontSize: "0.7rem", marginTop: 3 }}>{tags}</div>
-                ) : null}
-              </div>
-            ),
-          },
-          style: {
-            border: `2px ${borderStyle} ${borderColor}`,
-            borderRadius: 10,
-            padding: 6,
-            width: 175,
-            background,
-            color: "#0f172a",
-            opacity: densityOpacity,
-          },
+          return a.id.localeCompare(b.id);
         });
-      });
+
+        laneNodes.forEach((node, index) => {
+          decorateNode(node, 40 + index * 200, LANE_Y[lane]);
+        });
+      }
     }
 
     const renderedEdges: Edge[] = typeFilteredEdges.map((edge) => {
@@ -581,6 +632,7 @@ export function GraphDiffPanel({
     diff,
     focusMode,
     hopDepth,
+    layoutMode,
     selectedClaimId,
   ]);
 
@@ -609,6 +661,19 @@ export function GraphDiffPanel({
       {model ? (
         <>
           <div className="graph-toolbar">
+            <label className="graph-control">
+              Layout
+              <select
+                value={layoutMode}
+                onChange={(event) =>
+                  setLayoutMode(event.target.value as LayoutMode)
+                }
+              >
+                <option value="distanceFlow">Distance Flow</option>
+                <option value="typeLanes">Type Lanes</option>
+              </select>
+            </label>
+
             <label className="graph-control">
               Claim Focus
               <select
@@ -654,10 +719,11 @@ export function GraphDiffPanel({
           </div>
 
           <p className="line">
-            visible N{model.summary.visibleNodes} E{model.summary.visibleEdges}{" "}
-            | +N{model.summary.addedNodes} +E{model.summary.addedEdges} | status
-            changes {model.summary.statusChanged} | reused{" "}
-            {model.summary.reused} | rejected {model.summary.rejected}
+            layout {layoutMode} | visible N{model.summary.visibleNodes} E
+            {model.summary.visibleEdges} | +N{model.summary.addedNodes} +E
+            {model.summary.addedEdges} | status changes{" "}
+            {model.summary.statusChanged} | reused {model.summary.reused} |
+            rejected {model.summary.rejected}
             {model.resolvedClaimId
               ? ` | anchor ${shortId(model.resolvedClaimId)}`
               : ""}

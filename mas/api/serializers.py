@@ -141,9 +141,13 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
     engine = session.engine
     legal_sys = getattr(engine, "legal_sys", None)
     insight_summaries: List[str] = []
+    insight_items: List[Dict[str, Any]] = []
+    representative_case_ids: List[str] = []
     static_history_count = 0
     dynamic_law_case_count = 0
     task_layer_node_count = 0
+    task_layer_edge_count = 0
+    case_snapshots: List[Dict[str, Any]] = []
 
     if legal_sys is not None:
         insights_manager = getattr(legal_sys, "insights", None)
@@ -153,7 +157,46 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
             content = getattr(item, "content", None)
 
             if isinstance(content, str) and content.strip():
-                insight_summaries.append(content.strip())
+                clean_content = content.strip()
+                insight_summaries.append(clean_content)
+                side_value = getattr(item, "side", "COMMON")
+                side_text = getattr(side_value, "value", side_value)
+                raw_cases = _as_list(getattr(item, "cases", []))
+
+                cases = sorted(
+                    {
+                        str(case_id).strip()
+                        for case_id in raw_cases
+                        if str(case_id).strip()
+                    }
+                )
+
+                raw_representatives = _as_list(getattr(item, "representatives", []))
+
+                representatives = sorted(
+                    {
+                        str(case_id).strip()
+                        for case_id in raw_representatives
+                        if str(case_id).strip()
+                    }
+                )
+
+                if not representatives:
+                    representatives = list(cases)
+
+                representative_case_ids.extend(representatives)
+
+                insight_items.append(
+                    {
+                        "content": clean_content,
+                        "side": str(side_text or "COMMON"),
+                        "cases": cases,
+                        "representatives": representatives,
+                        "case_count": len(cases),
+                        "representative_count": len(representatives),
+                        "linked_round": int(getattr(engine, "round_idx", 0) or 0),
+                    }
+                )
 
         static_history_count = len(
             _as_list(getattr(legal_sys, "_static_history_cases", []))
@@ -167,6 +210,7 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
         task_layer = getattr(memory, "task_layer", None)
         graph = getattr(task_layer, "graph", None)
         node_view = getattr(graph, "nodes", None)
+        edge_view = getattr(graph, "edges", None)
 
         if node_view is not None:
             try:
@@ -175,10 +219,59 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
             except Exception:
                 task_layer_node_count = 0
 
+        if edge_view is not None:
+            try:
+                task_layer_edge_count = len(edge_view)
+
+            except Exception:
+                task_layer_edge_count = 0
+
+    snapshots = _as_list(getattr(engine, "round_snapshots", []))
+
+    for idx, row in enumerate(snapshots):
+        if not isinstance(row, dict):
+            continue
+
+        graph_data = row.get("graph_data", {})
+
+        if isinstance(graph_data, dict):
+            nodes = _as_list(graph_data.get("nodes"))
+            edges = _as_list(graph_data.get("edges"))
+            node_count = len(nodes)
+            edge_count = len(edges)
+
+        else:
+            node_count = 0
+            edge_count = 0
+
+        case_snapshots.append(
+            {
+                "round_idx": int(row.get("round_idx", idx)),
+                "turn": str(row.get("turn", "")),
+                "ts_ms": int(row.get("ts_ms", row.get("timestamp", 0)) or 0),
+                "node_count": node_count,
+                "edge_count": edge_count,
+            }
+        )
+
+    insight_items = sorted(
+        insight_items,
+        key=lambda item: (
+            -int(item.get("case_count", 0)),
+            str(item.get("content", "")),
+        ),
+    )
+
     return {
         "session_id": session.session_id,
         "insight_summaries": insight_summaries,
+        "insight_items": insight_items,
+        "representative_case_ids": sorted({item for item in representative_case_ids}),
         "static_history_count": static_history_count,
         "dynamic_law_case_count": dynamic_law_case_count,
-        "task_layer": {"node_count": task_layer_node_count},
+        "task_layer": {
+            "node_count": task_layer_node_count,
+            "edge_count": task_layer_edge_count,
+        },
+        "case_snapshots": case_snapshots,
     }

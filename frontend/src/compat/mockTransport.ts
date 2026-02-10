@@ -50,6 +50,13 @@ interface MockSession {
   snapshots: MockGraphSnapshot[];
   events: MockEvent[];
   turn_artifacts: Record<string, unknown>[];
+  demo_keyframes: Record<string, unknown>[];
+
+  failure_simulation: {
+    es_unavailable: boolean;
+    llm_timeout: boolean;
+  };
+
   latest_turn_uid: string;
   nextSeq: number;
 }
@@ -125,6 +132,9 @@ function cloneSession(session: MockSession): MockSession {
       edges: item.edges.map((edge) => ({ ...edge })),
     })),
     events: session.events.map((event) => ({ ...event })),
+    turn_artifacts: session.turn_artifacts.map((item) => ({ ...item })),
+    demo_keyframes: session.demo_keyframes.map((item) => ({ ...item })),
+    failure_simulation: { ...session.failure_simulation },
   };
 }
 
@@ -227,6 +237,11 @@ export class MockTransport implements CompatTransport {
         snapshots: [graph],
         events: [],
         turn_artifacts: [],
+        demo_keyframes: [],
+        failure_simulation: {
+          es_unavailable: false,
+          llm_timeout: false,
+        },
         latest_turn_uid: "",
         nextSeq: 1,
       };
@@ -279,13 +294,59 @@ export class MockTransport implements CompatTransport {
       }
 
       if (method === "POST" && action === "step") {
+        if (session.failure_simulation.es_unavailable) {
+          this.recordEvent(session, "session_warning", "api", {
+            kind: "es_unavailable",
+            message: "Simulated ES unavailable; degrade continue",
+            round_idx: session.current_round,
+          });
+        }
+
+        if (session.failure_simulation.llm_timeout) {
+          this.recordEvent(session, "session_warning", "api", {
+            kind: "llm_timeout",
+            message: "Simulated LLM timeout; degrade continue",
+            round_idx: session.current_round,
+          });
+        }
+
         this.advance(session);
         return toSnapshotResponse(cloneSession(session)) as T;
       }
 
       if (method === "POST" && action === "adjudicate") {
+        if (session.failure_simulation.llm_timeout) {
+          this.recordEvent(session, "session_warning", "api", {
+            kind: "llm_timeout",
+            message: "Simulated adjudication timeout flag enabled",
+            round_idx: session.current_round,
+          });
+        }
+
         this.adjudicate(session);
         return toSnapshotResponse(cloneSession(session)) as T;
+      }
+
+      if (method === "POST" && action === "simulate/failure") {
+        const payload = body as Record<string, unknown>;
+        const kind = String(payload.kind ?? "");
+        const enabled = payload.enabled === true;
+
+        if (kind === "es_unavailable" || kind === "llm_timeout") {
+          session.failure_simulation[kind] = enabled;
+
+          this.recordEvent(session, "failure_simulation_set", "api", {
+            kind,
+            enabled,
+            round_idx: session.current_round,
+          });
+        }
+
+        return {
+          session_id: session.session_id,
+          failure_simulation: { ...session.failure_simulation },
+          updated_at: new Date().toISOString(),
+        } as T;
       }
 
       if (method === "GET" && action === "graph") {
@@ -340,12 +401,34 @@ export class MockTransport implements CompatTransport {
       }
 
       if (method === "GET" && action === "memory") {
+        const baseInsights = [
+          {
+            content:
+              "When opponent introduces ungrounded claims, prioritize source-backed attack chains.",
+            side: "PLAINTIFF",
+            cases: ["case-A", "case-C"],
+            representatives: ["case-C"],
+            linked_round: Math.max(0, session.current_round - 1),
+          },
+          {
+            content:
+              "Escalate from fact retrieval to precedent retrieval after repeated rebuttal cycles.",
+            side: "COMMON",
+            cases: ["case-B", "case-C", "case-D"],
+            representatives: ["case-B", "case-D"],
+            linked_round: session.current_round,
+          },
+        ];
+
         return {
           session_id: session.session_id,
-          insight_summaries: [
-            "When opponent introduces ungrounded claims, prioritize source-backed attack chains.",
-            "Escalate from fact retrieval to precedent retrieval after repeated rebuttal cycles.",
-          ],
+          insight_summaries: baseInsights.map((item) => item.content),
+          insight_items: baseInsights.map((item) => ({
+            ...item,
+            case_count: item.cases.length,
+            representative_count: item.representatives.length,
+          })),
+          representative_case_ids: ["case-B", "case-C", "case-D"],
           static_history_count: 12,
           dynamic_law_case_count: Math.max(
             2,
@@ -353,7 +436,15 @@ export class MockTransport implements CompatTransport {
           ),
           task_layer: {
             node_count: 5 + session.current_round,
+            edge_count: 4 + session.current_round,
           },
+          case_snapshots: session.snapshots.map((item) => ({
+            round_idx: item.round,
+            turn: item.round % 2 === 0 ? "defendant" : "plaintiff",
+            ts_ms: Date.now(),
+            node_count: item.nodes.length,
+            edge_count: item.edges.length,
+          })),
         } as T;
       }
 
@@ -453,6 +544,129 @@ export class MockTransport implements CompatTransport {
             narrative_polished: `polished sentence ${session.current_round}`,
           },
           generated_at: new Date().toISOString(),
+        } as T;
+      }
+
+      if (method === "POST" && action === "demo/run") {
+        const payload = body as Record<string, unknown> | undefined;
+        const maxStepsRaw = Number(payload?.max_steps ?? 20);
+
+        const maxSteps = Number.isFinite(maxStepsRaw)
+          ? Math.max(1, Math.floor(maxStepsRaw))
+          : 20;
+
+        const autoAdjudicate = payload?.auto_adjudicate !== false;
+        const keyframes: Record<string, unknown>[] = [];
+
+        if (session.current_round === 0) {
+          keyframes.push({
+            session_id: session.session_id,
+            event: "demo_start",
+            reason: "demo_start",
+            round_idx: 0,
+            turn_uid: session.latest_turn_uid,
+            ts_ms: Date.now(),
+          });
+        }
+
+        let stepsExecuted = 0;
+        let endedBy = "max_steps";
+
+        for (let i = 0; i < maxSteps; i += 1) {
+          if (session.is_finished) {
+            endedBy = "finished";
+            break;
+          }
+
+          if (session.is_ready_for_adjudication && autoAdjudicate) {
+            keyframes.push({
+              session_id: session.session_id,
+              event: "adjudication_ready",
+              reason: "ready_for_adjudication",
+              round_idx: session.current_round,
+              turn_uid: session.latest_turn_uid,
+              ts_ms: Date.now(),
+            });
+
+            this.adjudicate(session);
+            stepsExecuted += 1;
+            endedBy = "adjudicated";
+
+            keyframes.push({
+              session_id: session.session_id,
+              event: "adjudication_complete",
+              reason: "adjudication_complete",
+              round_idx: session.current_round,
+              turn_uid: session.latest_turn_uid,
+              ts_ms: Date.now(),
+            });
+
+            break;
+          }
+
+          this.advance(session);
+          stepsExecuted += 1;
+
+          if (session.current_round === 1) {
+            keyframes.push({
+              session_id: session.session_id,
+              event: "turn_complete",
+              reason: "first_round",
+              round_idx: session.current_round,
+              turn_uid: session.latest_turn_uid,
+              ts_ms: Date.now(),
+            });
+          }
+        }
+
+        session.demo_keyframes = keyframes;
+
+        return {
+          session: {
+            session_id: session.session_id,
+            status: session.is_finished ? "FINISHED" : "DEBATING",
+            updated_at: new Date().toISOString(),
+          },
+          keyframes,
+          demo_summary: {
+            steps_executed: stepsExecuted,
+            ended_by: endedBy,
+          },
+          snapshot: toSnapshotResponse(session),
+        } as T;
+      }
+
+      if (method === "GET" && action === "demo/keyframes") {
+        return {
+          items: session.demo_keyframes,
+          total: session.demo_keyframes.length,
+        } as T;
+      }
+
+      if (method === "GET" && action === "export/replay.json") {
+        return {
+          session: {
+            session_id: session.session_id,
+            status: session.is_finished ? "FINISHED" : "DEBATING",
+            failure_simulation: session.failure_simulation,
+          },
+          snapshot: toSnapshotResponse(session),
+          snapshot_index: session.snapshots.map((item) => ({
+            round_idx: item.round,
+            turn: item.round % 2 === 0 ? "defendant" : "plaintiff",
+            ts_ms: Date.now(),
+            node_count: item.nodes.length,
+            edge_count: item.edges.length,
+          })),
+          snapshots: session.snapshots,
+          events: session.events,
+          turn_artifacts: session.turn_artifacts,
+          metadata: {
+            generated_at: new Date().toISOString(),
+            event_count: session.events.length,
+            artifact_count: session.turn_artifacts.length,
+            snapshot_count: session.snapshots.length,
+          },
         } as T;
       }
 
