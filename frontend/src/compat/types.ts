@@ -86,6 +86,8 @@ export interface TimelineEvent {
   ts: number;
   event: string;
   source: string;
+  eventId?: string;
+  roundIdx?: number;
   sessionId?: string;
   turnUid?: string;
   data?: unknown;
@@ -95,11 +97,36 @@ export interface TurnArtifact {
   turnUid: string;
   side: string;
   round: number;
+  controllerAssessment?: unknown;
+  batchInstructions?: unknown;
   decisionRaw: string;
   parsedActions: unknown[];
   executionLogs: string;
   retryHistory: unknown[];
   workerReports: unknown[];
+  narrativeRawSentences?: unknown[];
+  narrativePolished?: string;
+  raw?: unknown;
+}
+
+export interface DebugBundleView {
+  sessionId: string;
+  round: number;
+  turnUid: string;
+  status: string;
+  lastError: string;
+
+  snapshotSummary: {
+    phase: string;
+    nodeCount: number;
+    edgeCount: number;
+    claimCount: number;
+    conflictCount: number;
+  };
+
+  recentEvents: TimelineEvent[];
+  latestTurnArtifact?: TurnArtifact;
+  generatedAt: string;
   raw?: unknown;
 }
 
@@ -143,6 +170,15 @@ export interface InsightAdapter {
     sessionId: string,
     options?: { turnUid?: string; limit?: number },
   ): Promise<TurnArtifact[]>;
+
+  getDebugBundle(
+    sessionId: string,
+    options?: {
+      eventLimit?: number;
+      includeSnapshot?: boolean;
+      includeArtifact?: boolean;
+    },
+  ): Promise<DebugBundleView>;
 }
 
 export interface EngineAdapter extends SessionAdapter {

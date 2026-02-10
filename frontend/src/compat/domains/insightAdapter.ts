@@ -1,4 +1,5 @@
 import {
+  normalizeDebugBundle,
   normalizeMemory,
   normalizeTimeline,
   normalizeTurnArtifacts,
@@ -8,6 +9,7 @@ import { withQuery } from "../client";
 import type { CompatClient } from "../client";
 
 import type {
+  DebugBundleView,
   InsightAdapter,
   MemoryView,
   SessionAdapter,
@@ -187,5 +189,61 @@ export class InsightDomainAdapter implements InsightAdapter {
     ]);
 
     return normalizeTurnArtifacts(raw);
+  }
+
+  async getDebugBundle(
+    sessionId: string,
+    options: {
+      eventLimit?: number;
+      includeSnapshot?: boolean;
+      includeArtifact?: boolean;
+    } = {},
+  ): Promise<DebugBundleView> {
+    const eventLimit = options.eventLimit ?? 20;
+    const includeSnapshot = options.includeSnapshot ?? true;
+    const includeArtifact = options.includeArtifact ?? true;
+
+    const path = withQuery(`/api/v1/sessions/${sessionId}/debug-bundle`, {
+      event_limit: eventLimit,
+      include_snapshot: includeSnapshot ? 1 : 0,
+      include_artifact: includeArtifact ? 1 : 0,
+    });
+
+    try {
+      const raw = await this.client.callWithCandidates([
+        { method: "GET", path },
+      ]);
+
+      return normalizeDebugBundle(raw, sessionId);
+    } catch {
+      const [snapshot, timeline, artifacts] = await Promise.all([
+        this.sessionAdapter.getSnapshot(sessionId),
+        this.getTimeline(sessionId, eventLimit),
+        includeArtifact
+          ? this.getTurnArtifacts(sessionId, { limit: 1 })
+          : Promise.resolve([]),
+      ]);
+
+      return normalizeDebugBundle(
+        {
+          session_id: sessionId,
+          round_idx: snapshot.round,
+          turn_uid: timeline[timeline.length - 1]?.turnUid ?? "",
+          status: snapshot.phase,
+          last_error: "",
+          snapshot_summary: {
+            phase: snapshot.phase,
+            node_count: snapshot.metrics.arguments,
+            edge_count: snapshot.metrics.attacks + snapshot.metrics.supports,
+            claim_count: 0,
+            conflict_count: snapshot.metrics.attacks,
+          },
+          recent_events: timeline,
+          latest_turn_artifact: artifacts[0]?.raw ?? artifacts[0],
+          generated_at: new Date().toISOString(),
+        },
+        sessionId,
+      );
+    }
   }
 }

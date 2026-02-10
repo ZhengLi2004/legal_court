@@ -39,6 +39,38 @@ def _infer_event_source(event: str) -> str:
     return "engine"
 
 
+def _derive_round_idx(
+    event_payload: Dict[str, Any],
+    engine: Any,
+) -> Optional[int]:
+    """Infer round index from payload first, then engine state."""
+    candidates = [
+        event_payload.get("round_idx"),
+        event_payload.get("round"),
+    ]
+
+    for item in candidates:
+        try:
+            if item is None:
+                continue
+
+            return int(item)
+
+        except (TypeError, ValueError):
+            continue
+
+    try:
+        engine_round = getattr(engine, "round_idx", None)
+
+        if engine_round is not None:
+            return int(engine_round)
+
+    except (TypeError, ValueError):
+        return None
+
+    return None
+
+
 def _default_case_path() -> Path:
     return (
         Path(__file__).resolve().parents[2]
@@ -377,6 +409,83 @@ class SessionManager:
 
         return []
 
+    def build_debug_bundle(
+        self,
+        session_id: str,
+        event_limit: int = 20,
+        include_snapshot: bool = True,
+        include_artifact: bool = True,
+    ) -> Dict[str, Any]:
+        """Build a compact debug bundle for issue reporting and replay."""
+        session = self.get_session(session_id)
+
+        event_rows = self.get_event_history(
+            session_id=session_id,
+            limit=max(1, int(event_limit)),
+        )
+
+        snapshot: Dict[str, Any] = {}
+
+        if include_snapshot:
+            getter = getattr(session.engine, "get_serializable_snapshot", None)
+
+            if callable(getter):
+                maybe_snapshot = getter()
+
+                if isinstance(maybe_snapshot, dict):
+                    snapshot = maybe_snapshot
+
+        round_idx = snapshot.get("current_round")
+
+        if round_idx is None:
+            try:
+                round_idx = int(getattr(session.engine, "round_idx", 0))
+
+            except Exception:
+                round_idx = 0
+
+        graph_stats = snapshot.get("graph_stats", {})
+
+        if not isinstance(graph_stats, dict):
+            graph_stats = {}
+
+        turn_uid = str(
+            snapshot.get("latest_turn_uid")
+            or session.last_turn_uid
+            or session.current_turn_uid
+            or ""
+        )
+
+        latest_turn_artifact: Optional[Dict[str, Any]] = None
+
+        if include_artifact:
+            artifact_rows = self.get_turn_artifacts(
+                session_id=session_id,
+                turn_uid=turn_uid if turn_uid else None,
+                limit=1,
+            )
+
+            if artifact_rows:
+                latest_turn_artifact = artifact_rows[-1]
+
+        return {
+            "session_id": session.session_id,
+            "round_idx": int(round_idx or 0),
+            "turn_uid": turn_uid,
+            "status": session.status,
+            "last_error": session.last_error,
+            "snapshot_summary": {
+                "phase": session.status,
+                "node_count": int(graph_stats.get("node_count", 0)),
+                "edge_count": int(graph_stats.get("edge_count", 0)),
+                "claim_count": int(graph_stats.get("claim_nodes", 0)),
+                "conflict_count": int(graph_stats.get("edge_conflict_count", 0)),
+            },
+            "recent_events": event_rows,
+            "latest_turn_artifact": latest_turn_artifact,
+            "generated_at": utc_now_iso(),
+        }
+
     def _record_event(
         self, session_id: str, event: str, source: str, data: Optional[Dict[str, Any]]
     ) -> None:
@@ -404,11 +513,16 @@ class SessionManager:
 
         turn_uid = session.current_turn_uid or session.last_turn_uid
 
+        round_idx = _derive_round_idx(payload, session.engine)
+        event_id = f"{session_id}-{session.next_seq:06d}"
+
         envelope = {
+            "event_id": event_id,
             "seq": session.next_seq,
             "ts_ms": int(time.time() * 1000),
             "session_id": session_id,
             "turn_uid": turn_uid,
+            "round_idx": round_idx,
             "event": event,
             "source": source,
             "data": payload,

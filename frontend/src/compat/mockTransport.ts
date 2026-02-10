@@ -21,8 +21,12 @@ interface MockGraphSnapshot {
 }
 
 interface MockEvent {
+  event_id: string;
   seq: number;
   ts_ms: number;
+  session_id: string;
+  turn_uid: string;
+  round_idx?: number;
   event: string;
   source: string;
   data?: unknown;
@@ -45,6 +49,8 @@ interface MockSession {
 
   snapshots: MockGraphSnapshot[];
   events: MockEvent[];
+  turn_artifacts: Record<string, unknown>[];
+  latest_turn_uid: string;
   nextSeq: number;
 }
 
@@ -220,6 +226,8 @@ export class MockTransport implements CompatTransport {
         },
         snapshots: [graph],
         events: [],
+        turn_artifacts: [],
+        latest_turn_uid: "",
         nextSeq: 1,
       };
 
@@ -296,7 +304,11 @@ export class MockTransport implements CompatTransport {
         } as T;
       }
 
-      if (method === "GET" && action.startsWith("snapshots/")) {
+      if (
+        method === "GET" &&
+        typeof action === "string" &&
+        action.startsWith("snapshots/")
+      ) {
         const roundRaw = action.split("/")[1];
         const round = Number(roundRaw);
 
@@ -347,13 +359,100 @@ export class MockTransport implements CompatTransport {
 
       if (
         method === "GET" &&
-        (action === "events" || action.startsWith("events/history"))
+        (action === "events" ||
+          (typeof action === "string" && action.startsWith("events/history")))
       ) {
         const limitRaw = Number(url.searchParams.get("limit"));
         const limit = Number.isFinite(limitRaw) ? Math.max(1, limitRaw) : 100;
 
         return {
           events: session.events.slice(-limit),
+        } as T;
+      }
+
+      if (method === "GET" && action === "turns/artifacts") {
+        const limitRaw = Number(url.searchParams.get("limit"));
+        const limit = Number.isFinite(limitRaw) ? Math.max(1, limitRaw) : 50;
+
+        return {
+          items: session.turn_artifacts.slice(-limit),
+        } as T;
+      }
+
+      if (
+        method === "GET" &&
+        typeof action === "string" &&
+        action.startsWith("turns/")
+      ) {
+        const chunks = action.split("/");
+
+        if (chunks.length >= 3 && chunks[2] === "artifacts") {
+          const turnUid = chunks[1];
+          const limitRaw = Number(url.searchParams.get("limit"));
+          const limit = Number.isFinite(limitRaw) ? Math.max(1, limitRaw) : 50;
+
+          return {
+            items: session.turn_artifacts
+              .filter((item) => item.turn_uid === turnUid)
+              .slice(-limit),
+          } as T;
+        }
+      }
+
+      if (method === "GET" && action === "debug-bundle") {
+        const limitRaw = Number(url.searchParams.get("event_limit"));
+
+        const eventLimit = Number.isFinite(limitRaw)
+          ? Math.max(1, limitRaw)
+          : 20;
+
+        const events = session.events.slice(-eventLimit);
+        const latestGraph = getGraphAtRound(session, session.current_round);
+
+        return {
+          session_id: session.session_id,
+          round_idx: session.current_round,
+          turn_uid: session.latest_turn_uid,
+          status: session.is_finished
+            ? "FINISHED"
+            : session.is_ready_for_adjudication
+              ? "READY_FOR_ADJUDICATION"
+              : "DEBATING",
+          last_error: "",
+          snapshot_summary: {
+            phase: session.is_finished ? "finished" : "running",
+            node_count: latestGraph.nodes.length,
+            edge_count: latestGraph.edges.length,
+            claim_count: latestGraph.nodes.filter(
+              (item) => item.type === "CLAIM",
+            ).length,
+            conflict_count: latestGraph.edges.filter(
+              (item) => item.type === "ATTACK",
+            ).length,
+          },
+          recent_events: events,
+          latest_turn_artifact: {
+            turn_uid: session.latest_turn_uid,
+            side: session.current_round % 2 === 0 ? "defendant" : "plaintiff",
+            round_idx: session.current_round,
+            controller_assessment: { needs_fact: true, needs_law: true },
+            batch_instructions: {
+              fact: "mock fact task",
+              law: "mock law task",
+            },
+            decision_raw: `mock decision round ${session.current_round}`,
+            parsed_actions: [{ action_type: "add_support" }],
+            execution_logs:
+              session.current_round % 2 === 0 ? "success" : "rejected",
+            retry_history:
+              session.current_round % 2 === 0 ? [] : [{ kind: "format" }],
+            worker_reports: [
+              { worker: "FactWorker", status: "FOUND", duration_ms: 88 },
+            ],
+            narrative_raw_sentences: [`raw sentence ${session.current_round}`],
+            narrative_polished: `polished sentence ${session.current_round}`,
+          },
+          generated_at: new Date().toISOString(),
         } as T;
       }
 
@@ -392,9 +491,29 @@ export class MockTransport implements CompatTransport {
     source: string,
     data?: Record<string, unknown>,
   ): void {
+    const roundRaw = data?.round ?? data?.round_idx;
+
+    const round =
+      typeof roundRaw === "number" && Number.isFinite(roundRaw)
+        ? Math.floor(roundRaw)
+        : session.current_round;
+
+    const turnUidRaw = data?.turn_uid;
+
+    const turnUid =
+      typeof turnUidRaw === "string" && turnUidRaw.length > 0
+        ? turnUidRaw
+        : `turn_${round}_${session.nextSeq}_mock`;
+
+    session.latest_turn_uid = turnUid;
+
     session.events.push({
+      event_id: `${session.session_id}-${String(session.nextSeq).padStart(6, "0")}`,
       seq: session.nextSeq,
       ts_ms: Date.now(),
+      session_id: session.session_id,
+      turn_uid: turnUid,
+      round_idx: round,
       event,
       source,
       data,
@@ -431,6 +550,7 @@ export class MockTransport implements CompatTransport {
 
     this.recordEvent(session, "turn_start", "engine", {
       round: session.current_round + 1,
+      turn_uid: `turn_${session.current_round + 1}_start_mock`,
     });
 
     session.current_round += 1;
@@ -453,9 +573,63 @@ export class MockTransport implements CompatTransport {
     }
 
     this.pushSnapshot(session);
+    session.turn_artifacts.push({
+      turn_uid: session.latest_turn_uid,
+      side: session.current_round % 2 === 0 ? "defendant" : "plaintiff",
+      round_idx: session.current_round,
+      controller_assessment: {
+        needs_fact: true,
+        needs_law: session.current_round % 2 === 0,
+      },
+      batch_instructions: {
+        fact_worker: "collect supporting fact",
+        law_worker: "collect legal basis",
+        recall_worker: "retrieve prior similar case",
+      },
+      decision_raw: `mock decision round ${session.current_round}`,
+      parsed_actions: [
+        {
+          action_type:
+            session.current_round % 2 === 0 ? "add_support" : "add_conflict",
+          source_id: `FACT_${session.current_round}`,
+          target_id: "CLAIM_ROOT",
+        },
+      ],
+      execution_logs:
+        session.current_round % 3 === 0
+          ? "validation reject: conflict endpoint must be claim"
+          : "success: action applied",
+      retry_history:
+        session.current_round % 3 === 0
+          ? [
+              {
+                attempt: 1,
+                error_type: "validation",
+                message: "endpoint not claim",
+              },
+            ]
+          : [],
+      worker_reports: [
+        {
+          worker_name: "FactWorker",
+          status: "FOUND",
+          duration_ms: 80 + session.current_round,
+          max_score: 0.84,
+        },
+        {
+          worker_name: "LawWorker",
+          status: "FOUND",
+          duration_ms: 90 + session.current_round,
+          max_score: 0.78,
+        },
+      ],
+      narrative_raw_sentences: [`raw sentence round ${session.current_round}`],
+      narrative_polished: `polished sentence round ${session.current_round}`,
+    });
 
     this.recordEvent(session, "turn_complete", "engine", {
       round: session.current_round,
+      turn_uid: `turn_${session.current_round}_complete_mock`,
       phase: session.is_ready_for_adjudication
         ? "ready_for_adjudication"
         : "running",

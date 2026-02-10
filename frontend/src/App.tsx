@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import "@xyflow/react/dist/style.css";
+
 import { createCompatAdapter } from "./compat";
+import {
+  DebugBundlePanel,
+  GraphDiffPanel,
+  InspectorPanel,
+  TeamFlowPanel,
+  TimelinePanel,
+} from "./components/debug";
 
 import type {
   DebateSnapshot,
+  DebugBundleView,
   GraphDiffView,
   GraphView,
   MemoryView,
@@ -114,12 +124,16 @@ function App() {
   );
 
   const [snapshot, setSnapshot] = useState<DebateSnapshot | null>(null);
-
   const [previousSnapshot, setPreviousSnapshot] =
     useState<DebateSnapshot | null>(null);
 
   const [sessions, setSessions] = useState<DebateSnapshot[]>([]);
   const [graphView, setGraphView] = useState<GraphView | null>(null);
+
+  const [baselineGraphView, setBaselineGraphView] = useState<GraphView | null>(
+    null,
+  );
+
   const [graphDiff, setGraphDiff] = useState<GraphDiffView | null>(null);
   const [memoryView, setMemoryView] = useState<MemoryView | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
@@ -127,6 +141,10 @@ function App() {
   const [snapshotIndex, setSnapshotIndex] = useState<SnapshotIndexItem[]>([]);
   const [replayFromRound, setReplayFromRound] = useState<number>(0);
   const [replayToRound, setReplayToRound] = useState<number>(0);
+  const [selectedTimelineSeq, setSelectedTimelineSeq] = useState<number>(0);
+  const [selectedTurnUid, setSelectedTurnUid] = useState<string>("");
+  const [debugBundle, setDebugBundle] = useState<DebugBundleView | null>(null);
+  const [debugBundleLoading, setDebugBundleLoading] = useState<boolean>(false);
 
   const [streamStatus, setStreamStatus] = useState<"idle" | "ws" | "poll">(
     "idle",
@@ -138,6 +156,20 @@ function App() {
   const lastSeqRef = useRef<number>(0);
   const wsLiveRef = useRef<boolean>(false);
   const sessionId = snapshot?.sessionId ?? sessions[0]?.sessionId ?? "";
+
+  const selectedArtifact = useMemo(() => {
+    if (!turnArtifacts.length) {
+      return null;
+    }
+
+    if (selectedTurnUid) {
+      return (
+        turnArtifacts.find((item) => item.turnUid === selectedTurnUid) ?? null
+      );
+    }
+
+    return turnArtifacts[turnArtifacts.length - 1] ?? null;
+  }, [selectedTurnUid, turnArtifacts]);
 
   const transcriptDelta = useMemo(() => {
     if (!snapshot) {
@@ -217,7 +249,7 @@ function App() {
 
   const appendLog = (message: string): void => {
     const row = `${new Date().toISOString()} ${message}`;
-    setLogs((prev) => [row, ...prev].slice(0, 50));
+    setLogs((prev) => [row, ...prev].slice(0, 80));
   };
 
   const syncSnapshotIndex = (
@@ -242,28 +274,15 @@ function App() {
       return;
     }
 
-    setReplayFromRound((prev) => {
-      if (!rounds.includes(prev)) {
-        return previous;
-      }
-
-      return prev === 0 && latest > 0 ? previous : prev;
-    });
-
-    setReplayToRound((prev) => {
-      if (!rounds.includes(prev)) {
-        return latest;
-      }
-
-      return prev === 0 && latest > 0 ? latest : prev;
-    });
+    setReplayFromRound((prev) => (rounds.includes(prev) ? prev : previous));
+    setReplayToRound((prev) => (rounds.includes(prev) ? prev : latest));
   };
 
   const replaceTimeline = (rows: TimelineEvent[]): void => {
     const sorted = [...rows].sort((a, b) => a.seq - b.seq || a.ts - b.ts);
     const latest = sorted.length > 0 ? sorted[sorted.length - 1] : null;
     lastSeqRef.current = latest?.seq ?? 0;
-    setTimeline(sorted.slice(-120));
+    setTimeline(sorted.slice(-180));
   };
 
   const mergeTimeline = (rows: TimelineEvent[]): void => {
@@ -288,8 +307,7 @@ function App() {
 
       const latest = merged.length > 0 ? merged[merged.length - 1] : null;
       lastSeqRef.current = latest?.seq ?? lastSeqRef.current;
-
-      return merged.slice(-120);
+      return merged.slice(-180);
     });
   };
 
@@ -311,7 +329,7 @@ function App() {
         setSnapshot(result);
 
         appendLog(
-          `${actionName}: ${result.sessionId} round=${result.round} phase=${result.phase} transport=${adapter.capabilities.transport}`,
+          `${actionName}: ${result.sessionId} round=${result.round} phase=${result.phase}`,
         );
       }
     } catch (err) {
@@ -347,37 +365,50 @@ function App() {
     }
   };
 
+  const loadDiffWithRounds = async (
+    fromRound: number,
+    toRound: number,
+    actionName: string,
+  ): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    setBusyAction(actionName);
+    setError("");
+
+    try {
+      const [diffResult, fromGraph, toGraph] = await Promise.all([
+        adapter.graph.getGraphDiff(sessionId, fromRound, toRound),
+        adapter.graph.getGraphAtRound(sessionId, fromRound),
+        adapter.graph.getGraphAtRound(sessionId, toRound),
+      ]);
+
+      setGraphDiff(diffResult);
+      setBaselineGraphView(fromGraph);
+      setGraphView(toGraph);
+
+      appendLog(
+        `${actionName}: ${fromRound}->${toRound} +N${diffResult.addedNodeIds.length} +E${diffResult.addedEdgeIds.length}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      appendLog(`${actionName} failed: ${message}`);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
   const loadDiff = async (): Promise<void> => {
-    if (!sessionId || !snapshot) {
+    if (!snapshot) {
       return;
     }
 
     const fromRound =
       previousSnapshot?.round ?? Math.max(snapshot.round - 1, 0);
 
-    const toRound = snapshot.round;
-    setBusyAction("loadDiff");
-    setError("");
-
-    try {
-      const result = await adapter.graph.getGraphDiff(
-        sessionId,
-        fromRound,
-        toRound,
-      );
-
-      setGraphDiff(result);
-
-      appendLog(
-        `loadDiff: +N${result.addedNodeIds.length} -N${result.removedNodeIds.length} +E${result.addedEdgeIds.length} -E${result.removedEdgeIds.length}`,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      appendLog(`loadDiff failed: ${message}`);
-    } finally {
-      setBusyAction("");
-    }
+    await loadDiffWithRounds(fromRound, snapshot.round, "loadDiff");
   };
 
   const loadMemory = async (): Promise<void> => {
@@ -410,7 +441,7 @@ function App() {
     setError("");
 
     try {
-      const result = await adapter.insight.getTimeline(sessionId, 40);
+      const result = await adapter.insight.getTimeline(sessionId, 80);
       replaceTimeline(result);
       appendLog(`loadTimeline: events=${result.length}`);
     } catch (err) {
@@ -423,7 +454,7 @@ function App() {
   };
 
   const loadTurnArtifacts = async (
-    options: { silent?: boolean } = {},
+    options: { silent?: boolean; turnUid?: string } = {},
   ): Promise<void> => {
     if (!sessionId) {
       return;
@@ -439,10 +470,27 @@ function App() {
 
     try {
       const rows = await adapter.insight.getTurnArtifacts(sessionId, {
-        limit: 40,
+        limit: 60,
+        turnUid: options.turnUid,
       });
 
-      setTurnArtifacts(rows);
+      if (options.turnUid) {
+        setTurnArtifacts((prev) => {
+          const byTurn = new Map(prev.map((item) => [item.turnUid, item]));
+
+          for (const row of rows) {
+            byTurn.set(row.turnUid, row);
+          }
+
+          return [...byTurn.values()].sort((a, b) => a.round - b.round);
+        });
+      } else {
+        setTurnArtifacts(rows);
+      }
+
+      if (rows.length > 0 && !selectedTurnUid) {
+        setSelectedTurnUid(rows[rows.length - 1].turnUid);
+      }
 
       if (!silent) {
         appendLog(`loadTurnArtifacts: turns=${rows.length}`);
@@ -530,38 +578,80 @@ function App() {
   };
 
   const loadReplayDiff = async (): Promise<void> => {
+    await loadDiffWithRounds(replayFromRound, replayToRound, "loadReplayDiff");
+  };
+
+  const loadDebugBundle = async (): Promise<void> => {
     if (!sessionId) {
       return;
     }
 
-    setBusyAction("loadReplayDiff");
-    setError("");
+    setDebugBundleLoading(true);
 
     try {
-      const result = await adapter.graph.getGraphDiff(
-        sessionId,
-        replayFromRound,
-        replayToRound,
-      );
+      const bundle = await adapter.insight.getDebugBundle(sessionId, {
+        eventLimit: 20,
+        includeArtifact: true,
+        includeSnapshot: true,
+      });
 
-      setGraphDiff(result);
+      setDebugBundle(bundle);
 
-      appendLog(
-        `loadReplayDiff: ${replayFromRound} -> ${replayToRound}, +N${result.addedNodeIds.length}, +E${result.addedEdgeIds.length}`,
-      );
+      if (bundle.turnUid) {
+        setSelectedTurnUid(bundle.turnUid);
+      }
+
+      if (bundle.latestTurnArtifact) {
+        setTurnArtifacts((prev) => {
+          const byTurn = new Map(prev.map((item) => [item.turnUid, item]));
+
+          byTurn.set(
+            bundle.latestTurnArtifact!.turnUid,
+            bundle.latestTurnArtifact!,
+          );
+
+          return [...byTurn.values()].sort((a, b) => a.round - b.round);
+        });
+      }
+
+      appendLog(`loadDebugBundle: events=${bundle.recentEvents.length}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
-      appendLog(`loadReplayDiff failed: ${message}`);
+      appendLog(`loadDebugBundle failed: ${message}`);
     } finally {
-      setBusyAction("");
+      setDebugBundleLoading(false);
+    }
+  };
+
+  const handleTimelineSelect = async (event: TimelineEvent): Promise<void> => {
+    setSelectedTimelineSeq(event.seq);
+
+    if (event.turnUid) {
+      setSelectedTurnUid(event.turnUid);
+      await loadTurnArtifacts({ silent: true, turnUid: event.turnUid });
+    }
+
+    if (sessionId && typeof event.roundIdx === "number") {
+      try {
+        const graph = await adapter.graph.getGraphAtRound(
+          sessionId,
+          event.roundIdx,
+        );
+
+        setGraphView(graph);
+        setReplayToRound(event.roundIdx);
+        appendLog(`timeline jump: seq=${event.seq} -> round=${event.roundIdx}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        appendLog(`timeline jump failed: ${message}`);
+      }
     }
   };
 
   useEffect(() => {
     let alive = true;
     setBusyAction("listSessions");
-    setError("");
 
     void adapter
       .listSessions()
@@ -599,16 +689,9 @@ function App() {
     }
 
     void loadSnapshots({ silent: true });
-  }, [adapter, sessionId, snapshot?.round]);
-
-  useEffect(() => {
-    if (!sessionId) {
-      setTurnArtifacts([]);
-      return;
-    }
-
     void loadTurnArtifacts({ silent: true });
-  }, [adapter, sessionId, snapshot?.round]);
+    void loadDebugBundle();
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -617,6 +700,9 @@ function App() {
       setSnapshotIndex([]);
       lastSeqRef.current = 0;
       wsLiveRef.current = false;
+      setSelectedTimelineSeq(0);
+      setSelectedTurnUid("");
+      setDebugBundle(null);
       return;
     }
 
@@ -625,7 +711,7 @@ function App() {
 
     const pullTimeline = async (): Promise<void> => {
       try {
-        const rows = await adapter.insight.getTimeline(sessionId, 40);
+        const rows = await adapter.insight.getTimeline(sessionId, 60);
 
         if (!alive) {
           return;
@@ -647,7 +733,6 @@ function App() {
     };
 
     void pullTimeline();
-    void loadSnapshots({ silent: true });
 
     const stopStreaming = adapter.capabilities.supportsStreaming
       ? adapter.insight.subscribeTimeline(
@@ -698,7 +783,7 @@ function App() {
       <section className="topbar">
         <div>
           <p className="eyebrow">Bridge Layer Demo</p>
-          <h1>Frontend/Backend Compat Adapter</h1>
+          <h1>Phase 2.5 Debug Console</h1>
         </div>
 
         <div className="transport">
@@ -799,6 +884,13 @@ function App() {
           onClick={() => void loadSnapshots()}
         >
           Load Snapshots
+        </button>
+
+        <button
+          disabled={Boolean(busyAction) || !sessionId}
+          onClick={() => void loadDebugBundle()}
+        >
+          Load Debug Bundle
         </button>
       </section>
 
@@ -929,6 +1021,35 @@ function App() {
           </div>
         </article>
 
+        <TimelinePanel
+          timeline={timeline}
+          selectedSeq={selectedTimelineSeq}
+          onSelectEvent={(event) => {
+            void handleTimelineSelect(event);
+          }}
+        />
+
+        <GraphDiffPanel
+          artifacts={turnArtifacts}
+          baselineGraph={baselineGraphView}
+          currentGraph={graphView}
+          diff={graphDiff}
+        />
+
+        <TeamFlowPanel
+          artifacts={turnArtifacts}
+          selectedTurnUid={selectedTurnUid}
+          onSelectTurn={(turnUid) => setSelectedTurnUid(turnUid)}
+        />
+
+        <InspectorPanel artifact={selectedArtifact} snapshot={snapshot} />
+
+        <DebugBundlePanel
+          bundle={debugBundle}
+          loading={debugBundleLoading}
+          onLoad={loadDebugBundle}
+        />
+
         <article className="card wide">
           <h2>Graph Action Audit</h2>
 
@@ -1014,26 +1135,6 @@ function App() {
               panel.
             </p>
           )}
-        </article>
-
-        <article className="card">
-          <h2>Timeline Stream</h2>
-          <p className="hint">latest seq: {lastSeqRef.current || "-"}</p>
-
-          <div className="scrollbox">
-            {timeline.length ? (
-              timeline
-                .slice(-20)
-                .reverse()
-                .map((row) => (
-                  <p className="log" key={`${row.seq}-${row.event}`}>
-                    #{row.seq} [{row.source}] {row.event}
-                  </p>
-                ))
-            ) : (
-              <p className="hint">No timeline events.</p>
-            )}
-          </div>
         </article>
 
         <article className="card wide">

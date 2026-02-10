@@ -573,6 +573,42 @@
 
 ## 8. 实施清单（按优先级）
 
+### 8.0 接口状态矩阵（截至 2026-02-10）
+
+1. 会话与图数据接口（已实现）
+- [x] `GET /api/v1/sessions/{id}/snapshot`
+- [x] `GET /api/v1/sessions/{id}/graph`
+- [x] `GET /api/v1/sessions/{id}/snapshots`
+- [x] `GET /api/v1/sessions/{id}/snapshots/{round_idx}`
+- [x] `GET /api/v1/sessions/{id}/diff`
+
+2. 事件与调试接口（已实现）
+- [x] `GET /api/v1/sessions/{id}/events`
+- [x] `GET /api/v1/sessions/{id}/events/history`
+- [x] `WS /api/v1/sessions/{id}/events`
+- [x] `GET /api/v1/sessions/{id}/turns/artifacts`
+- [x] `GET /api/v1/sessions/{id}/turns/{turn_uid}/artifacts`
+
+3. 记忆与导出接口（部分实现）
+- [x] `GET /api/v1/sessions/{id}/memory`
+- [ ] `GET /api/v1/sessions/{id}/export/replay.json`
+- [ ] `GET /api/v1/sessions/{id}/export/graph.gexf`
+
+### 8.0.1 TurnArtifacts 字段覆盖度（截至 2026-02-10）
+
+1. 已沉淀字段（后端可取）
+- [x] `turn_uid`、`side`、`round_idx`
+- [x] `controller_assessment`、`batch_instructions`
+- [x] `worker_reports`（含 worker_name/status/duration/max_score）
+- [x] `decision_raw`、`parsed_actions`
+- [x] `execution_logs`、`retry_history`
+- [x] `narrative_raw_sentences`、`narrative_polished`
+
+2. 展示层待补字段（前端未成体系）
+- [x] `controller_assessment` 的逐段 Inspector 展示
+- [x] `retry_history` 的时间轴视图与失败类型聚合
+- [x] `narrative_raw_sentences` 与 `narrative_polished` 同屏比对
+
 ### Phase 1：可运行闭环（必须先做）
 - [x] 新增轻量后端 API 适配层（封装 `DebateEngine`）。
 - [x] 打通会话生命周期：create -> setup -> step -> adjudicate -> snapshot。
@@ -599,21 +635,76 @@
 进展备注（2026-02-10）：已补齐 Graph/Judgment 可解释面板：Graph 动作审计显示 action status 与公理映射标签；Judgment 展示判决文书、root claim 状态与 BAF 关键指标。
 
 ### Phase 2.5：Debug / 演示体验专项（本次新增）
-- [ ] 图谱 Diff 高亮体系（新增/复用/状态变化/拒绝操作）。
-- [ ] 团队内部流程可视化（Controller 状态机 + Worker 卡片墙 + Retry 时间线）。
-- [ ] 统一事件时间轴与事件-快照联动跳转。
-- [ ] Prompt/Decision/Context Inspector 三件套。
-- [ ] 一键复制 Debug Bundle 与错误分层提示。
+- [x] 图谱 Diff 基础能力：已支持 round diff 拉取与差异计数展示（`+N/-N/+E/-E`）。
+- [x] 图谱 Diff 高亮增强：新增/复用/状态变化/拒绝操作在图内可视高亮。
+- DoD：用户在 live/replay 页可一眼区分新增、复用、拒绝与状态迁移，且可点击筛选到具体节点/边。
+
+- [x] 团队流程基础能力：已可查看 turn artifacts 与执行日志。
+- [x] 团队流程可视化增强：Controller 状态机 + Worker 卡片墙 + Retry 时间线联动。
+- DoD：任一回合可完整还原“评估 -> 派发 -> 汇总 -> 决策 -> 重试”链路，定位失败步骤不超过 3 次点击。
+
+- [x] 事件时间轴基础能力：已支持 WS 事件流、历史查询、轮询兜底。
+- [x] 事件-快照联动增强：点击事件自动跳到对应快照与目标节点/动作。
+- DoD：从时间轴任一关键事件可跳转并定位同回合图状态，事件顺序与 `seq` 一致无乱序展示。
+
+- [x] Inspector 数据基础能力：`latest_context`/`decision_raw`/`parsed_actions`/narrative 数据可通过 snapshot 或 artifacts 取得。
+- [x] Inspector 交互增强：Context/Decision/Narrative 三面板可折叠、可对照、可高亮解析失败片段。
+- DoD：当 parser 失败时，页面直接显示原始片段与错误原因；当 parser 成功时可对照原始输出与解析结果。
+
+- [x] 错误分层基础能力：当前已有错误日志与 session error 事件可见。
+- [x] Debug Bundle 增强：一键复制 `session_id + round + recent_events + snapshot_summary + last_error`。
+- DoD：出现失败时 1 分钟内可从 UI 复制可复现排障信息，且可在另一端回放关键上下文。
+
+进展备注（2026-02-10）：已完成 Phase 2.5 全套实现：后端新增 `/api/v1/sessions/{id}/debug-bundle`，事件补齐 `event_id/round_idx`；前端完成 React Flow Diff 高亮、Timeline->Snapshot 联动、Team Flow 与 Inspector 三件套、Debug Bundle 复制/下载，并补充 API 与前端协议单测。
 
 ### Phase 3：学习能力展示
-- [ ] memory 页面：三层记忆可视化。
-- [ ] 展示策略提炼结果与代表案例变化。
+- [ ] 任务包 A：Memory 页面三层信息架构。
+- 输入：`GET /api/v1/sessions/{id}/memory` 返回数据。
+- 输出：Insights / TaskLayer / Case snapshots 三分区页面。
+- 验收：三层均有独立空态与错误态，且字段命名与后端一致。
+
+- [ ] 任务包 B：策略提炼与代表案例变化展示。
+- 输入：`insightSummaries`、`representative case` 相关字段。
+- 输出：按回合展示“新增策略、命中历史案例、关联变化”。
+- 验收：至少能展示一次策略新增与一次代表案例变化。
+
+- [ ] 任务包 C：Memory 与 replay 联动。
+- 输入：当前 round 与快照索引。
+- 输出：从 Memory 页面跳转到对应回合 replay 视角。
+- 验收：从任一策略项可在 1 次跳转内看到对应图谱上下文。
 
 ### Phase 4：演示打磨
-- [ ] 一键自动演示脚本（demo mode）。
-- [ ] 错误场景演示（ES/LLM 不可用时的降级）。
-- [ ] 页面统一视觉规范与讲解文案。
-- [ ] 导出回放包（JSON/GEXF）用于复盘汇报。
+- [ ] 任务包 A：一键自动演示脚本（Demo Mode）。
+- 交付物：固定演示路径（初始化 -> 对抗回合 -> 裁判 -> 记忆）与关键帧书签。
+- 演示通过条件：90 秒内可无人工操作完成一次全流程演示。
+
+- [ ] 任务包 B：错误场景降级演示。
+- 交付物：ES 不可用、LLM 超时两类脚本化演示步骤与 UI 预期说明。
+- 演示通过条件：失败时不白屏、可继续回放、可见明确降级提示。
+
+- [ ] 任务包 C：页面视觉统一与讲解文案。
+- 交付物：统一术语、颜色图例、关键指标说明、讲解脚本。
+- 演示通过条件：非开发观众能在 3 分钟内理解“系统在做什么、为什么这样做”。
+
+- [ ] 任务包 D：导出回放包（JSON/GEXF）用于复盘。
+- 交付物：`/export/replay.json` 与 `/export/graph.gexf` 接口规范及前端下载入口。
+- 演示通过条件：导出包可在另一台机器重放最小可解释视图（时间轴 + 图谱 + 关键日志）。
+
+### 8.6 当前实现对齐说明（2026-02-10）
+
+1. 已实现能力（与代码对齐）
+- `mas/api/server.py`：已提供 `/events`、`/events/history`、`/diff`、`/memory`、`/turns/artifacts`、WS events。
+- `mas/core/engine.py`：已提供 turn artifacts 存储、快照恢复、JSON-safe snapshot 输出。
+- `frontend/src/App.tsx`：已提供最小版本 timeline/diff/replay/audit/judgment 面板。
+
+2. 未实现增强能力（本次保留未勾选）
+- 图内高亮型 diff（当前仅差异计数与列表，不含图形层高亮）。
+- Context/Decision/Narrative Inspector 的专用交互面板。
+- Debug Bundle 一键导出与跨机重放工具化链路。
+- 演示导出接口 `/export/replay.json`、`/export/graph.gexf`。
+
+3. 状态标注原则
+- 本文档按“基础可用即标基础完成，增强体验单独列未完成”执行，避免将“部分可用”误标为“全部完成”。
 
 ---
 
@@ -632,7 +723,42 @@
 10. 任意回合都可导出标准化 Debug Bundle，且可在另一台机器重放同一可视化过程。
 11. 快照恢复后的图统计值（node/edge/claim/conflict）与原始快照一致。
 
+### 9.1 剩余风险与依赖
+
+1. 外部依赖风险（LLM/ES）
+- 风险：延迟、超时或空结果会影响演示稳定性。
+- 缓解：默认启用错误分层提示与轮询/回放兜底；Demo Mode 准备本地样例会话。
+
+2. 性能风险（长会话）
+- 风险：事件与日志过长导致前端卡顿。
+- 缓解：事件流按 `seq` 增量拉取；列表使用虚拟渲染；默认只显示最近窗口。
+
+3. 可视化可读性风险（大图 diff）
+- 风险：节点数上升后 diff 变化难被非开发者快速读懂。
+- 缓解：优先完成“只看变化节点/邻域聚焦/指标筛选”三件套。
+
+4. 交付一致性风险（计划与实现漂移）
+- 风险：文档勾选状态落后于实际代码，误导后续开发。
+- 缓解：每次合并后更新“接口状态矩阵 + 进展备注 + 验收映射”。
+
 ---
 
-## 10. 一句话总结
+## 10. 文档维护规则
+
+1. 每次能力变更必须同时更新三处：
+- `8.*` 对应任务勾选状态。
+- 对应 Phase 的“进展备注（绝对日期）”。
+- `9` 验收标准中受影响条目（新增或关闭风险）。
+
+2. 勾选规范
+- 若仅具备基础能力，只勾选“基础能力”子项，不得勾选增强项。
+- 增强项必须有可验证的 DoD 证据（接口返回、UI 行为或测试）。
+
+3. 日期与版本规范
+- 统一使用绝对日期（例如 `2026-02-10`），避免“今天/本周”歧义。
+- 新增进展备注时注明对应文件或接口，便于追溯。
+
+---
+
+## 11. 一句话总结
 这套前端不是“做个漂亮可视化”，而是把论文中的**逻辑约束 + 分层决策 + 生命周期 + 演化学习**，通过当前仓库代码可真实运行的数据流，完整、可解释地演示出来。

@@ -18,7 +18,6 @@ require_cmd() {
 	if ! command -v "$1" >/dev/null 2>&1; then
 		echo "Missing command: $1"
 		exit 1
-
 	fi
 }
 
@@ -27,16 +26,16 @@ kill_group_by_pid_file() {
 
 	if [[ ! -f "$pid_file" ]]; then
 		return
-
 	fi
+
 	local pid
 	pid="$(cat "$pid_file")"
 
 	if [[ -n "$pid" ]]; then
 		kill -- "-$pid" >/dev/null 2>&1 || true
 		kill "$pid" >/dev/null 2>&1 || true
-
 	fi
+
 	rm -f "$pid_file"
 }
 
@@ -138,19 +137,16 @@ mkdir -p "$LOG_DIR" "$PID_DIR"
 if [[ -f "$BACKEND_PID_FILE" ]] || [[ -f "$FRONTEND_PID_FILE" ]]; then
 	echo "PID file exists. Run scripts/stop_dev.sh first."
 	exit 1
-
 fi
 
 if ! port_is_free "$BACKEND_PORT"; then
 	echo "Backend port is busy: $BACKEND_PORT"
 	exit 1
-
 fi
 
 if ! port_is_free "$FRONTEND_PORT"; then
 	echo "Frontend port is busy: $FRONTEND_PORT"
 	exit 1
-
 fi
 
 if ! python - <<'PY' >/dev/null 2>&1; then
@@ -165,7 +161,6 @@ fi
 if [[ ! -d "$ROOT_DIR/frontend/node_modules" ]]; then
 	echo "Installing frontend dependencies..."
 	npm --prefix "$ROOT_DIR/frontend" install
-
 fi
 
 trap cleanup_on_error ERR
@@ -181,8 +176,8 @@ echo $! >"$BACKEND_PID_FILE"
 if ! wait_http_ok "http://$BACKEND_HOST:$BACKEND_PORT/api/v1/health" "$HEALTH_TIMEOUT_SEC"; then
 	echo "Backend health check failed. See $BACKEND_LOG"
 	exit 1
-
 fi
+
 echo "Starting frontend..."
 
 nohup setsid env \
@@ -198,8 +193,8 @@ echo $! >"$FRONTEND_PID_FILE"
 if ! wait_port_open "$FRONTEND_HOST" "$FRONTEND_PORT" "$HEALTH_TIMEOUT_SEC"; then
 	echo "Frontend port check failed. See $FRONTEND_LOG"
 	exit 1
-
 fi
+
 trap - ERR
 echo "Dev stack is up."
 echo "Frontend: http://$FRONTEND_HOST:$FRONTEND_PORT"

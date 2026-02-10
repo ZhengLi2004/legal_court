@@ -395,6 +395,24 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/api/v1/sessions/{session_id}/debug-bundle")
+    async def get_debug_bundle(
+        session_id: str,
+        event_limit: int = Query(20, ge=1, le=5000),
+        include_snapshot: bool = Query(default=True),
+        include_artifact: bool = Query(default=True),
+    ) -> Dict[str, Any]:
+        try:
+            return manager.build_debug_bundle(
+                session_id=session_id,
+                event_limit=event_limit,
+                include_snapshot=include_snapshot,
+                include_artifact=include_artifact,
+            )
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.delete("/api/v1/sessions/{session_id}", status_code=204)
     async def delete_session(session_id: str) -> Response:
         try:

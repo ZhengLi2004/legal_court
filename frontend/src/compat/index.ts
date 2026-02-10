@@ -7,6 +7,7 @@ export type {
   DebateMetrics,
   DebatePhase,
   DebateSnapshot,
+  DebugBundleView,
   EngineAdapter,
   GraphAdapter,
   GraphDiffView,

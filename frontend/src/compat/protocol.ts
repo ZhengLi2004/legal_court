@@ -2,6 +2,7 @@ import type {
   DebateMetrics,
   DebatePhase,
   DebateSnapshot,
+  DebugBundleView,
   GraphDiffView,
   GraphEdge,
   GraphNode,
@@ -313,8 +314,13 @@ export function normalizeTimeline(raw: unknown): TimelineEvent[] {
     return {
       seq: asNumber(row.seq, index + 1),
       ts: asNumber(row.ts_ms ?? row.ts, Date.now()),
+      eventId: asString(row.event_id ?? row.eventId) || undefined,
       event: asString(row.event, "event"),
       source: asString(row.source, "engine"),
+      roundIdx:
+        row.round_idx !== undefined || row.roundIdx !== undefined
+          ? asNumber(row.round_idx ?? row.roundIdx)
+          : undefined,
       sessionId: asString(row.session_id ?? row.sessionId) || undefined,
       turnUid: asString(row.turn_uid ?? row.turnUid) || undefined,
       data: row.data,
@@ -337,6 +343,9 @@ export function normalizeTurnArtifacts(raw: unknown): TurnArtifact[] {
       turnUid: asString(row.turn_uid ?? row.turnUid),
       side: asString(row.side, "unknown"),
       round: asNumber(row.round_idx ?? row.round),
+      controllerAssessment:
+        row.controller_assessment ?? row.controllerAssessment,
+      batchInstructions: row.batch_instructions ?? row.batchInstructions,
       decisionRaw: asString(row.decision_raw ?? row.decisionRaw),
       parsedActions: Array.isArray(row.parsed_actions)
         ? row.parsed_actions
@@ -354,9 +363,56 @@ export function normalizeTurnArtifacts(raw: unknown): TurnArtifact[] {
         : Array.isArray(row.workerReports)
           ? row.workerReports
           : [],
+      narrativeRawSentences: Array.isArray(
+        row.narrative_raw_sentences ?? row.narrativeRawSentences,
+      )
+        ? ((row.narrative_raw_sentences ??
+            row.narrativeRawSentences) as unknown[])
+        : [],
+      narrativePolished: asString(
+        row.narrative_polished ?? row.narrativePolished,
+      ),
       raw: item,
     };
   });
+}
+
+export function normalizeDebugBundle(
+  raw: unknown,
+  fallbackSessionId = "local-session",
+): DebugBundleView {
+  const payload = unwrapPayload(raw);
+  const summary = asRecord(payload.snapshot_summary ?? payload.snapshotSummary);
+
+  const artifactRaw =
+    payload.latest_turn_artifact ?? payload.latestTurnArtifact;
+
+  const artifactList = artifactRaw !== undefined ? [artifactRaw] : [];
+  const normalizedArtifact = normalizeTurnArtifacts(artifactList)[0];
+
+  return {
+    sessionId: asString(
+      payload.session_id ?? payload.sessionId,
+      fallbackSessionId,
+    ),
+    round: asNumber(payload.round_idx ?? payload.round),
+    turnUid: asString(payload.turn_uid ?? payload.turnUid),
+    status: asString(payload.status, "UNKNOWN"),
+    lastError: asString(payload.last_error ?? payload.lastError),
+    snapshotSummary: {
+      phase: asString(summary.phase, "UNKNOWN"),
+      nodeCount: asNumber(summary.node_count ?? summary.nodeCount),
+      edgeCount: asNumber(summary.edge_count ?? summary.edgeCount),
+      claimCount: asNumber(summary.claim_count ?? summary.claimCount),
+      conflictCount: asNumber(summary.conflict_count ?? summary.conflictCount),
+    },
+    recentEvents: normalizeTimeline(
+      payload.recent_events ?? payload.events ?? [],
+    ),
+    latestTurnArtifact: normalizedArtifact,
+    generatedAt: asString(payload.generated_at ?? payload.generatedAt),
+    raw,
+  };
 }
 
 export function buildLocalGraphDiff(

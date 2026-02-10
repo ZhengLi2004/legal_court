@@ -290,6 +290,112 @@ h2 {
   padding: 0.45rem 0.5rem;
 }
 
+.sub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.55rem 0 0.75rem;
+}
+
+.sub-actions button {
+  border-radius: 10px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+}
+
+.graph-canvas {
+  width: 100%;
+  height: 520px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgb(59 130 246 / 0.28);
+  background: rgb(248 250 252 / 0.92);
+}
+
+.filter-label {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0.65rem;
+  color: #1e3a8a;
+  font-size: 0.82rem;
+}
+
+.filter-label select {
+  border-radius: 9px;
+  border: 1px solid rgb(59 130 246 / 0.35);
+  background: rgb(255 255 255 / 0.95);
+  color: #0f172a;
+  padding: 0.45rem 0.5rem;
+}
+
+.timeline-row {
+  width: 100%;
+  margin-bottom: 0.42rem;
+  display: grid;
+  grid-template-columns: 0.9fr 1.7fr 0.7fr;
+  align-items: center;
+  text-align: left;
+  border-radius: 10px;
+  padding: 0.48rem 0.58rem;
+  border: 1px solid rgb(148 163 184 / 0.32);
+  background: rgb(255 255 255 / 0.92);
+  color: #0f172a;
+  font-size: 0.8rem;
+}
+
+.timeline-row-selected {
+  border-color: rgb(37 99 235 / 0.6);
+  background: rgb(219 234 254 / 0.68);
+}
+
+.team-flow-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
+  gap: 0.8rem;
+}
+
+.turn-row {
+  width: 100%;
+  margin-bottom: 0.42rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.16rem;
+  align-items: center;
+  text-align: left;
+  border-radius: 10px;
+  padding: 0.5rem 0.58rem;
+  border: 1px solid rgb(148 163 184 / 0.32);
+  background: rgb(255 255 255 / 0.92);
+  color: #0f172a;
+  font-size: 0.8rem;
+}
+
+.turn-row-selected {
+  border-color: rgb(14 165 233 / 0.62);
+  background: rgb(224 242 254 / 0.72);
+}
+
+.team-flow-detail {
+  border: 1px solid rgb(59 130 246 / 0.24);
+  border-radius: 12px;
+  background: rgb(248 250 252 / 0.88);
+  padding: 0.7rem;
+}
+
+.json-block {
+  margin: 0.45rem 0;
+  border-radius: 9px;
+  border: 1px solid rgb(148 163 184 / 0.35);
+  background: rgb(15 23 42 / 0.95);
+  color: #e2e8f0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  padding: 0.58rem 0.62rem;
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+}
+
 @media (max-width: 980px) {
   .topbar {
     flex-direction: column;
@@ -302,6 +408,14 @@ h2 {
 
   .card {
     grid-column: span 6;
+  }
+
+  .team-flow-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .graph-canvas {
+    height: 420px;
   }
 }
 
