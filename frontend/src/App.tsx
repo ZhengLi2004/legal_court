@@ -8,6 +8,7 @@ import type {
   MemoryView,
   SnapshotIndexItem,
   TimelineEvent,
+  TurnArtifact,
 } from "./compat";
 
 const envMode = import.meta.env.VITE_COMPAT_MODE;
@@ -16,6 +17,90 @@ type AdapterMode = "auto" | "http" | "mock";
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString();
+}
+
+interface AuditRow {
+  id: string;
+  round: number;
+  side: string;
+  actionType: string;
+  status: "accepted" | "rejected" | "unknown";
+  axiom: string;
+  reason: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+}
+
+function unwrapPayload(raw: unknown): Record<string, unknown> {
+  const outer = asRecord(raw);
+  const nested = outer.data ?? outer.snapshot ?? outer.state ?? outer.payload;
+  return nested !== undefined ? asRecord(nested) : outer;
+}
+
+function inferAuditStatus(text: string): "accepted" | "rejected" | "unknown" {
+  const normalized = text.toLowerCase();
+
+  if (
+    normalized.includes("reject") ||
+    normalized.includes("rollback") ||
+    normalized.includes("failed") ||
+    normalized.includes("error")
+  ) {
+    return "rejected";
+  }
+
+  if (
+    normalized.includes("success") ||
+    normalized.includes("applied") ||
+    normalized.includes("completed") ||
+    normalized.includes("ok")
+  ) {
+    return "accepted";
+  }
+
+  return "unknown";
+}
+
+function inferAxiom(text: string): string {
+  const normalized = text.toLowerCase();
+
+  if (normalized.includes("cycle")) {
+    return "No Directed Cycle";
+  }
+
+  if (normalized.includes("support") && normalized.includes("claim")) {
+    return "Support -> CLAIM";
+  }
+
+  if (normalized.includes("conflict") && normalized.includes("claim")) {
+    return "Conflict endpoints -> CLAIM";
+  }
+
+  return "N/A";
 }
 
 function App() {
@@ -38,6 +123,7 @@ function App() {
   const [graphDiff, setGraphDiff] = useState<GraphDiffView | null>(null);
   const [memoryView, setMemoryView] = useState<MemoryView | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [turnArtifacts, setTurnArtifacts] = useState<TurnArtifact[]>([]);
   const [snapshotIndex, setSnapshotIndex] = useState<SnapshotIndexItem[]>([]);
   const [replayFromRound, setReplayFromRound] = useState<number>(0);
   const [replayToRound, setReplayToRound] = useState<number>(0);
@@ -67,6 +153,67 @@ function App() {
 
     return snapshot.transcript.slice(previousSnapshot.transcript.length);
   }, [snapshot, previousSnapshot]);
+
+  const judgmentPayload = useMemo(
+    () => unwrapPayload(snapshot?.raw ?? {}),
+    [snapshot],
+  );
+
+  const judgmentDocument = asString(judgmentPayload.judgment_document);
+
+  const rootClaimEntries = Object.entries(
+    asRecord(judgmentPayload.root_claims_status),
+  );
+
+  const bafDetails = asRecord(judgmentPayload.baf_details);
+
+  const auditRows = useMemo(() => {
+    const rows: AuditRow[] = [];
+
+    for (const artifact of turnArtifacts) {
+      const executionLogs = asString(artifact.executionLogs);
+      const status = inferAuditStatus(executionLogs);
+      const axiom = inferAxiom(executionLogs);
+      const reason = executionLogs.split("\n")[0]?.trim() ?? "";
+
+      const actionRows = Array.isArray(artifact.parsedActions)
+        ? artifact.parsedActions
+        : [];
+
+      if (actionRows.length === 0) {
+        rows.push({
+          id: `${artifact.turnUid}-none`,
+          round: artifact.round,
+          side: artifact.side,
+          actionType: "(none)",
+          status,
+          axiom,
+          reason,
+        });
+
+        continue;
+      }
+
+      actionRows.forEach((item, index) => {
+        const action = asRecord(item);
+
+        rows.push({
+          id: `${artifact.turnUid}-${index}`,
+          round: artifact.round,
+          side: artifact.side,
+          actionType: asString(
+            action.action_type ?? action.actionType ?? action.type,
+            "unknown",
+          ),
+          status,
+          axiom,
+          reason,
+        });
+      });
+    }
+
+    return rows.slice(-60).reverse();
+  }, [turnArtifacts]);
 
   const appendLog = (message: string): void => {
     const row = `${new Date().toISOString()} ${message}`;
@@ -275,6 +422,47 @@ function App() {
     }
   };
 
+  const loadTurnArtifacts = async (
+    options: { silent?: boolean } = {},
+  ): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    const silent = options.silent === true;
+
+    if (!silent) {
+      setBusyAction("loadTurnArtifacts");
+    }
+
+    setError("");
+
+    try {
+      const rows = await adapter.insight.getTurnArtifacts(sessionId, {
+        limit: 40,
+      });
+
+      setTurnArtifacts(rows);
+
+      if (!silent) {
+        appendLog(`loadTurnArtifacts: turns=${rows.length}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+
+      appendLog(
+        silent
+          ? `loadTurnArtifacts(auto) failed: ${message}`
+          : `loadTurnArtifacts failed: ${message}`,
+      );
+    } finally {
+      if (!silent) {
+        setBusyAction("");
+      }
+    }
+  };
+
   const loadSnapshots = async (
     options: { silent?: boolean } = {},
   ): Promise<void> => {
@@ -411,6 +599,15 @@ function App() {
     }
 
     void loadSnapshots({ silent: true });
+  }, [adapter, sessionId, snapshot?.round]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setTurnArtifacts([]);
+      return;
+    }
+
+    void loadTurnArtifacts({ silent: true });
   }, [adapter, sessionId, snapshot?.round]);
 
   useEffect(() => {
@@ -592,6 +789,13 @@ function App() {
 
         <button
           disabled={Boolean(busyAction) || !sessionId}
+          onClick={() => void loadTurnArtifacts()}
+        >
+          Load Artifacts
+        </button>
+
+        <button
+          disabled={Boolean(busyAction) || !sessionId}
           onClick={() => void loadSnapshots()}
         >
           Load Snapshots
@@ -653,6 +857,7 @@ function App() {
 
           <p className="line">timeline events: {timeline.length || "-"}</p>
           <p className="line">snapshot index: {snapshotIndex.length || "-"}</p>
+          <p className="line">turn artifacts: {turnArtifacts.length || "-"}</p>
 
           <p className="line">
             diff: +N{graphDiff?.addedNodeIds.length ?? 0} -N
@@ -722,6 +927,93 @@ function App() {
               <p className="hint">No memory data loaded.</p>
             )}
           </div>
+        </article>
+
+        <article className="card wide">
+          <h2>Graph Action Audit</h2>
+
+          <p className="hint">
+            action-level audit with heuristic axiom mapping from executor logs
+          </p>
+
+          <div className="scrollbox">
+            {auditRows.length ? (
+              auditRows.map((row) => (
+                <div className="audit-row" key={row.id}>
+                  <p className="audit-head">
+                    r{row.round} [{row.side}] {row.actionType}
+                  </p>
+
+                  <p className="audit-meta">
+                    <span className={`tag tag-${row.status}`}>
+                      {row.status}
+                    </span>
+                    <span className="tag tag-axiom">{row.axiom}</span>
+                  </p>
+
+                  {row.reason ? (
+                    <p className="audit-reason">{row.reason}</p>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <p className="hint">No action audit data loaded.</p>
+            )}
+          </div>
+        </article>
+
+        <article className="card wide">
+          <h2>Judgment & BAF</h2>
+
+          {judgmentDocument ? (
+            <>
+              <p className="line">
+                preferred extensions:{" "}
+                {asNumber(
+                  bafDetails.preferred_extensions_count ??
+                    bafDetails.preferredExtensionsCount,
+                ) || 0}
+              </p>
+
+              <p className="line">
+                chosen extension size:{" "}
+                {asNumber(
+                  bafDetails.chosen_extension_size ??
+                    bafDetails.chosenExtensionSize,
+                ) || 0}
+              </p>
+
+              <p className="line">
+                alignment rate:{" "}
+                {(
+                  asNumber(
+                    bafDetails.alignment_rate ?? bafDetails.alignmentRate,
+                    0,
+                  ) * 100
+                ).toFixed(1)}
+                %
+              </p>
+
+              <div className="scrollbox">
+                <p className="log">{judgmentDocument}</p>
+
+                {rootClaimEntries.length ? (
+                  rootClaimEntries.map(([claimId, status]) => (
+                    <p className="log" key={claimId}>
+                      {claimId}: {String(status)}
+                    </p>
+                  ))
+                ) : (
+                  <p className="hint">No root-claim status available.</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="hint">
+              No judgment yet. Run adjudication to render judgment and BAF
+              panel.
+            </p>
+          )}
         </article>
 
         <article className="card">

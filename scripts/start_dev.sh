@@ -18,7 +18,26 @@ require_cmd() {
 	if ! command -v "$1" >/dev/null 2>&1; then
 		echo "Missing command: $1"
 		exit 1
+
 	fi
+}
+
+kill_group_by_pid_file() {
+	local pid_file="$1"
+
+	if [[ ! -f "$pid_file" ]]; then
+		return
+
+	fi
+	local pid
+	pid="$(cat "$pid_file")"
+
+	if [[ -n "$pid" ]]; then
+		kill -- "-$pid" >/dev/null 2>&1 || true
+		kill "$pid" >/dev/null 2>&1 || true
+
+	fi
+	rm -f "$pid_file"
 }
 
 port_is_free() {
@@ -30,14 +49,14 @@ import sys
 
 port = int(sys.argv[1])
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.settimeout(0.6)
 try:
-    sock.bind(("127.0.0.1", port))
-except OSError:
-    print("busy")
-    sys.exit(1)
+    code = sock.connect_ex(("127.0.0.1", port))
+    sys.exit(1 if code == 0 else 0)
+except Exception:
+    sys.exit(0)
 finally:
     sock.close()
-print("free")
 PY
 }
 
@@ -49,7 +68,6 @@ wait_http_ok() {
 import json
 import sys
 import time
-import urllib.error
 import urllib.request
 
 url = sys.argv[1]
@@ -108,36 +126,31 @@ PY
 
 cleanup_on_error() {
 	set +e
-
-	if [[ -f "$BACKEND_PID_FILE" ]]; then
-		kill "$(cat "$BACKEND_PID_FILE")" >/dev/null 2>&1 || true
-		rm -f "$BACKEND_PID_FILE"
-	fi
-
-	if [[ -f "$FRONTEND_PID_FILE" ]]; then
-		kill "$(cat "$FRONTEND_PID_FILE")" >/dev/null 2>&1 || true
-		rm -f "$FRONTEND_PID_FILE"
-	fi
+	kill_group_by_pid_file "$BACKEND_PID_FILE"
+	kill_group_by_pid_file "$FRONTEND_PID_FILE"
 }
 
 require_cmd python
 require_cmd npm
-require_cmd bash
+require_cmd setsid
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
 if [[ -f "$BACKEND_PID_FILE" ]] || [[ -f "$FRONTEND_PID_FILE" ]]; then
 	echo "PID file exists. Run scripts/stop_dev.sh first."
 	exit 1
+
 fi
 
-if ! port_is_free "$BACKEND_PORT" >/dev/null; then
+if ! port_is_free "$BACKEND_PORT"; then
 	echo "Backend port is busy: $BACKEND_PORT"
 	exit 1
+
 fi
 
-if ! port_is_free "$FRONTEND_PORT" >/dev/null; then
+if ! port_is_free "$FRONTEND_PORT"; then
 	echo "Frontend port is busy: $FRONTEND_PORT"
 	exit 1
+
 fi
 
 if ! python - <<'PY' >/dev/null 2>&1; then
@@ -146,51 +159,53 @@ import uvicorn
 PY
 	echo "Installing Python dependencies..."
 	python -m pip install -r requirements.txt
+
 fi
 
 if [[ ! -d "$ROOT_DIR/frontend/node_modules" ]]; then
 	echo "Installing frontend dependencies..."
 	npm --prefix "$ROOT_DIR/frontend" install
+
 fi
 
 trap cleanup_on_error ERR
 echo "Starting backend..."
 
-nohup python -m uvicorn mas.api.server:app \
+nohup setsid python -m uvicorn mas.api.server:app \
 	--host "$BACKEND_HOST" \
 	--port "$BACKEND_PORT" \
-	>"$BACKEND_LOG" 2>&1 &
+	>"$BACKEND_LOG" 2>&1 </dev/null &
 
 echo $! >"$BACKEND_PID_FILE"
 
 if ! wait_http_ok "http://$BACKEND_HOST:$BACKEND_PORT/api/v1/health" "$HEALTH_TIMEOUT_SEC"; then
 	echo "Backend health check failed. See $BACKEND_LOG"
 	exit 1
-fi
 
+fi
 echo "Starting frontend..."
 
-nohup env \
+nohup setsid env \
 	VITE_COMPAT_MODE=http \
 	VITE_API_BASE_URL="http://$BACKEND_HOST:$BACKEND_PORT" \
 	npm --prefix "$ROOT_DIR/frontend" run dev -- \
 	--host "$FRONTEND_HOST" \
 	--port "$FRONTEND_PORT" \
-	>"$FRONTEND_LOG" 2>&1 &
+	>"$FRONTEND_LOG" 2>&1 </dev/null &
 
 echo $! >"$FRONTEND_PID_FILE"
 
 if ! wait_port_open "$FRONTEND_HOST" "$FRONTEND_PORT" "$HEALTH_TIMEOUT_SEC"; then
 	echo "Frontend port check failed. See $FRONTEND_LOG"
 	exit 1
-fi
 
+fi
 trap - ERR
 echo "Dev stack is up."
 echo "Frontend: http://$FRONTEND_HOST:$FRONTEND_PORT"
 echo "Backend : http://$BACKEND_HOST:$BACKEND_PORT"
 echo "Backend log : $BACKEND_LOG"
 echo "Frontend log: $FRONTEND_LOG"
-echo "Backend PID : $(cat "$BACKEND_PID_FILE")"
-echo "Frontend PID: $(cat "$FRONTEND_PID_FILE")"
+echo "Backend group PID : $(cat "$BACKEND_PID_FILE")"
+echo "Frontend group PID: $(cat "$FRONTEND_PID_FILE")"
 echo "Stop with: bash scripts/stop_dev.sh"

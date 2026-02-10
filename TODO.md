@@ -591,11 +591,12 @@
 进展备注（2026-02-10）：已完成 Phase 1.5 数据底座三项，新增 turn artifacts API（`/api/v1/sessions/{id}/turns/artifacts`），并提供一键启动脚本（`scripts/start_dev.sh` / `scripts/stop_dev.sh`）。
 
 ### Phase 2：可解释性增强
-- [ ] graph 页面：动作审计 + 公理映射。
-- [ ] judgment 页面：判决文书 + BAF 面板。
+- [x] graph 页面：动作审计 + 公理映射（最小可演示版本，基于 turn artifacts + execution logs 规则映射）。
+- [x] judgment 页面：判决文书 + BAF 面板（最小可演示版本，基于 snapshot 的 judgment/baf 字段）。
 - [x] replay 页面：快照回放 + diff（最小可演示版本，基于 snapshots 索引 + round diff）。
 
 进展备注（2026-02-10）：已新增 `WS /api/v1/sessions/{id}/events` 实时推流与 `GET /api/v1/sessions/{id}/snapshots` 快照索引；前端接入“WS 优先 + 轮询兜底”事件流，并补充 replay 控件可按 round 加载快照与对比 diff。
+进展备注（2026-02-10）：已补齐 Graph/Judgment 可解释面板：Graph 动作审计显示 action status 与公理映射标签；Judgment 展示判决文书、root claim 状态与 BAF 关键指标。
 
 ### Phase 2.5：Debug / 演示体验专项（本次新增）
 - [ ] 图谱 Diff 高亮体系（新增/复用/状态变化/拒绝操作）。
