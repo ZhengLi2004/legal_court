@@ -312,6 +312,30 @@ h2 {
   background: rgb(248 250 252 / 0.92);
 }
 
+.graph-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0.3rem 0 0.7rem;
+}
+
+.graph-control {
+  display: grid;
+  gap: 0.2rem;
+  color: #1e3a8a;
+  font-size: 0.78rem;
+  min-width: 150px;
+}
+
+.graph-control select {
+  border-radius: 9px;
+  border: 1px solid rgb(59 130 246 / 0.35);
+  background: rgb(255 255 255 / 0.95);
+  color: #0f172a;
+  padding: 0.38rem 0.48rem;
+  font-size: 0.8rem;
+}
+
 .filter-label {
   display: grid;
   gap: 0.25rem;

@@ -199,6 +199,10 @@ function App() {
 
   const bafDetails = asRecord(judgmentPayload.baf_details);
 
+  const rootClaimValidatedCount = rootClaimEntries.filter(([, status]) =>
+    String(status).toUpperCase().includes("VALID"),
+  ).length;
+
   const auditRows = useMemo(() => {
     const rows: AuditRow[] = [];
 
@@ -341,27 +345,40 @@ function App() {
     }
   };
 
-  const loadGraph = async (): Promise<void> => {
+  const loadGraph = async (
+    options: { silent?: boolean } = {},
+  ): Promise<void> => {
     if (!sessionId) {
       return;
     }
 
-    setBusyAction("loadGraph");
-    setError("");
+    const silent = options.silent === true;
+
+    if (!silent) {
+      setBusyAction("loadGraph");
+      setError("");
+    }
 
     try {
       const result = await adapter.graph.getGraph(sessionId);
       setGraphView(result);
 
-      appendLog(
-        `loadGraph: nodes=${result.nodes.length}, edges=${result.edges.length}`,
-      );
+      if (!silent) {
+        appendLog(
+          `loadGraph: nodes=${result.nodes.length}, edges=${result.edges.length}`,
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      appendLog(`loadGraph failed: ${message}`);
+
+      if (!silent) {
+        setError(message);
+        appendLog(`loadGraph failed: ${message}`);
+      }
     } finally {
-      setBusyAction("");
+      if (!silent) {
+        setBusyAction("");
+      }
     }
   };
 
@@ -369,13 +386,18 @@ function App() {
     fromRound: number,
     toRound: number,
     actionName: string,
+    options: { silent?: boolean } = {},
   ): Promise<void> => {
     if (!sessionId) {
       return;
     }
 
-    setBusyAction(actionName);
-    setError("");
+    const silent = options.silent === true;
+
+    if (!silent) {
+      setBusyAction(actionName);
+      setError("");
+    }
 
     try {
       const [diffResult, fromGraph, toGraph] = await Promise.all([
@@ -388,15 +410,22 @@ function App() {
       setBaselineGraphView(fromGraph);
       setGraphView(toGraph);
 
-      appendLog(
-        `${actionName}: ${fromRound}->${toRound} +N${diffResult.addedNodeIds.length} +E${diffResult.addedEdgeIds.length}`,
-      );
+      if (!silent) {
+        appendLog(
+          `${actionName}: ${fromRound}->${toRound} +N${diffResult.addedNodeIds.length} +E${diffResult.addedEdgeIds.length}`,
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      appendLog(`${actionName} failed: ${message}`);
+
+      if (!silent) {
+        setError(message);
+        appendLog(`${actionName} failed: ${message}`);
+      }
     } finally {
-      setBusyAction("");
+      if (!silent) {
+        setBusyAction("");
+      }
     }
   };
 
@@ -411,24 +440,38 @@ function App() {
     await loadDiffWithRounds(fromRound, snapshot.round, "loadDiff");
   };
 
-  const loadMemory = async (): Promise<void> => {
+  const loadMemory = async (
+    options: { silent?: boolean } = {},
+  ): Promise<void> => {
     if (!sessionId) {
       return;
     }
 
-    setBusyAction("loadMemory");
-    setError("");
+    const silent = options.silent === true;
+
+    if (!silent) {
+      setBusyAction("loadMemory");
+      setError("");
+    }
 
     try {
       const result = await adapter.insight.getMemory(sessionId);
       setMemoryView(result);
-      appendLog(`loadMemory: insights=${result.insightSummaries.length}`);
+
+      if (!silent) {
+        appendLog(`loadMemory: insights=${result.insightSummaries.length}`);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      appendLog(`loadMemory failed: ${message}`);
+
+      if (!silent) {
+        setError(message);
+        appendLog(`loadMemory failed: ${message}`);
+      }
     } finally {
-      setBusyAction("");
+      if (!silent) {
+        setBusyAction("");
+      }
     }
   };
 
@@ -581,10 +624,14 @@ function App() {
     await loadDiffWithRounds(replayFromRound, replayToRound, "loadReplayDiff");
   };
 
-  const loadDebugBundle = async (): Promise<void> => {
+  const loadDebugBundle = async (
+    options: { silent?: boolean } = {},
+  ): Promise<void> => {
     if (!sessionId) {
       return;
     }
+
+    const silent = options.silent === true;
 
     setDebugBundleLoading(true);
 
@@ -614,11 +661,16 @@ function App() {
         });
       }
 
-      appendLog(`loadDebugBundle: events=${bundle.recentEvents.length}`);
+      if (!silent) {
+        appendLog(`loadDebugBundle: events=${bundle.recentEvents.length}`);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      appendLog(`loadDebugBundle failed: ${message}`);
+
+      if (!silent) {
+        setError(message);
+        appendLog(`loadDebugBundle failed: ${message}`);
+      }
     } finally {
       setDebugBundleLoading(false);
     }
@@ -689,9 +741,31 @@ function App() {
     }
 
     void loadSnapshots({ silent: true });
+    void loadGraph({ silent: true });
+    void loadMemory({ silent: true });
     void loadTurnArtifacts({ silent: true });
-    void loadDebugBundle();
+    void loadDebugBundle({ silent: true });
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !snapshot) {
+      return;
+    }
+
+    const round = snapshot.round;
+    const fromRound = Math.max(round - 1, 0);
+    void loadSnapshots({ silent: true });
+    void loadGraph({ silent: true });
+    void loadMemory({ silent: true });
+    void loadTurnArtifacts({ silent: true });
+    void loadDebugBundle({ silent: true });
+
+    if (round > 0) {
+      void loadDiffWithRounds(fromRound, round, "autoLoadDiff", {
+        silent: true,
+      });
+    }
+  }, [sessionId, snapshot?.round]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -912,7 +986,12 @@ function App() {
                 round: {snapshot.round} / {snapshot.maxRounds}
               </p>
 
-              <p className="line">winner: {snapshot.winner ?? "pending"}</p>
+              <p className="line">
+                root-claim status:{" "}
+                {rootClaimEntries.length > 0
+                  ? `${rootClaimValidatedCount}/${rootClaimEntries.length} validated`
+                  : "pending adjudication"}
+              </p>
 
               <div className="metrics">
                 <div>
@@ -940,8 +1019,19 @@ function App() {
 
         <article className="card">
           <h2>Domain Modules</h2>
-          <p className="line">graph nodes: {graphView?.nodes.length ?? "-"}</p>
-          <p className="line">graph edges: {graphView?.edges.length ?? "-"}</p>
+
+          <p className="line">
+            graph nodes:{" "}
+            {graphView?.nodes.length ?? snapshot?.metrics.arguments ?? "-"}
+          </p>
+
+          <p className="line">
+            graph edges:{" "}
+            {graphView?.edges.length ??
+              (snapshot
+                ? snapshot.metrics.attacks + snapshot.metrics.supports
+                : "-")}
+          </p>
 
           <p className="line">
             memory insights: {memoryView?.insightSummaries.length ?? "-"}
@@ -1008,6 +1098,12 @@ function App() {
         <article className="card">
           <h2>Memory Preview</h2>
 
+          <p className="line">
+            static={memoryView?.staticHistoryCount ?? "-"}, dynamic-law=
+            {memoryView?.dynamicLawCaseCount ?? "-"}, task-layer-nodes=
+            {memoryView?.taskLayerNodeCount ?? "-"}
+          </p>
+
           <div className="scrollbox">
             {memoryView?.insightSummaries.length ? (
               memoryView.insightSummaries.map((line, idx) => (
@@ -1016,7 +1112,10 @@ function App() {
                 </p>
               ))
             ) : (
-              <p className="hint">No memory data loaded.</p>
+              <p className="hint">
+                No insight summaries yet (this can be normal before enough
+                rounds accumulate).
+              </p>
             )}
           </div>
         </article>
