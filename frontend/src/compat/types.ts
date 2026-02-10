@@ -16,11 +16,28 @@ export interface DebateSnapshot {
   phase: DebatePhase;
   round: number;
   maxRounds: number;
+  convergence: DebateConvergence;
+  termination: DebateTermination;
   winner: string | null;
   transcript: string[];
   metrics: DebateMetrics;
   updatedAt: string;
   raw?: unknown;
+}
+
+export interface DebateConvergence {
+  deltaPhi: number;
+  sma: number;
+  history: number[];
+  epsilon: number;
+  minRounds: number;
+  windowSize: number;
+  isConverged: boolean;
+}
+
+export interface DebateTermination {
+  ready: boolean;
+  reason: "convergence" | "max_rounds" | "unknown";
 }
 
 export interface SnapshotIndexItem {
@@ -44,6 +61,10 @@ export interface GraphNode {
   type: string;
   label: string;
   status?: string;
+  content?: string;
+  agentId?: string;
+  metadata?: Record<string, unknown>;
+  raw?: unknown;
 }
 
 export interface GraphEdge {
@@ -51,6 +72,9 @@ export interface GraphEdge {
   source: string;
   target: string;
   type: string;
+  weight?: number;
+  metadata?: Record<string, unknown>;
+  raw?: unknown;
 }
 
 export interface GraphView {

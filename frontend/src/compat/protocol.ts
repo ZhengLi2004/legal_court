@@ -30,6 +30,14 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function asMaybeRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Record<string, unknown>;
+}
+
 function asBoolean(value: unknown): boolean {
   return value === true;
 }
@@ -73,6 +81,34 @@ function asStringList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function asNumberList(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => asNumber(item, Number.NaN))
+    .filter((item) => Number.isFinite(item));
+}
+
+function normalizeEdgeType(type: string): string {
+  const upper = type.toUpperCase();
+
+  if (upper === "ATTACK") {
+    return "CONFLICT";
+  }
+
+  if (upper === "EDGETYPE.CONFLICT") {
+    return "CONFLICT";
+  }
+
+  if (upper === "EDGETYPE.SUPPORT") {
+    return "SUPPORT";
+  }
+
+  return upper || "RELATION";
+}
+
 function parseNodes(value: unknown): GraphNode[] {
   if (!Array.isArray(value)) {
     return [];
@@ -87,6 +123,10 @@ function parseNodes(value: unknown): GraphNode[] {
       type: asString(row.type, "UNKNOWN"),
       label: asString(row.label ?? row.content, id),
       status: asString(row.status) || undefined,
+      content: asString(row.content) || undefined,
+      agentId: asString(row.agent_id ?? row.agentId) || undefined,
+      metadata: asMaybeRecord(row.metadata),
+      raw: item,
     };
   });
 }
@@ -143,13 +183,16 @@ function parseEdges(value: unknown): GraphEdge[] {
     const row = asRecord(item);
     const source = asString(row.source, "");
     const target = asString(row.target, "");
-    const type = asString(row.type, "RELATION");
+    const type = normalizeEdgeType(asString(row.type, "RELATION"));
 
     return {
       id: asString(row.id, `${source}->${target}:${type}:${index}`),
       source,
       target,
       type,
+      weight: asNumber(row.weight, 1),
+      metadata: asMaybeRecord(row.metadata),
+      raw: item,
     };
   });
 }
@@ -211,6 +254,101 @@ function deriveMetrics(payload: Record<string, unknown>): DebateMetrics {
   };
 }
 
+function deriveConvergence(payload: Record<string, unknown>) {
+  const lastLog = asRecord(payload.last_log ?? payload.lastLog);
+  const convergence = asRecord(lastLog.convergence ?? payload.convergence);
+
+  const historyFromPayload = asNumberList(
+    payload.convergence_history ?? payload.convergenceHistory,
+  );
+
+  const historyFromConvergence = asNumberList(convergence.history);
+
+  const history =
+    historyFromPayload.length > 0 ? historyFromPayload : historyFromConvergence;
+
+  const deltaPhi = asNumber(
+    convergence.delta_phi ?? convergence.deltaPhi ?? history.at(-1),
+    0,
+  );
+
+  const sma = asNumber(convergence.sma, deltaPhi);
+
+  const epsilon = asNumber(
+    convergence.epsilon ?? payload.convergence_epsilon ?? payload.epsilon,
+    3,
+  );
+
+  const minRounds = asNumber(
+    convergence.min_rounds ?? convergence.minRounds ?? payload.min_rounds,
+    2,
+  );
+
+  const windowSize = asNumber(
+    convergence.window_size ?? convergence.windowSize ?? payload.window_size,
+    4,
+  );
+
+  return {
+    deltaPhi,
+    sma,
+    history,
+    epsilon,
+    minRounds,
+    windowSize,
+    isConverged: convergence.is_converged === true,
+  };
+}
+
+function deriveTermination(
+  payload: Record<string, unknown>,
+  round: number,
+  maxRounds: number,
+  convergence: {
+    sma: number;
+    epsilon: number;
+    minRounds: number;
+  },
+) {
+  const ready = asBoolean(
+    payload.is_ready_for_adjudication ??
+      payload.ready_for_adjudication ??
+      payload.is_finished ??
+      payload.finished,
+  );
+
+  const convergenceInPayload =
+    payload.convergence_history !== undefined ||
+    payload.convergenceHistory !== undefined ||
+    asRecord(asRecord(payload.last_log ?? payload.lastLog).convergence).sma !==
+      undefined ||
+    asRecord(payload.convergence).sma !== undefined;
+
+  const convergenceReached =
+    convergenceInPayload &&
+    round >= convergence.minRounds &&
+    convergence.sma < convergence.epsilon;
+
+  if (convergenceReached) {
+    return {
+      ready,
+      reason: "convergence" as const,
+    };
+  }
+
+  if (round >= maxRounds) {
+    return {
+      ready,
+      reason: "max_rounds" as const,
+    };
+  }
+
+  return {
+    ready,
+    reason: "unknown" as const,
+  };
+}
+
 export function normalizeSnapshot(raw: unknown): DebateSnapshot {
   const payload = unwrapPayload(raw);
 
@@ -221,12 +359,16 @@ export function normalizeSnapshot(raw: unknown): DebateSnapshot {
 
   const round = asNumber(payload.current_round ?? payload.round);
   const maxRounds = asNumber(payload.max_rounds ?? payload.maxRounds, 6);
+  const convergence = deriveConvergence(payload);
+  const termination = deriveTermination(payload, round, maxRounds, convergence);
 
   return {
     sessionId,
     phase: derivePhase(payload),
     round,
     maxRounds,
+    convergence,
+    termination,
     winner: asString(payload.winner, "") || null,
     transcript: asStringList(payload.transcript),
     metrics: deriveMetrics(payload) ?? EMPTY_METRICS,

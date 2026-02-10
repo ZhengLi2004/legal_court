@@ -3,12 +3,14 @@ export type { AdapterOptions } from "./client";
 
 export type {
   AdapterCapabilities,
+  DebateConvergence,
   CreateSessionInput,
   DemoKeyframe,
   DemoRunResult,
   DebateMetrics,
   DebatePhase,
   DebateSnapshot,
+  DebateTermination,
   DebugBundleView,
   EngineAdapter,
   GraphAdapter,

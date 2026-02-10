@@ -1,764 +1,393 @@
-# TODO：基于 React 的系统演示前端方案（结合仓库代码与 `main [5-13].pdf`）
+# TODO 路线图（基于 `frontend.md`）
 
-## 0. 文档目标
-本方案用于指导你在当前仓库上搭建一个“可演示、可解释、可扩展”的前端演示系统。
-
-核心要求：
-1. 忠实反映论文第 3 章方法论（论证图环境、分层智能体架构、多阶段生命周期）。
-2. 忠实反映当前代码真实能力边界（不是“想象中的系统”）。
-3. 强调系统行为可追溯、可验证、可解释。
-4. 不陷入过度工程细节（先做演示闭环，再做平台化）。
+更新时间：2026-02-10  
+目标：为后续所有编码工作提供可执行的总体线路，并保证“正常流程在演示中全部可见”。
 
 ---
 
-## 1. 先对齐“代码现实”与“论文目标”
+## 当前进度（2026-02-10）
 
-### 1.1 论文第 3 章要演示的主干（来自 `main [5-13].pdf`）
-1. 论证图环境：
-- 图结构：`FACT` / `LAW` / `CLAIM` 节点，`SUPPORT` / `CONFLICT` 边。
-- 逻辑公理：支持目标必须是 `CLAIM`；冲突双方必须是 `CLAIM`；不允许有向环。
-- BAF 语义：直接攻击、支持型攻击、间接攻击；可采纳集与首选扩展。
-
-2. 分层智能体架构：
-- 指挥者（Controller）：评估 -> 委派 -> 决策。
-- 工作者（Fact/Law/Recall Worker）：并行检索与报告。
-- 法官（Judge）：最终裁判，不参与博弈主循环。
-
-3. 多阶段生命周期：
-- 结构化初始化。
-- 对抗图博弈。
-- 自适应终止与裁决（收敛分数/滑窗）。
-- 演化学习（长期记忆与策略更新）。
-
-### 1.2 当前仓库已实现能力（必须前端可见）
-1. 引擎与阶段推进：`mas/core/engine.py`
-- `setup()` 初始化图和团队。
-- `step()` 单回合推进。
-- `adjudicate()` 裁判 + BAF 计算。
-- `get_snapshot()` 与 `round_snapshots` 用于回放。
-- `set_state_callback()` 可向前端推流事件。
-
-2. 图谱与逻辑约束：
-- 图模型：`mas/core/graph.py`
-- 动作验证与事务执行：`mas/analysis/executor.py`
-  - 静态校验失败会拒绝。
-  - 执行异常会回滚。
-  - 会阻止有向环（无环公理）。
-
-3. 分层智能体协作：
-- Team 编排：`mas/agents/team.py`
-- Controller 状态机：`roles/controller.py`
-- 三类 Worker：`roles/worker.py`
-
-4. 判决与 BAF：
-- Judge：`mas/agents/judge.py`
-- BAF 语义：`mas/analysis/baf.py`
-
-5. 长期记忆与演化：
-- 记忆库（Chroma + 法条倒排）：`mas/memory/legal_memory.py`
-- 洞察策略：`mas/memory/insights.py`
-- 拓扑层：`mas/memory/topology.py`
-- 投影检索：`mas/memory/projection.py`
-
-### 1.3 需要明确给前端/演示者的现实约束
-1. 当前仓库没有现成 Web API，只有 CLI（`run.py`）。
-2. 引擎 `step()` 只负责推进回合，不自动触发裁判；当 `is_ready_for_adjudication=true` 时，需要显式调用 `adjudicate()`。
-3. 因依赖 ES / LLM / embedding，本地演示可能出现检索空结果、延迟、超时，需要前端可观测错误与降级提示。
+- [x] 完成第一阶段主站重构：`案件启动`、`实时庭审`、`裁决解释` 三页已落地。
+- [x] 完成后台调试入口：现有全功能调试台已迁移为 `/admin/debug` 独立入口。
+- [x] 完成图先于文的首批实现：实时庭审页论证图、裁决页 BAF 图已直接渲染。
+- [x] 修复后台请求刷屏问题：移除 `snapshot -> effect -> snapshot` 循环依赖，消除重复拉取 `snapshot/graph/events` 的异常放大。
+- [x] 收敛指标主展示已落地：实时庭审页改为以 `ΔΦ/SMA/阈值` 展示终止进程，`maxRounds` 降级为安全上限说明。
+- [x] 论证图力导布局已落地：替换固定分层布局，新增节点筛选、关系筛选、主张邻域聚焦与节点详情联动。
 
 ---
 
-## 2. 演示叙事主线（用户看什么）
+## 0. 范围与边界
 
-面向演示的主线不是“代码结构”，而是“法庭流程”：
-1. 输入案件 -> 系统结构化初始化。
-2. 双方回合辩论 -> 图谱不断演化。
-3. 收敛触发终止 -> 法官裁判 + BAF 对齐。
-4. 结果沉淀进长期记忆 -> 下一案可借鉴。
+- 本轮只覆盖正常执行路径的可视化与交互闭环。
+- 本轮暂不覆盖：模型未加载、外部服务中断、环境配置错误等异常演示。
+- 本轮明确纳入：图操作验证失败后的回滚与重试（这是业务正常流程的一部分）。
+- 本轮新增硬约束：凡底层数据是图结构，前端必须直接渲染图，不允许只给 JSON/表格/纯文本替代。
 
-前端所有页面都要围绕这个主线，避免碎片化页面堆叠。
+## 0.1 图渲染硬约束（新增）
 
----
+- [x] 论证图 `GraphView`：必须以节点-边画布渲染（不可仅列表）。
+- [ ] 图差异 `GraphDiffView`：必须在图上高亮新增/移除/状态变化（不可仅数字摘要）。
+- [ ] 记忆任务层 `TaskLayer`（案例关系图）：必须渲染案例关系图（不可仅 node_count/edge_count）。
+- [ ] 指挥者流程（评估-委派-决策-重试）：必须渲染流程图或状态机图（不可仅文字步骤）。
+- [x] BAF 结果（首选扩展/冲突关系）：必须在图上标注被选扩展与关键冲突链（不可仅指标数值）。
+- [ ] 所有“图渲染区”必须支持节点点击联动详情（右侧或弹层）。
 
-## 3. React 前端信息架构（页面设计）
+图渲染验收最低标准：
 
-建议路由（6 页，覆盖完整闭环）：
-1. `/` 总览与启动
-2. `/session/:id/live` 实时辩论台（核心页）
-3. `/session/:id/graph` 图谱与逻辑公理
-4. `/session/:id/judgment` 裁判与 BAF 分析
-5. `/session/:id/memory` 演化学习与长期记忆
-6. `/session/:id/replay` 快照回放与对比
-
-### 3.1 首页 `/`（总览与启动）
-页面目标：3 分钟内让观众明白“系统是什么、怎么跑”。
-
-模块设计：
-1. 方法论概览卡：对应论文三大模块 + 四阶段生命周期。
-2. 案件启动卡：
-- 选内置样例（来自 `data/sampling/cleaned_samples.jsonl`）。
-- 或粘贴自定义 `fact_finding` + `cause`。
-3. 配置摘要卡：显示关键配置（LLM、ES、收敛参数、BAF 开关）。
-4. 会话入口卡：创建会话后跳转到 `live` 页面。
-
-前端交互：
-- `创建会话` -> `setup` -> 显示初始图统计（事实节点数、根诉求数）。
-
-### 3.2 实时辩论台 `/session/:id/live`（核心页）
-页面目标：完整看见“评估-委派-决策-执行-叙事-收敛”。
-
-布局建议（单页 5 区）：
-1. 顶部控制条：
-- `Setup`、`Step`、`Auto Run`、`Pause`、`Adjudicate`。
-- 当前回合、当前轮次、当前行动方、是否 ready for adjudication。
-
-2. 左侧“团队状态列”：
-- 原告/被告 Controller 当前 pipeline step。
-- Worker 派发状态（Fact/Law/Recall 是否被调用）。
-- 最近一次 retry 原因（如果有）。
-
-3. 中央“图谱主画布”：
-- 实时渲染节点/边。
-- 节点颜色：按 `NodeStatus`（HYPOTHETICAL/VALIDATED/DEFEATED）。
-- 节点形状：按 `NodeType`（FACT/LAW/CLAIM）。
-- 边样式：`SUPPORT` / `CONFLICT`。
-- 每步增量高亮（新增/复用/拒绝）。
-
-4. 右侧“指标面板”：
-- `delta_phi`、`SMA`、冲突边数、claim 节点数。
-- 收敛曲线图（每一步更新）。
-- 快照计数。
-
-5. 底部“叙事与操作日志”：
-- Narrator 文本（turn narrative）。
-- 执行日志（GraphExecutor 返回日志）。
-- 系统事件流（setup_start、turn_complete 等）。
-
-### 3.3 图谱与逻辑公理页 `/session/:id/graph`
-页面目标：把“为何这个动作被接受/拒绝”讲清楚。
-
-模块设计：
-1. 图谱浏览器（与 live 共用组件）。
-2. 逻辑公理检查面板：
-- 支持公理（目标必须 CLAIM）。
-- 冲突公理（源/目标必须 CLAIM）。
-- 无环公理（产生环即阻止）。
-3. 动作审计表：
-- 每个 `AgentAction` 的校验结果。
-- 若失败，展示具体错误信息与动作原文。
-4. 递归序列化视图（`latest_context`）：
-- 显示系统给 LLM 的上下文文本，解释“模型看到什么”。
-
-### 3.4 裁判与 BAF 页 `/session/:id/judgment`
-页面目标：体现“LLM 判决 + 形式语义校验”的双轨机制。
-
-模块设计：
-1. 判决书面板：展示 `judgment_document`。
-2. 根诉求状态面板：每个 root claim 的状态。
-3. BAF 面板：
-- preferred extensions 数量。
-- 选中扩展大小。
-- 与 LLM 判决对齐率（alignment_rate）。
-- matching_details（简化展示）。
-4. 攻击关系面板：
-- 直接/支持型/间接攻击统计。
-- 关键攻击链可视化。
-
-### 3.5 演化学习与长期记忆页 `/session/:id/memory`
-页面目标：证明系统不是一次性辩论，而是可学习系统。
-
-模块设计：
-1. 三层记忆视图（对应论文）：
-- 抽象层：insights。
-- 拓扑层：case relation graph（TaskLayer）。
-- 实例层：历史 case graph 快照。
-2. 检索路径展示：
-- 语义路径（case context 相似检索）。
-- 法理路径（law 倒排 + Jaccard）。
-- 策略路径（insight representative cases）。
-3. 当前会话记忆写回结果：
-- 新增 insight 内容。
-- 关联的案例簇变化。
-
-### 3.6 快照回放页 `/session/:id/replay`
-页面目标：演示“可追溯性”。
-
-模块设计：
-1. 回合滑条：从 setup 到 final。
-2. 双时刻对比：任意两个快照 diff（节点/边/状态变化）。
-3. 回放联动：图谱 + transcript + convergence 同步回放。
-
-### 3.7 Debug / 演示体验专项设计（本轮重点补充）
-页面目标：让“看得懂系统为何这样运行”优先于“看起来炫”。
-
-#### 3.7.1 图谱 Diff 高亮策略（逐步定位变化）
-1. 节点变化高亮：
-- 新增节点：绿色外环 + 600ms 呼吸动画。
-- 复用节点（语义去重命中）：蓝色虚线外环 + “Reused”角标。
-- 状态变化节点（如 HYPOTHETICAL -> VALIDATED）：状态颜色闪烁一次并记录变更历史。
-- 在双快照模式中，不存在于目标快照的节点显示为半透明红色（仅回放页显示，不影响 live 主图）。
-
-2. 边变化高亮：
-- 新增 `SUPPORT` 边：蓝绿色高亮。
-- 新增 `CONFLICT` 边：橙红色高亮并增强箭头。
-- 若因规则被拒绝未加边，在“候选边层”显示灰色虚线 + reject 原因 tooltip。
-
-3. Diff 摘要条（固定在图右上）：
-- `+N Nodes` / `+M Edges` / `Status Changes` / `Rejected Ops`。
-- 点击任意指标可自动过滤并聚焦到对应变化集合。
-
-4. 局部聚焦模式（Debug 友好）：
-- `只看变化节点`：隐藏未变更节点。
-- `变化邻域 1-hop/2-hop`：展示变化节点的局部因果上下文。
-- `锁定节点追踪`：跨回合跟踪某节点的状态、入边、出边变化。
-
-#### 3.7.2 团队内部流程可视化（Controller-Worker 内部机制）
-1. 双泳道流程图（原告 / 被告）：
-- 每方展示 Controller 状态机：`ASSESS_NEEDS -> WAIT_FOR_WORKERS -> DECIDE -> DONE`。
-- 当前状态高亮，已完成状态打勾，失败重试状态红框。
-
-2. Worker 任务卡片墙：
-- 每次派发生成卡片：`FactWorker` / `LawWorker` / `RecallWorker`。
-- 卡片字段：`intent`、状态（RUNNING/FOUND/NOT_FOUND/ERROR）、耗时、max_score（若有）。
-- 任务卡与对应回合绑定，便于按回合回看。
-
-3. 指挥者决策链路面板：
-- “评估结果 JSON” -> “batch_instructions” -> “worker 汇总摘要” -> “最终 AgentAction JSON” 四段串联展示。
-- 每段可折叠，默认只显示摘要，点击展开原文（避免信息过载）。
-
-4. Retry 可解释性：
-- 单独的 `Retry Timeline` 展示：失败时间、失败类型（格式/校验/执行）、本轮反馈文本、下一次修正输出。
-
-#### 3.7.3 事件时序与因果关联（用于定位问题）
-1. 统一事件时间轴（全局底部抽屉）：
-- 按时间串联 `turn_start`、`team_*`、`transcript_update`、`snapshot_saved` 等事件。
-- 支持按 side、event type、round 过滤。
-
-2. 事件-快照联动：
-- 点击某事件，主视图自动跳转到该时刻最近快照。
-- 在时间轴标注“关键事件点”：ready for adjudication、adjudication complete、retry。
-
-3. 因果跳转：
-- 从“失败日志”一键跳到对应 `AgentAction` 与图中目标节点。
-- 从图中某条冲突边反向定位“是谁在何回合添加的”。
-
-#### 3.7.4 Prompt / Context 可见化（模型可解释调试）
-1. Context Inspector：
-- 显示当回合 `latest_context`（即传给 LLM 的结构化上下文）。
-- 显示 `id_inventory`（防幻觉约束输入）以及当前根主张列表。
-
-2. Decision Inspector：
-- 原始 `decision_raw`（LLM 输出）与解析后的 `AgentAction[]` 对照展示。
-- 对解析失败时，直接展示 parser 错误与原始片段高亮。
-
-3. Narrative Inspector：
-- 同屏对比“动作原语句列表”与“润色后叙事文本”，便于观察叙事偏差。
-
-#### 3.7.5 回放增强（面向演示讲解）
-1. 关键帧书签：
-- 自动打点：首轮、首次冲突边出现、首次 retry、收敛触发、裁判完成。
-- 演示时可一键跳关键帧，避免手动拖动。
-
-2. 对比视角：
-- `Graph A` vs `Graph B` 并排。
-- `Delta Panel` 列出节点和边变化清单，支持点击定位。
-
-3. 自动讲解模式（Demo Mode）：
-- 预设路径：初始化 -> 典型对抗回合 -> 收敛 -> 裁判 -> 记忆写回。
-- 每个节点给一句“解说词模板”，辅助现场汇报。
-
-#### 3.7.6 大图可用性与信息降噪
-1. 图操作基础能力：
-- 小地图（minimap）、框选缩放、自动布局重排、节点搜索（ID/关键词）。
-
-2. 过滤器：
-- 按 `NodeType`、`NodeStatus`、`agent_id`、`last_modified_step` 过滤。
-- `仅看冲突链`、`仅看根主张相关路径` 快捷开关。
-
-3. 日志降噪：
-- 默认显示摘要日志；高级模式才展开原始 JSON 和全部事件。
-
-#### 3.7.7 错误反馈体验（让失败“可调试”）
-1. 错误分层显示：
-- `Validation Error`（动作不合法）
-- `Execution Error`（运行时异常）
-- `Retrieval Error`（ES 检索问题）
-- `LLM Error`（超时/空响应）
-
-2. 一键复制 Debug Bundle：
-- 自动打包：session_id、round、last_log、最近 20 条事件、当前快照摘要。
-- 便于提交 issue 或团队内排障。
-
-3. 非阻塞失败体验：
-- 单 worker 失败不阻塞全局；UI 明示“降级继续运行”。
-- 裁判前若存在关键数据缺失，给出黄色预警但允许继续。
+- [ ] 用户不阅读日志，仅看图就能回答“谁支持谁、谁攻击谁、哪步被回滚、最终采纳了什么”。
+- [ ] 每个图视图都有图例（颜色/线型/节点状态）。
+- [ ] 每个图视图都有最少 2 种交互（缩放、筛选、点击定位、回合切换中的任意两种）。
 
 ---
 
-## 4. 后端接口设计（前端所需，不做过度工程）
+## 1. 一图胜万言：产品主链路图
 
-说明：当前代码是 Python 引擎，不是 API 服务。建议新增一个“轻量 API 适配层”，只封装 `DebateEngine`。
-
-### 4.1 会话模型
-建议后端维护 `DebateSession`（内存字典即可，演示优先）：
-- `session_id`
-- `engine`
-- `status`（CREATED / SETUP_DONE / DEBATING / READY_FOR_ADJUDICATION / ADJUDICATING / FINISHED / ERROR）
-- `created_at` / `updated_at`
-
-### 4.2 REST 接口（最小可演示闭环）
-
-1. `GET /api/v1/health`
-- 用途：前端探活。
-
-2. `GET /api/v1/cases?limit=20&offset=0`
-- 用途：列出样例案件（标题、uid、cause 摘要）。
-
-3. `GET /api/v1/cases/{uid}`
-- 用途：读取样例案件详情。
-
-4. `POST /api/v1/sessions`
-- 用途：创建会话。
-- 请求：`{ "case_uid": "..." }` 或 `{ "case_data": {...} }`
-- 返回：`{ "session_id": "...", "status": "CREATED" }`
-
-5. `POST /api/v1/sessions/{id}/setup`
-- 用途：调用 `engine.setup()`。
-- 返回：初始快照摘要（fact_count/claim_count/node_count/edge_count）。
-
-6. `POST /api/v1/sessions/{id}/step`
-- 用途：执行单步 `engine.step()`。
-- 返回：`last_log + snapshot + ready_flag`。
-
-7. `POST /api/v1/sessions/{id}/run`
-- 用途：自动推进到“ready”或“finished”。
-- 参数：`{ "max_steps": 20, "auto_adjudicate": true }`
-- 备注：内部逻辑应在 `is_ready_for_adjudication` 时自动 `adjudicate()`（否则用户会误解“为什么不结束”）。
-
-8. `POST /api/v1/sessions/{id}/adjudicate`
-- 用途：显式裁判。
-- 返回：`judgment_document`、`root_claims_status`、`baf_details`。
-
-9. `GET /api/v1/sessions/{id}`
-- 用途：会话总状态（`get_snapshot()` 轻量摘要版）。
-
-10. `GET /api/v1/sessions/{id}/snapshot`
-- 用途：当前快照（图 + 指标 + transcript）。
-
-11. `GET /api/v1/sessions/{id}/snapshots`
-- 用途：快照索引列表（round_idx、turn、timestamp）。
-
-12. `GET /api/v1/sessions/{id}/snapshots/{round_idx}`
-- 用途：读取指定历史快照用于回放。
-
-13. `GET /api/v1/sessions/{id}/memory`
-- 用途：返回当前会话可解释记忆信息：
-- static_history_cases
-- dynamic_law_cases
-- insights（可见摘要）
-- task_layer（节点/边）
-
-14. `DELETE /api/v1/sessions/{id}`
-- 用途：释放资源（关闭 ES 客户端、清理引擎对象）。
-
-### 4.3 实时事件流接口（关键）
-
-1. `WS /api/v1/sessions/{id}/events`（推荐）
-- 用途：把 `engine.set_state_callback()` 的事件实时推给前端。
-- 统一事件 envelope：
-```json
-{
-  "event": "turn_complete",
-  "session_id": "sess_xxx",
-  "ts": 1730000000,
-  "data": {
-    "turn": "plaintiff",
-    "round": 2,
-    "delta_phi": 1.2,
-    "sma": 0.9
-  }
-}
+```mermaid
+flowchart LR
+    A[案件启动] --> B[结构化初始化完成]
+    B --> C[实时庭审: Step回合推进]
+    C --> D[论证图谱: 节点/边增长]
+    C --> E[团队协作: 评估-委派-决策-执行]
+    C --> F[记忆与类比: 洞察更新]
+    D --> G{满足终止条件?}
+    G -- 否 --> C
+    G -- 是 --> H[进入裁决]
+    H --> I[法官文书 + BAF一致性]
+    I --> J[回放与导出]
+    J --> K[演示复盘]
 ```
 
-2. 事件类型（与代码对齐）：
-- `setup_start`
-- `setup_complete`
-- `turn_start`
-- `turn_complete`
-- `transcript_update`
-- `snapshot_saved`
-- `adjudication_ready`
-- `adjudication_start`
-- `adjudication_complete`
-- `team_plaintiff_turn_start`
-- `team_plaintiff_internal_step`
-- `team_plaintiff_retry`
-- `team_plaintiff_turn_complete`
-- `team_defendant_turn_start`
-- `team_defendant_internal_step`
-- `team_defendant_retry`
-- `team_defendant_turn_complete`
+---
 
-### 4.4 前后端数据结构约定（建议）
+## 2. 一图胜万言：核心数据结构图（图谱 + 会话）
 
-1. GraphNode
-```json
-{
-  "id": "CLAIM_xxx",
-  "content": "...",
-  "type": "CLAIM",
-  "status": "HYPOTHETICAL",
-  "agent_id": "plaintiff_Controller",
-  "metadata": { "is_root_claim": false, "last_modified_step": 3 }
-}
+```mermaid
+graph TD
+    Session["DebateSession(session_id, status, round)"]
+    Session --> Snapshot["DebateSnapshot(phase, metrics, transcript)"]
+    Session --> SnapshotIndex["SnapshotIndexItem(round, nodeCount, edgeCount)"]
+    Session --> Graph["GraphView(round, nodes, edges)"]
+    Session --> Diff["GraphDiffView(+/- nodes, +/- edges)"]
+    Session --> Timeline["TimelineEvent(seq, event, source, roundIdx)"]
+    Session --> Artifact["TurnArtifact(turnUid, parsedActions, executionLogs, retryHistory)"]
+    Session --> Memory["MemoryView(insightItems, taskLayer, caseSnapshots)"]
+    Session --> Bundle["DebugBundleView(snapshotSummary, recentEvents, latestTurnArtifact)"]
+    Session --> Demo["DemoKeyframe(reason, round, turnUid)"]
+    Session --> Replay["ReplayExportView(eventCount, artifactCount, snapshotCount)"]
+
+    subgraph ArgumentGraph["Argument Graph"]
+        F["FACT 节点"]
+        L["LAW 节点"]
+        C["CLAIM 节点"]
+        F -- SUPPORT --> C
+        L -- SUPPORT --> C
+        C -- CONFLICT --> C
+    end
+
+    Graph --> ArgumentGraph
 ```
 
-2. GraphEdge
-```json
-{
-  "source": "FACT_xxx",
-  "target": "CLAIM_xxx",
-  "type": "SUPPORT"
-}
+旁注数据（演示侧重点）：
+
+1. 图谱主对象：`GraphView`，演示时优先展示 `nodes/edges/type/status/author`。
+2. 回合变化对象：`GraphDiffView`，演示时优先展示 “新增节点/新增边/状态变化/回滚关联节点”。
+3. 行为证据对象：`TurnArtifact`，演示时优先展示 `parsedActions + executionLogs + retryHistory`。
+4. 裁决解释对象：`DebateSnapshot` 的 `judgment_document/root_claims_status/baf_details`。
+
+---
+
+## 3. 字段看板（实现时对照）
+
+| 对象 | 核心字段 | 必须出现在哪个页面 |
+|---|---|---|
+| DebateSnapshot | sessionId, phase, round, maxRounds, convergence(deltaPhi/sma/history), termination(reason), winner, metrics | 实时庭审、裁决与解释 |
+| GraphNode | id, type, label, status, content, agentId, metadata | 论证图谱 |
+| GraphEdge | id, source, target, type, weight, metadata | 论证图谱 |
+| GraphDiffView | addedNodeIds, removedNodeIds, addedEdgeIds, removedEdgeIds | 论证图谱、回放与导出 |
+| TimelineEvent | seq, event, source, roundIdx, turnUid | 实时庭审、团队协作 |
+| TurnArtifact | controllerAssessment, batchInstructions, decisionRaw, parsedActions, executionLogs, retryHistory | 团队协作、论证图谱审计 |
+| MemoryView | insightItems, representativeCaseIds, taskLayerNodeCount, taskLayerEdgeCount, caseSnapshots | 记忆与类比 |
+| DebugBundleView | snapshotSummary, recentEvents, latestTurnArtifact | 团队协作（高级视图） |
+| DemoKeyframe | reason, round, turnUid | 回放与导出、演示复盘 |
+| ReplayExportView | eventCount, artifactCount, snapshotCount | 回放与导出 |
+
+---
+
+## 4. 总体编码顺序（依赖图）
+
+```mermaid
+flowchart LR
+    M0[Milestone 0: 架构重排] --> M1[Milestone 1: 全局壳层]
+    M1 --> M2[Milestone 2: 案件启动]
+    M2 --> M3[Milestone 3: 实时庭审]
+    M3 --> M4[Milestone 4: 论证图谱]
+    M3 --> M5[Milestone 5: 团队协作]
+    M3 --> M6[Milestone 6: 记忆与类比]
+    M3 --> M7[Milestone 7: 裁决与解释]
+    M4 --> M8[Milestone 8: 回放与导出]
+    M5 --> M8
+    M7 --> M8
+    M8 --> M9[Milestone 9: 演示剧本与验收]
 ```
 
-3. Snapshot
-```json
-{
-  "round_idx": 2,
-  "turn": "defendant",
-  "graph_data": { "nodes": [], "edges": [] },
-  "convergence": { "delta_phi": 1.0, "sma": 1.4, "history": [2.0, 1.0] },
-  "stats": { "node_count": 15, "edge_count": 18, "claim_nodes": 9, "conflict_edges": 4 },
-  "action_summary": "Action Completed: ...",
-  "is_finished": false
-}
-```
+---
 
-### 4.5 错误与降级策略（必须有）
-1. ES 不可用：Worker 报告以 `NOT_FOUND/ERROR` 呈现，但主流程不中断。
-2. LLM 超时：返回错误事件并允许 `retry`。
-3. 校验失败：把 GraphExecutor 的详细错误透传到 UI “动作审计表”。
-4. 会话中断：允许从最近快照恢复展示（即使不能继续运行，也能回放）。
+## 5. Milestone TODOs（详尽任务清单）
 
-### 4.6 代码审查后发现的可视化缺口（必须补齐）
-以下缺口是基于当前仓库代码得出的“实现级问题”，不补会直接影响可视化与 Debug 体验：
+## M0. 架构重排与基线准备
 
-1. 快照恢复功能缺失（`mas/core/engine.py`）：
-- `restore_snapshot()` 当前仅做边界检查后直接 `return True`，没有实际恢复图状态。
-- 影响：回放页无法真正“回到某一轮并继续分析”。
-- 需补：按 snapshot 重建 `graph`、`transcript`、`convergence_history`、`last_step_log`、`round_idx/current_turn`。
+- [x] 将 `frontend/src/App.tsx` 的单页巨组件拆分为“页面容器 + 业务模块 + 共享状态”。
+- [ ] 建立路由骨架：`frontend/src/pages/*`，至少包含 8 个页面容器。
+- [x] 建立共享状态层：`frontend/src/app/state/*`（会话、图谱、时间线、回合跳转）。
+- [ ] 建立统一视图模型层：`frontend/src/viewmodels/*`（把 adapter 原始返回整理成页面直接可渲染结构）。
+- [ ] 建立统一文案映射：`frontend/src/i18n/labels.ts`（状态、人话术语、图例文案）。
+- [x] 保留并复用现有 compat 适配器，不新增并行数据通道。
+- [ ] 约束编码原则：所有页面只消费 viewmodel，不直接拼 raw payload。
 
-2. `get_snapshot()` 包含不可直接 JSON 序列化对象（`mas/core/engine.py`）：
-- 返回体含 `shadow_graph`、`insights_manager`、`task_layer` 对象。
-- 影响：REST 直出时会出现序列化问题，前端调试数据难统一。
-- 需补：新增 `get_serializable_snapshot()`，只返回 JSON-safe 数据结构。
+交付判定：
 
-3. 缺少“动作级产物”持久化：
-- 当前只有 `last_step_log.action` 摘要，没有完整保留：`decision_raw`、`parsed_actions`、`executor logs`、worker 原始报告。
-- 影响：Decision Inspector / Retry 分析只能看零散日志，不能完整复盘。
-- 需补：按 turn 持久化 `turn_artifacts`（详见 4.7）。
-
-4. 事件缺少统一关联字段：
-- `set_state_callback` 推送事件无 `event_id`、`turn_id`、`correlation_id`。
-- 影响：事件时间轴难稳定排序，事件和快照无法精确一一对应。
-- 需补：事件 envelope 增加 `seq`、`turn_uid`、`source`、`session_id`、`ts_ms`。
-
-5. 失败历史信息丢失风险（`roles/controller.py`）：
-- `recent_errors` 每次被覆盖为单条，历史重试链不完整。
-- 影响：Retry Timeline 难还原“第几次错、如何改”。
-- 需补：新增 `error_history` 列表（append-only），保留每次失败详情。
-
-6. Team 内部 transcript 默认不可见（`mas/agents/team.py`）：
-- 只有 `verbose=True` 才积累详细内部消息。
-- 影响：演示环境默认看不到 worker 内部过程，不利于讲解。
-- 需补：提供 `debug_mode`，即使不 verbose 也保留精简内部事件摘要。
-
-### 4.7 为可视化新增的数据结构与接口（建议）
-1. 新增 `TurnArtifacts`（后端内存结构）：
-- `turn_uid`
-- `side`
-- `round_idx`
-- `controller_assessment`（Fact/Law/Recall needs 原始输出与解析结果）
-- `batch_instructions`
-- `worker_reports`（含 worker 名称、状态、耗时、max_score）
-- `decision_raw`
-- `parsed_actions`
-- `execution_logs`
-- `retry_history`
-- `narrative_raw_sentences` 与 `narrative_polished`
-
-2. 新增 REST：
-- `GET /api/v1/sessions/{id}/turns/{turn_uid}/artifacts`
-- `GET /api/v1/sessions/{id}/events/history?from_seq=&to_seq=`
-- `GET /api/v1/sessions/{id}/diff?from_round=&to_round=`（后端计算结构化 diff）
-
-3. 新增 WebSocket 事件字段：
-```json
-{
-  "seq": 1024,
-  "session_id": "sess_xxx",
-  "turn_uid": "turn_0007_defendant",
-  "source": "engine|team|controller|worker|judge",
-  "event": "team_defendant_internal_step",
-  "ts_ms": 1730000000123,
-  "data": {}
-}
-```
-
-4. 新增导出接口（面向演示素材）：
-- `GET /api/v1/sessions/{id}/export/replay.json`（全量回放数据）
-- `GET /api/v1/sessions/{id}/export/graph.gexf`（图分析工具兼容）
+- [x] `App.tsx` 仅负责路由和全局壳层，不再承担业务渲染细节。
+- [x] 所有现有调试能力仍可工作。
 
 ---
 
-## 5. 前端状态管理建议（简洁、够用）
+## M1. 全局壳层（统一用户认知）
 
-推荐最小组合：
-1. 路由：React Router。
-2. 服务器状态：TanStack Query（拉取 snapshot / session / memory）。
-3. 实时流：WebSocket hook（统一事件总线）。
-4. 本地 UI 状态：轻量 store（例如 Zustand）保存当前选中的节点、回放指针、过滤条件。
+- [x] 实现全局顶栏：产品名、会话 ID、运行模式、实时通道状态。
+- [x] 实现生命周期进度条：初始化 -> 辩论 -> 待裁决 -> 裁决 -> 学习。
+- [x] 实现全局提示条：当前动作、最近警告、最近完成操作。
+- [x] 实现全局导航：主站页面切换 + 后台调试入口。
+- [ ] 实现全局加载与空态骨架屏组件。
+- [x] 统一状态色板与标签：待验证/被采纳/被驳回。
 
-补充 UX 基础约束（建议在第一版就落实）：
-1. 图布局稳定性：同一节点跨回合尽量保持坐标（减少视觉抖动，便于 diff 识别）。
-2. 可访问性：冲突/支持不只靠颜色区分，需有线型和图例文本，兼容色弱用户。
-3. 快捷键：`Space` 播放暂停、`←/→` 上下快照、`F` 聚焦搜索。
-4. 大数据保护：日志面板与事件列表采用虚拟列表，避免长会话卡顿。
+交付判定：
 
-不建议第一版引入：
-1. 复杂 DDD 分层。
-2. 过度插件化图编辑器。
-3. 多租户与权限系统。
+- [ ] 无论停留在哪个页面，用户都能看懂当前处于哪个生命周期阶段。
 
 ---
 
-## 6. 关键交互流程（端到端）
+## M2. 案件启动页（入口闭环）
 
-### 6.1 演示流程 A（推荐默认）
-1. 首页选择样例案件。
-2. 创建 session + setup。
-3. 进入 live 页面，连续点 `Step` 观察双方博弈。
-4. 触发 `adjudication_ready` 后执行 `Adjudicate`。
-5. 跳转 judgment 页面查看判决与 BAF。
-6. 跳转 memory 页面查看策略沉淀。
-7. 跳转 replay 页面回放关键轮次。
+- [x] 新建 `CaseLaunchPage` 页面容器。
+- [x] 接入会话列表（`adapter.listSessions`）。
+- [x] 接入新建会话（`adapter.createSession`），支持 `maxRounds` 选择。
+- [x] 增加“继续会话”能力（从列表点入）。
+- [x] 显示启动后初始化摘要（初始节点数、初始边数、初始阶段）。
+- [ ] 在此页设置默认演示参数（仅正常路径参数，不引入异常注入）。
 
-### 6.2 演示流程 B（自动演示）
-1. 首页创建会话。
-2. 直接 `run(auto_adjudicate=true)`。
-3. 在 live 页面实时观看事件流与图谱变化。
-4. 自动结束后进入 judgment。
+交付判定：
+
+- [x] 从 0 到有会话，只需 1 次主操作。
+- [x] 创建后自动跳转到实时庭审页。
 
 ---
 
-## 7. 与论文公式/概念的 UI 映射（必须显式）
+## M3. 实时庭审页（主操作闭环）
 
-1. 公式 (7) 收敛分数：
-- UI 展示 `Δ|V_claim|`、`Δ|E_conflict|`、`lambda(alpha)`、`delta_phi`、`SMA`。
-- 数据来源：`DebateEngine._calculate_convergence()` 与 snapshot convergence 字段。
+- [x] 新建 `LiveTrialPage` 页面容器。
+- [x] 接入 `step`、`adjudicate`、`getSnapshot` 三个主操作按钮。
+- [x] 展示庭审总览卡：phase/round/maxRounds/winner/metrics。
+- [x] 展示收敛卡：`ΔΦ`、`SMA`、收敛阈值与收敛历史轨迹。
+- [x] 实现 transcript 增量高亮（只显示本次状态迁移新增内容）。
+- [x] 接入 timeline 事件流展示（含来源过滤）。
+- [x] 实现事件点击联动（点击事件 -> 跳到对应回合图谱和回合工件）。
+- [x] 增加“是否可裁决”的强提示状态灯。
 
-2. 公理约束：
-- UI 在 graph 页显示每次动作违反的是哪条公理（支持/冲突/无环）。
-- 数据来源：`GraphExecutor._validate_action_static()`、`_check_would_create_cycle()`。
+交付判定：
 
-3. BAF 语义：
-- UI 展示 direct/support_based/indirect attacks 与 preferred extensions。
-- 数据来源：`BAFCalculator.collective_attacks`、`find_preferred_extensions()`、`match_with_llm_judgment()`。
-
-4. 三层记忆：
-- UI 显式分层展示 Insights / TaskLayer / Case snapshots。
-- 数据来源：`InsightsManager`、`TaskLayer`、`LegalGMemory`。
+- [ ] 用户可在此页连续推进回合，直到进入待裁决和裁决完成。
 
 ---
 
-## 8. 实施清单（按优先级）
+## M4. 论证图谱页（图胜于文）
 
-### 8.0 接口状态矩阵（截至 2026-02-10）
+- [ ] 新建 `GraphPage` 页面容器。
+- [ ] 复用并升级 `GraphDiffPanel` 为页面核心主画布。
+- [x] 论证图默认首屏即画布渲染，禁止默认落到文本视图（先在实时庭审页落地）。
+- [x] 增加图例常驻区：节点类型、边类型、节点状态、节点归属（已在力导图组件落地）。
+- [ ] 接入回合图加载（`getGraphAtRound`）与 Diff 对比（`getGraphDiff`）。
+- [ ] 实现焦点模式：全部/变化/变化邻域/回滚相关。
+- [ ] 实现链路模式：全部/支持/冲突 + hop 深度。
+- [ ] 实现“根主张锚点”快速定位。
+- [x] 实现节点点击联动详情：展示节点内容、元数据与关联边数量。
+- [ ] 增加图操作审计卡（按回合列出 action + 状态 + 原因）。
+- [ ] 明确展示“回滚事件”为正常流程标签，不标为系统异常。
 
-1. 会话与图数据接口（已实现）
-- [x] `GET /api/v1/sessions/{id}/snapshot`
-- [x] `GET /api/v1/sessions/{id}/graph`
-- [x] `GET /api/v1/sessions/{id}/snapshots`
-- [x] `GET /api/v1/sessions/{id}/snapshots/{round_idx}`
-- [x] `GET /api/v1/sessions/{id}/diff`
+交付判定：
 
-2. 事件与调试接口（已实现）
-- [x] `GET /api/v1/sessions/{id}/events`
-- [x] `GET /api/v1/sessions/{id}/events/history`
-- [x] `WS /api/v1/sessions/{id}/events`
-- [x] `GET /api/v1/sessions/{id}/turns/artifacts`
-- [x] `GET /api/v1/sessions/{id}/turns/{turn_uid}/artifacts`
-
-3. 记忆与导出接口（部分实现）
-- [x] `GET /api/v1/sessions/{id}/memory`
-- [ ] `GET /api/v1/sessions/{id}/export/replay.json`
-- [ ] `GET /api/v1/sessions/{id}/export/graph.gexf`
-
-### 8.0.1 TurnArtifacts 字段覆盖度（截至 2026-02-10）
-
-1. 已沉淀字段（后端可取）
-- [x] `turn_uid`、`side`、`round_idx`
-- [x] `controller_assessment`、`batch_instructions`
-- [x] `worker_reports`（含 worker_name/status/duration/max_score）
-- [x] `decision_raw`、`parsed_actions`
-- [x] `execution_logs`、`retry_history`
-- [x] `narrative_raw_sentences`、`narrative_polished`
-
-2. 展示层待补字段（前端未成体系）
-- [x] `controller_assessment` 的逐段 Inspector 展示
-- [x] `retry_history` 的时间轴视图与失败类型聚合
-- [x] `narrative_raw_sentences` 与 `narrative_polished` 同屏比对
-
-### Phase 1：可运行闭环（必须先做）
-- [x] 新增轻量后端 API 适配层（封装 `DebateEngine`）。
-- [x] 打通会话生命周期：create -> setup -> step -> adjudicate -> snapshot。
-- [x] 打通 WebSocket 事件推流（状态回调 -> 前端）。
-- [x] 完成 live 页面（控制、图谱、日志、指标）。
-
-### Phase 1.5：可视化数据底座补强（代码遗漏补齐）
-- [x] 实现 `restore_snapshot()` 真实恢复逻辑。
-- [x] 新增 `get_serializable_snapshot()`，避免对象直出。
-- [x] 引入 `TurnArtifacts` 持久化（decision_raw、worker_reports、execution_logs）。
-- [x] 事件 envelope 增加 `seq/turn_uid/source/ts_ms`。
-- [x] Controller 增加 `error_history`（非覆盖式）。
-
-进展备注（2026-02-10）：已完成 engine 快照恢复与 JSON-safe 快照导出，并补充对应单元测试（`tests/test_engine_snapshot.py`）。
-进展备注（2026-02-10）：已新增 FastAPI 轻量会话层（`/api/v1`），并打通前端 `http` 模式所需的 REST 闭环接口（含 graph/diff/memory/events），补充 API 测试（`tests/test_api_sessions.py`）。WebSocket 事件推流保留在下一增量。
-进展备注（2026-02-10）：已完成 Phase 1.5 数据底座三项，新增 turn artifacts API（`/api/v1/sessions/{id}/turns/artifacts`），并提供一键启动脚本（`scripts/start_dev.sh` / `scripts/stop_dev.sh`）。
-
-### Phase 2：可解释性增强
-- [x] graph 页面：动作审计 + 公理映射（最小可演示版本，基于 turn artifacts + execution logs 规则映射）。
-- [x] judgment 页面：判决文书 + BAF 面板（最小可演示版本，基于 snapshot 的 judgment/baf 字段）。
-- [x] replay 页面：快照回放 + diff（最小可演示版本，基于 snapshots 索引 + round diff）。
-
-进展备注（2026-02-10）：已新增 `WS /api/v1/sessions/{id}/events` 实时推流与 `GET /api/v1/sessions/{id}/snapshots` 快照索引；前端接入“WS 优先 + 轮询兜底”事件流，并补充 replay 控件可按 round 加载快照与对比 diff。
-进展备注（2026-02-10）：已补齐 Graph/Judgment 可解释面板：Graph 动作审计显示 action status 与公理映射标签；Judgment 展示判决文书、root claim 状态与 BAF 关键指标。
-
-### Phase 2.5：Debug / 演示体验专项（本次新增）
-- [x] 图谱 Diff 基础能力：已支持 round diff 拉取与差异计数展示（`+N/-N/+E/-E`）。
-- [x] 图谱 Diff 高亮增强：新增/复用/状态变化/拒绝操作在图内可视高亮。
-- DoD：用户在 live/replay 页可一眼区分新增、复用、拒绝与状态迁移，且可点击筛选到具体节点/边。
-
-- [x] 团队流程基础能力：已可查看 turn artifacts 与执行日志。
-- [x] 团队流程可视化增强：Controller 状态机 + Worker 卡片墙 + Retry 时间线联动。
-- DoD：任一回合可完整还原“评估 -> 派发 -> 汇总 -> 决策 -> 重试”链路，定位失败步骤不超过 3 次点击。
-
-- [x] 事件时间轴基础能力：已支持 WS 事件流、历史查询、轮询兜底。
-- [x] 事件-快照联动增强：点击事件自动跳到对应快照与目标节点/动作。
-- DoD：从时间轴任一关键事件可跳转并定位同回合图状态，事件顺序与 `seq` 一致无乱序展示。
-
-- [x] Inspector 数据基础能力：`latest_context`/`decision_raw`/`parsed_actions`/narrative 数据可通过 snapshot 或 artifacts 取得。
-- [x] Inspector 交互增强：Context/Decision/Narrative 三面板可折叠、可对照、可高亮解析失败片段。
-- DoD：当 parser 失败时，页面直接显示原始片段与错误原因；当 parser 成功时可对照原始输出与解析结果。
-
-- [x] 错误分层基础能力：当前已有错误日志与 session error 事件可见。
-- [x] Debug Bundle 增强：一键复制 `session_id + round + recent_events + snapshot_summary + last_error`。
-- DoD：出现失败时 1 分钟内可从 UI 复制可复现排障信息，且可在另一端回放关键上下文。
-
-进展备注（2026-02-10）：已完成 Phase 2.5 全套实现：后端新增 `/api/v1/sessions/{id}/debug-bundle`，事件补齐 `event_id/round_idx`；前端完成 React Flow Diff 高亮、Timeline->Snapshot 联动、Team Flow 与 Inspector 三件套、Debug Bundle 复制/下载，并补充 API 与前端协议单测。
-
-### Phase 3：学习能力展示
-- [ ] 任务包 A：Memory 页面三层信息架构。
-- 输入：`GET /api/v1/sessions/{id}/memory` 返回数据。
-- 输出：Insights / TaskLayer / Case snapshots 三分区页面。
-- 验收：三层均有独立空态与错误态，且字段命名与后端一致。
-
-- [ ] 任务包 B：策略提炼与代表案例变化展示。
-- 输入：`insightSummaries`、`representative case` 相关字段。
-- 输出：按回合展示“新增策略、命中历史案例、关联变化”。
-- 验收：至少能展示一次策略新增与一次代表案例变化。
-
-- [ ] 任务包 C：Memory 与 replay 联动。
-- 输入：当前 round 与快照索引。
-- 输出：从 Memory 页面跳转到对应回合 replay 视角。
-- 验收：从任一策略项可在 1 次跳转内看到对应图谱上下文。
-
-### Phase 4：演示打磨
-- [ ] 任务包 A：一键自动演示脚本（Demo Mode）。
-- 交付物：固定演示路径（初始化 -> 对抗回合 -> 裁判 -> 记忆）与关键帧书签。
-- 演示通过条件：90 秒内可无人工操作完成一次全流程演示。
-
-- [ ] 任务包 B：错误场景降级演示。
-- 交付物：ES 不可用、LLM 超时两类脚本化演示步骤与 UI 预期说明。
-- 演示通过条件：失败时不白屏、可继续回放、可见明确降级提示。
-
-- [ ] 任务包 C：页面视觉统一与讲解文案。
-- 交付物：统一术语、颜色图例、关键指标说明、讲解脚本。
-- 演示通过条件：非开发观众能在 3 分钟内理解“系统在做什么、为什么这样做”。
-
-- [ ] 任务包 D：导出回放包（JSON/GEXF）用于复盘。
-- 交付物：`/export/replay.json` 与 `/export/graph.gexf` 接口规范及前端下载入口。
-- 演示通过条件：导出包可在另一台机器重放最小可解释视图（时间轴 + 图谱 + 关键日志）。
-
-### 8.6 当前实现对齐说明（2026-02-10）
-
-1. 已实现能力（与代码对齐）
-- `mas/api/server.py`：已提供 `/events`、`/events/history`、`/diff`、`/memory`、`/turns/artifacts`、WS events。
-- `mas/core/engine.py`：已提供 turn artifacts 存储、快照恢复、JSON-safe snapshot 输出。
-- `frontend/src/App.tsx`：已提供最小版本 timeline/diff/replay/audit/judgment 面板。
-
-2. 未实现增强能力（本次保留未勾选）
-- 图内高亮型 diff（当前仅差异计数与列表，不含图形层高亮）。
-- Context/Decision/Narrative Inspector 的专用交互面板。
-- Debug Bundle 一键导出与跨机重放工具化链路。
-- 演示导出接口 `/export/replay.json`、`/export/graph.gexf`。
-
-3. 状态标注原则
-- 本文档按“基础可用即标基础完成，增强体验单独列未完成”执行，避免将“部分可用”误标为“全部完成”。
+- [ ] 用户能在图上明确看到某回合新增了什么、哪步被回滚、为何被回滚。
 
 ---
 
-## 9. 验收标准（Demo Done Definition）
+## M5. 团队协作页（过程可解释）
 
-达到以下条件即可认为“前端详尽全面演示系统”完成：
-1. 观众可在一个会话中完整看到四阶段生命周期。
-2. 每一步图谱变化都可追溯到动作和日志。
-3. 至少一次清晰展示“动作被拒绝”的逻辑原因。
-4. 至少一次清晰展示“LLM 判决 vs BAF 对齐”的结果。
-5. 能展示长期记忆中策略与案例关联，不只是最终判决文本。
-6. 即使外部依赖波动（ES/LLM），界面也能解释失败并保持可回放。
-7. 在 live/replay 中，Diff 变化可被非开发者在 30 秒内读懂（新增、复用、拒绝、状态迁移）。
-8. 团队内部协作流程可视化完整（评估、派发、汇总、决策、重试）。
-9. 出现失败时可在 1 分钟内从 UI 定位到“哪一步、哪个动作、为什么失败”。
-10. 任意回合都可导出标准化 Debug Bundle，且可在另一台机器重放同一可视化过程。
-11. 快照恢复后的图统计值（node/edge/claim/conflict）与原始快照一致。
+- [ ] 新建 `TeamFlowPage` 页面容器。
+- [ ] 复用 `TeamFlowPanel`，按回合展示流水线阶段。
+- [ ] 将流水线阶段渲染为流程图（节点：ASSESS/DELEGATE/WAIT/DECIDE/RETRY/DONE）。
+- [ ] 渲染“指挥者 -> 工作者”委派关系图（边上显示任务类型）。
+- [ ] 拆分显示区块：评估、指令、决策、执行、重试。
+- [ ] 接入 `TurnArtifact` 详情联动（选中 turnUid 展开具体内容）。
+- [ ] 增加“问题追踪视图”：某个失败动作从首尝试到修正成功的链路。
+- [ ] 复用 `InspectorPanel` 展示 context/decision/narrative 三联视图。
+- [ ] 接入 `DebugBundle` 快照刷新能力，作为一键问题快照。
 
-### 9.1 剩余风险与依赖
+交付判定：
 
-1. 外部依赖风险（LLM/ES）
-- 风险：延迟、超时或空结果会影响演示稳定性。
-- 缓解：默认启用错误分层提示与轮询/回放兜底；Demo Mode 准备本地样例会话。
-
-2. 性能风险（长会话）
-- 风险：事件与日志过长导致前端卡顿。
-- 缓解：事件流按 `seq` 增量拉取；列表使用虚拟渲染；默认只显示最近窗口。
-
-3. 可视化可读性风险（大图 diff）
-- 风险：节点数上升后 diff 变化难被非开发者快速读懂。
-- 缓解：优先完成“只看变化节点/邻域聚焦/指标筛选”三件套。
-
-4. 交付一致性风险（计划与实现漂移）
-- 风险：文档勾选状态落后于实际代码，误导后续开发。
-- 缓解：每次合并后更新“接口状态矩阵 + 进展备注 + 验收映射”。
+- [ ] 用户能完整回答“这一回合它为什么这么做，失败后怎么修正”。
 
 ---
 
-## 10. 文档维护规则
+## M6. 记忆与类比页（学习可见）
 
-1. 每次能力变更必须同时更新三处：
-- `8.*` 对应任务勾选状态。
-- 对应 Phase 的“进展备注（绝对日期）”。
-- `9` 验收标准中受影响条目（新增或关闭风险）。
+- [ ] 新建 `MemoryPage` 页面容器。
+- [ ] 展示记忆总览：静态历史数、动态法理数、任务层节点/边数。
+- [ ] 新增 TaskLayer 关系图画布（案例节点 + 引用连边 + 代表案例高亮）。
+- [ ] 展示 `insightItems` 列表：内容、side、linkedRound、代表案例数。
+- [ ] 实现“新洞察/保留洞察”分组。
+- [ ] 展示代表案例变化 before/after。
+- [ ] 展示案例快照时间轴（round -> node/edge count）。
+- [ ] 实现“洞察跳转回放”（点洞察跳到 linkedRound）。
 
-2. 勾选规范
-- 若仅具备基础能力，只勾选“基础能力”子项，不得勾选增强项。
-- 增强项必须有可验证的 DoD 证据（接口返回、UI 行为或测试）。
+交付判定：
 
-3. 日期与版本规范
-- 统一使用绝对日期（例如 `2026-02-10`），避免“今天/本周”歧义。
-- 新增进展备注时注明对应文件或接口，便于追溯。
+- [ ] 用户能看到记忆不是静态文本，而是可追溯到具体回合变化。
 
 ---
 
-## 11. 一句话总结
-这套前端不是“做个漂亮可视化”，而是把论文中的**逻辑约束 + 分层决策 + 生命周期 + 演化学习**，通过当前仓库代码可真实运行的数据流，完整、可解释地演示出来。
+## M7. 裁决与解释页（结论可信）
+
+- [x] 新建 `JudgmentPage` 页面容器。
+- [x] 展示裁决摘要卡：胜方、裁决状态、根主张采纳率。
+- [x] 展示法官文书全文与摘要折叠。
+- [x] 展示根主张状态明细表。
+- [x] 展示 BAF 一致性卡：首选扩展数、选中扩展大小、一致率。
+- [x] 新增 BAF 关系图：主张节点 + 冲突/支持边 + 选中扩展节点高亮。
+- [x] 展示终止依据：回合上限或收敛触发。
+- [ ] 增加人话解释文案：BAF 指标每项对应一句解释。
+
+交付判定：
+
+- [ ] 用户能在同一页拿到“判决是什么 + 为什么”两层信息。
+
+---
+
+## M8. 回放与导出页（复盘闭环）
+
+- [ ] 新建 `ReplayExportPage` 页面容器。
+- [ ] 实现 from/to 回合选择。
+- [ ] 实现单回合加载与双回合差异对比。
+- [ ] 展示关键帧列表（按时间排序）。
+- [ ] 新增“关键帧图轨道”：按 round 串联关键帧节点，点击节点触发联动跳转。
+- [ ] 实现关键帧点击联动：图谱 + 团队工件 + 时间线定位。
+- [ ] 接入导出 `Replay JSON`。
+- [ ] 接入导出 `Graph GEXF`。
+- [ ] 接入导出 `Debug Bundle`。
+- [ ] 导出后展示摘要（事件数/工件数/快照数）。
+
+交付判定：
+
+- [ ] 用户可以重放全流程并导出可交付材料。
+
+---
+
+## M9. 演示剧本与验收（只走正常路径）
+
+- [ ] 编写固定演示剧本（5-8 分钟，单主持人可完整演示）。
+- [ ] 剧本步骤固定化：启动 -> 3 次 step -> 图谱 diff -> 团队协作 -> 记忆 -> 裁决 -> 回放导出。
+- [ ] 每一步都给“屏幕上可见证据点”清单。
+- [ ] 增加“演示导航模式”（下一步提示）。
+- [ ] 录制一次完整走查，校对文案与术语。
+
+交付判定：
+
+- [ ] 不依赖解释口播，观众仅看屏幕也能理解流程推进。
+
+---
+
+## 6. 页面级可见性检查清单（Demo 必过）
+
+## 6.1 初始化可见性
+
+- [ ] 看得到会话从“创建”进入“初始化完成”。
+- [ ] 看得到初始图谱规模。
+- [ ] 看得到生命周期进度第一段点亮。
+
+## 6.2 回合推进可见性
+
+- [ ] 每次 Step 后回合数字变化可见。
+- [ ] Transcript 增量可见。
+- [ ] Timeline 新事件可见。
+- [ ] 图谱新增节点/边可见。
+
+## 6.3 图操作回滚可见性
+
+- [ ] 回滚动作在审计表可见。
+- [ ] 回滚原因在执行日志可见。
+- [ ] 重试记录在 `retryHistory` 可见。
+- [ ] 修正后成功状态可见。
+
+## 6.4 裁决可见性
+
+- [ ] “待裁决 -> 裁决完成”状态切换可见。
+- [ ] 法官文书可见。
+- [ ] 根主张状态变化可见。
+- [ ] BAF 指标可见。
+
+## 6.5 复盘可见性
+
+- [ ] 任意 round 可回放。
+- [ ] 任意 keyframe 可跳转。
+- [ ] JSON/GEXF 可导出并可见摘要。
+
+## 6.6 图渲染专项检查（新增硬门槛）
+
+- [x] 论证图页：进入页面后 1 秒内可见节点-边画布，不需额外点“展开 JSON”。
+- [x] 实时庭审论证图：节点点击后可见右侧详情卡（内容、元数据、关联边）。
+- [ ] 团队协作页：可见流程图与委派关系图，而非仅文本列表。
+- [ ] 记忆页：可见 TaskLayer 案例关系图，而非仅数量统计。
+- [x] 裁决页：可见 BAF 图上高亮的选中扩展，而非仅首选扩展计数。
+- [ ] 回放页：可见关键帧图轨道，并支持点击节点联动跳转。
+- [ ] 任一图节点点击后，右侧详情卡必须同步更新对应数据。
+
+---
+
+## 7. 代码落位清单（建议文件结构）
+
+- [x] `frontend/src/App.tsx`：仅保留路由和全局壳层。
+- [x] `frontend/src/app/pages/LaunchPage.tsx`
+- [x] `frontend/src/app/pages/LivePage.tsx`
+- [ ] `frontend/src/pages/GraphPage.tsx`
+- [ ] `frontend/src/pages/TeamFlowPage.tsx`
+- [ ] `frontend/src/pages/MemoryPage.tsx`
+- [x] `frontend/src/app/pages/JudgmentPage.tsx`
+- [ ] `frontend/src/pages/ReplayExportPage.tsx`
+- [ ] `frontend/src/pages/DemoPlaybookPage.tsx`
+- [x] `frontend/src/app/state/*`
+- [ ] `frontend/src/viewmodels/*`
+- [ ] `frontend/src/components/layout/*`
+- [ ] `frontend/src/components/cards/*`
+- [ ] `frontend/src/components/graph/*`
+- [ ] `frontend/src/components/team/*`
+- [ ] `frontend/src/components/memory/*`
+- [ ] `frontend/src/components/judgment/*`
+- [ ] `frontend/src/components/replay/*`
+
+---
+
+## 8. 暂不纳入本轮 TODO（明确排除）
+
+- [ ] 模型未加载等环境错误的演示流程。
+- [ ] 离线模式完整能力仿真。
+- [ ] 权限系统与多租户隔离。
+- [ ] 国际化多语种切换。
+
+---
+
+## 9. 最终完成定义（DoD）
+
+- [ ] 8 个页面均可访问，且均有真实数据渲染。
+- [ ] 正常主流程可在 1 次演示中完整走通，不跳页、不补解释也能看懂。
+- [ ] 图操作回滚作为正常流程可被完整追踪（动作 -> 回滚 -> 重试 -> 结果）。
+- [ ] 裁决结果有文本解释与逻辑一致性指标双证据。
+- [ ] 回放和导出全链路可用，导出后有数量摘要可核验。
+- [ ] 所有图结构数据在对应页面均为“先图后文”渲染，不存在只靠表格/JSON 的替代实现。
