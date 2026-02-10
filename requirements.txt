@@ -13,3 +13,5 @@ networkx
 python-dotenv
 pyyaml
 tqdm
+fastapi
+uvicorn

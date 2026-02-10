@@ -26,9 +26,9 @@ export class GraphDomainAdapter implements GraphAdapter {
   async getGraph(sessionId: string): Promise<GraphView> {
     try {
       const raw = await this.client.callWithCandidates([
-        { method: "GET", path: `/sessions/${sessionId}/graph` },
         { method: "GET", path: `/api/v1/sessions/${sessionId}/graph` },
         { method: "GET", path: `/api/v1/sessions/${sessionId}/snapshot` },
+        { method: "GET", path: `/sessions/${sessionId}/graph` },
       ]);
 
       return normalizeGraph(raw, sessionId);
@@ -55,8 +55,8 @@ export class GraphDomainAdapter implements GraphAdapter {
 
     try {
       const raw = await this.client.callWithCandidates([
-        { method: "GET", path: basePath },
         { method: "GET", path: v1Path },
+        { method: "GET", path: basePath },
       ]);
 
       return normalizeGraphDiff(raw, sessionId, fromRound, toRound);
@@ -79,8 +79,8 @@ export class GraphDomainAdapter implements GraphAdapter {
 
     try {
       const raw = await this.client.callWithCandidates([
-        { method: "GET", path: basePath },
         { method: "GET", path: v1Path },
+        { method: "GET", path: basePath },
       ]);
 
       return normalizeGraph(raw, sessionId);

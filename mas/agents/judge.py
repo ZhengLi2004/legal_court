@@ -413,7 +413,8 @@ class LLMJudge(BaseJudge):
     ) -> Tuple[Dict[str, NodeStatus], Optional[Dict]]:
         """Wrapper method for verdict extraction with optional BAF semantics.
 
-        This is the main entry point that should be called by the system.
+        This method is kept as a compatibility entry point for callers that
+        route adjudication through a single wrapper.
         It routes to either the standard LLM-only extraction or the BAF-enhanced
         extraction based on the use_baf_semantics parameter.
 

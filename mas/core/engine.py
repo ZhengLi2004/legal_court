@@ -363,6 +363,7 @@ class DebateEngine:
             k: v.value if hasattr(v, "value") else str(v)
             for k, v in self.root_claims_status.items()
         }
+        graph_stats = self._build_graph_stats(graph_data)
 
         snapshot = {
             "round_idx": round_idx,
@@ -379,14 +380,10 @@ class DebateEngine:
             "transcript": list(self.transcript),
             "root_claims_status": serializable_claims_status,
             "stats": {
-                "node_count": self.graph.graph.number_of_nodes(),
-                "edge_count": self.graph.graph.number_of_edges(),
-                "claim_nodes": self._count_claim_nodes(),
-                "conflict_edges": sum(
-                    1
-                    for _, _, d in self.graph.graph.edges(data=True)
-                    if str(d.get("type")) == "CONFLICT"
-                ),
+                "node_count": graph_stats["node_count"],
+                "edge_count": graph_stats["edge_count"],
+                "claim_nodes": graph_stats["claim_nodes"],
+                "conflict_edges": graph_stats["conflict_edges"],
             },
             "action_summary": self.last_step_log.get("action", ""),
             "is_finished": self.is_finished,
@@ -411,6 +408,177 @@ class DebateEngine:
 
         return value
 
+    def _to_json_safe(self, value: Any) -> Any:
+        """Recursively convert values into JSON-safe primitives."""
+        if isinstance(value, dict):
+            return {str(k): self._to_json_safe(v) for k, v in value.items()}
+
+        if isinstance(value, (list, tuple)):
+            return [self._to_json_safe(v) for v in value]
+
+        if isinstance(value, set):
+            return [self._to_json_safe(v) for v in sorted(value, key=str)]
+
+        serialized = self._serialize_value(value)
+
+        if isinstance(serialized, (str, int, float, bool)) or serialized is None:
+            return serialized
+
+        if isinstance(serialized, (dict, list, tuple, set)):
+            return self._to_json_safe(serialized)
+
+        return str(serialized)
+
+    def _deserialize_node_type(self, value: Any) -> Any:
+        """Best-effort convert a snapshot node type value back to NodeType."""
+        if isinstance(value, NodeType):
+            return value
+
+        if isinstance(value, str):
+            token = value.split(".")[-1].strip().upper()
+
+            try:
+                return NodeType[token]
+
+            except Exception:
+                try:
+                    return NodeType(token)
+
+                except Exception:
+                    return value
+
+        return value
+
+    def _deserialize_edge_type(self, value: Any) -> Any:
+        """Best-effort convert a snapshot edge type value back to EdgeType."""
+        if isinstance(value, EdgeType):
+            return value
+
+        if isinstance(value, str):
+            token = value.split(".")[-1].strip().upper()
+
+            try:
+                return EdgeType[token]
+
+            except Exception:
+                try:
+                    return EdgeType(token)
+
+                except Exception:
+                    return value
+
+        return value
+
+    def _deserialize_node_status(self, value: Any) -> Any:
+        """Best-effort convert a snapshot status value back to NodeStatus."""
+        if isinstance(value, NodeStatus):
+            return value
+
+        if isinstance(value, str):
+            token = value.split(".")[-1].strip().upper()
+
+            try:
+                return NodeStatus[token]
+
+            except Exception:
+                try:
+                    return NodeStatus(token)
+
+                except Exception:
+                    return value
+
+        return value
+
+    def _count_conflict_edges(self) -> int:
+        """Count CONFLICT edges in the current graph."""
+        if not self.graph or not self.graph.graph:
+            return 0
+
+        count = 0
+
+        for _, _, data in self.graph.graph.edges(data=True):
+            edge_type = data.get("type")
+
+            if edge_type == EdgeType.CONFLICT or str(edge_type) in {
+                "CONFLICT",
+                "EdgeType.CONFLICT",
+            }:
+                count += 1
+
+        return count
+
+    def _build_graph_data(self) -> Dict[str, Any]:
+        """Build JSON-safe graph payload for API/transport usage."""
+        if not self.graph:
+            return {"nodes": [], "edges": []}
+
+        return {
+            "nodes": [
+                {"id": nid, **{k: self._to_json_safe(v) for k, v in data.items()}}
+                for nid, data in self.graph.graph.nodes(data=True)
+            ],
+            "edges": [
+                {
+                    "source": src,
+                    "target": dst,
+                    **{k: self._to_json_safe(v) for k, v in data.items()},
+                }
+                for src, dst, data in self.graph.graph.edges(data=True)
+            ],
+        }
+
+    def _count_support_edges_from_graph_data(self, graph_data: Dict[str, Any]) -> int:
+        """Count SUPPORT edges from serialized graph data."""
+        count = 0
+
+        for edge in graph_data.get("edges", []):
+            if str(edge.get("type")) in {"SUPPORT", "EdgeType.SUPPORT"}:
+                count += 1
+
+        return count
+
+    def _build_graph_stats(
+        self, graph_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, int]:
+        """Build a unified graph stats payload for snapshots and APIs."""
+        graph_payload = (
+            graph_data if graph_data is not None else self._build_graph_data()
+        )
+        conflict_count = self._count_conflict_edges()
+        support_count = self._count_support_edges_from_graph_data(graph_payload)
+
+        return {
+            "node_count": len(graph_payload.get("nodes", [])),
+            "edge_count": len(graph_payload.get("edges", [])),
+            "claim_nodes": self._count_claim_nodes(),
+            "conflict_edges": conflict_count,
+            "edge_conflict_count": conflict_count,
+            "edge_attack_count": conflict_count,
+            "edge_support_count": support_count,
+        }
+
+    def _collect_agent_memories(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Collect serializable controller memories from both teams."""
+        p_mem: List[Dict[str, Any]] = []
+
+        if self.p_team and self.p_team.controller:
+            try:
+                p_mem = [m.model_dump() for m in self.p_team.controller.get_memories()]
+
+            except Exception:
+                pass
+
+        d_mem: List[Dict[str, Any]] = []
+
+        if self.d_team and self.d_team.controller:
+            try:
+                d_mem = [m.model_dump() for m in self.d_team.controller.get_memories()]
+
+            except Exception:
+                pass
+
+        return {"plaintiff": p_mem, "defendant": d_mem}
+
     def restore_snapshot(self, round_idx: int) -> bool:
         """Restore the graph state from a snapshot.
 
@@ -424,6 +592,102 @@ class DebateEngine:
             return False
 
         snapshot = self.round_snapshots[round_idx]
+        graph_data = snapshot.get("graph_data", {})
+        restored_graph = ShadowGraph()
+
+        for node in graph_data.get("nodes", []):
+            if not isinstance(node, dict):
+                continue
+
+            node_row = dict(node)
+            node_id = node_row.pop("id", None)
+
+            if not node_id:
+                continue
+
+            if "type" in node_row:
+                node_row["type"] = self._deserialize_node_type(node_row["type"])
+
+            if "status" in node_row:
+                node_row["status"] = self._deserialize_node_status(node_row["status"])
+
+            restored_graph.graph.add_node(node_id, **node_row)
+
+        for edge in graph_data.get("edges", []):
+            if not isinstance(edge, dict):
+                continue
+
+            edge_row = dict(edge)
+            source = edge_row.pop("source", None)
+            target = edge_row.pop("target", None)
+
+            if not source or not target:
+                continue
+
+            if "type" in edge_row:
+                edge_row["type"] = self._deserialize_edge_type(edge_row["type"])
+
+            restored_graph.graph.add_edge(source, target, **edge_row)
+
+        self.graph = restored_graph
+        self.round_idx = int(snapshot.get("round_idx", round_idx))
+        self.transcript = list(snapshot.get("transcript", []))
+        self.is_finished = bool(snapshot.get("is_finished", False))
+        self.is_ready_for_adjudication = False
+
+        convergence = snapshot.get("convergence", {})
+        history = convergence.get("history", [])
+
+        if isinstance(history, list):
+            self.convergence_history = list(history)
+
+        else:
+            self.convergence_history = []
+
+        raw_claim_status = snapshot.get("root_claims_status", {})
+        restored_claim_status: Dict[str, NodeStatus] = {}
+
+        if isinstance(raw_claim_status, dict):
+            for claim_id, status in raw_claim_status.items():
+                restored_claim_status[claim_id] = self._deserialize_node_status(status)
+
+        self.root_claims_status = restored_claim_status
+
+        if not isinstance(self.last_step_log, dict):
+            self.last_step_log = {}
+
+        self.last_step_log["action"] = snapshot.get("action_summary", "")
+        self.last_step_log["round"] = self.round_idx
+        self.last_step_log["turn"] = snapshot.get("turn", "")
+
+        if isinstance(convergence, dict):
+            self.last_step_log["convergence"] = {
+                "delta_phi": convergence.get("delta_phi", 0.0),
+                "sma": convergence.get("sma", 0.0),
+                "is_converged": self.last_step_log.get("convergence", {}).get(
+                    "is_converged", False
+                ),
+                "gc_removed": self.last_step_log.get("convergence", {}).get(
+                    "gc_removed", 0
+                ),
+            }
+
+        turn_name = str(snapshot.get("turn", "")).lower()
+
+        if turn_name == Turn.PLAINTIFF.value:
+            self.current_turn = Turn.DEFENDANT
+
+        elif turn_name == Turn.DEFENDANT.value:
+            self.current_turn = Turn.PLAINTIFF
+
+        else:
+            self.current_turn = Turn.PLAINTIFF
+
+        self.prev_stats = {
+            "claim_nodes": self._count_claim_nodes(),
+            "conflict_edges": self._count_conflict_edges(),
+        }
+
         return True
 
     async def open_resources(self):
@@ -696,23 +960,7 @@ class DebateEngine:
             for k, v in self.root_claims_status.items()
         }
 
-        p_mem = []
-
-        if self.p_team and self.p_team.controller:
-            try:
-                p_mem = [m.model_dump() for m in self.p_team.controller.get_memories()]
-
-            except Exception:
-                pass
-
-        d_mem = []
-
-        if self.d_team and self.d_team.controller:
-            try:
-                d_mem = [m.model_dump() for m in self.d_team.controller.get_memories()]
-
-            except Exception:
-                pass
+        agent_memories = self._collect_agent_memories()
 
         return {
             "shadow_graph": self.graph,
@@ -723,6 +971,44 @@ class DebateEngine:
             "winner": self.winner,
             "judgment_document": self.judgment_document,
             "root_claims_status": serializable_claims_status,
-            "agent_memories": {"plaintiff": p_mem, "defendant": d_mem},
+            "agent_memories": agent_memories,
             "full_transcript": self.transcript,
         }
+
+    def get_serializable_snapshot(self) -> Dict[str, Any]:
+        """Return a JSON-safe state snapshot for API responses."""
+        graph_data = self._build_graph_data()
+        graph_stats = self._build_graph_stats(graph_data)
+        transcript_rows = list(self.transcript)
+
+        serializable_claims_status = {
+            k: self._serialize_value(v) for k, v in self.root_claims_status.items()
+        }
+
+        state = {
+            "current_round": self.round_idx,
+            "current_turn": self.current_turn.value,
+            "max_rounds": self.max_rounds,
+            "is_ready_for_adjudication": self.is_ready_for_adjudication,
+            "is_finished": self.is_finished,
+            "winner": self.winner,
+            "judgment_document": self.judgment_document,
+            "root_claims_status": serializable_claims_status,
+            "baf_details": self.baf_details,
+            "preferred_extension": list(self.preferred_extension),
+            "last_log": self.last_step_log,
+            "transcript": transcript_rows,
+            "full_transcript": transcript_rows,
+            "convergence_history": list(self.convergence_history),
+            "graph_data": graph_data,
+            "graph_stats": {
+                "node_count": graph_stats["node_count"],
+                "edge_count": graph_stats["edge_count"],
+                "claim_nodes": graph_stats["claim_nodes"],
+                "edge_conflict_count": graph_stats["edge_conflict_count"],
+                "edge_attack_count": graph_stats["edge_attack_count"],
+                "edge_support_count": graph_stats["edge_support_count"],
+            },
+            "agent_memories": self._collect_agent_memories(),
+        }
+        return self._to_json_safe(state)

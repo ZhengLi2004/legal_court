@@ -21,8 +21,8 @@ export class InsightDomainAdapter implements InsightAdapter {
   async getMemory(sessionId: string): Promise<MemoryView> {
     try {
       const raw = await this.client.callWithCandidates([
-        { method: "GET", path: `/sessions/${sessionId}/memory` },
         { method: "GET", path: `/api/v1/sessions/${sessionId}/memory` },
+        { method: "GET", path: `/sessions/${sessionId}/memory` },
       ]);
 
       return normalizeMemory(raw, sessionId);
@@ -42,8 +42,8 @@ export class InsightDomainAdapter implements InsightAdapter {
     });
 
     const raw = await this.client.callWithCandidates([
-      { method: "GET", path: basePath },
       { method: "GET", path: v1Path },
+      { method: "GET", path: basePath },
     ]);
 
     return normalizeTimeline(raw);
