@@ -1,5 +1,6 @@
-export { CompatAdapterFacade, createCompatAdapter } from './adapter'
-export type { AdapterOptions } from './client'
+export { CompatAdapterFacade, createCompatAdapter } from "./adapter";
+export type { AdapterOptions } from "./client";
+
 export type {
   AdapterCapabilities,
   CreateSessionInput,
@@ -16,4 +17,4 @@ export type {
   MemoryView,
   SessionAdapter,
   TimelineEvent,
-} from './types'
+} from "./types";

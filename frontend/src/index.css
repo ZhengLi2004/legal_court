@@ -1,10 +1,11 @@
 :root {
-  font-family: 'IBM Plex Sans', 'Noto Sans SC', 'PingFang SC', sans-serif;
-  color: #f8fafc;
+  font-family: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", sans-serif;
+  color: #1e293b;
+
   background:
-    radial-gradient(1200px 600px at 10% -10%, #1d4ed8 0%, transparent 55%),
-    radial-gradient(900px 540px at 100% 0%, #0f766e 0%, transparent 45%),
-    linear-gradient(170deg, #0b1220 0%, #111827 60%, #1f2937 100%);
+    radial-gradient(1200px 600px at 10% -10%, #bfdbfe 0%, transparent 58%),
+    radial-gradient(900px 540px at 100% 0%, #bae6fd 0%, transparent 48%),
+    linear-gradient(170deg, #f8fafc 0%, #eef2ff 62%, #f1f5f9 100%);
 }
 
 * {
@@ -15,6 +16,12 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  color: #1e293b;
+
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #bfdbfe 0%, transparent 58%),
+    radial-gradient(900px 540px at 100% 0%, #bae6fd 0%, transparent 48%),
+    linear-gradient(170deg, #f8fafc 0%, #eef2ff 62%, #f1f5f9 100%);
 }
 
 #root {
@@ -39,7 +46,7 @@ body {
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.15em;
-  color: #93c5fd;
+  color: #2563eb;
   font-size: 0.72rem;
 }
 
@@ -52,7 +59,7 @@ h1 {
   display: grid;
   gap: 0.35rem;
   text-align: right;
-  color: #bfdbfe;
+  color: #1d4ed8;
   font-size: 0.88rem;
 }
 
@@ -71,7 +78,10 @@ button {
   padding: 0.65rem 0.95rem;
   font-weight: 650;
   cursor: pointer;
-  transition: transform 0.14s ease, opacity 0.14s ease;
+
+  transition:
+    transform 0.14s ease,
+    opacity 0.14s ease;
 }
 
 button:hover {
@@ -86,12 +96,12 @@ button:disabled {
 
 .hint {
   margin: 0.2rem 0 0.7rem;
-  color: #cbd5e1;
+  color: #475569;
 }
 
 .error {
   margin: 0.2rem 0 0.7rem;
-  color: #fecaca;
+  color: #b91c1c;
 }
 
 .layout {
@@ -102,8 +112,14 @@ button:disabled {
 
 .card {
   grid-column: span 4;
-  background: linear-gradient(160deg, rgb(2 6 23 / 0.76), rgb(15 23 42 / 0.7));
-  border: 1px solid rgb(148 163 184 / 0.25);
+
+  background: linear-gradient(
+    160deg,
+    rgb(255 255 255 / 0.92),
+    rgb(248 250 252 / 0.86)
+  );
+
+  border: 1px solid rgb(59 130 246 / 0.2);
   border-radius: 16px;
   padding: 1rem;
   backdrop-filter: blur(3px);
@@ -120,7 +136,7 @@ h2 {
 
 .line {
   margin: 0.33rem 0;
-  color: #e2e8f0;
+  color: #334155;
 }
 
 .metrics {
@@ -133,13 +149,13 @@ h2 {
 .metrics div {
   padding: 0.55rem 0.5rem;
   border-radius: 11px;
-  border: 1px solid rgb(59 130 246 / 0.38);
-  background: rgb(30 41 59 / 0.54);
+  border: 1px solid rgb(37 99 235 / 0.24);
+  background: rgb(219 234 254 / 0.45);
 }
 
 .metrics span {
   display: block;
-  color: #93c5fd;
+  color: #1d4ed8;
   font-size: 0.75rem;
 }
 
@@ -157,9 +173,9 @@ h2 {
   margin: 0.28rem 0;
   padding: 0.45rem 0.52rem;
   border-radius: 9px;
-  background: rgb(20 83 45 / 0.33);
-  border: 1px solid rgb(22 163 74 / 0.5);
-  color: #bbf7d0;
+  background: rgb(220 252 231 / 0.8);
+  border: 1px solid rgb(34 197 94 / 0.45);
+  color: #166534;
   font-size: 0.88rem;
 }
 
@@ -172,8 +188,8 @@ h2 {
   text-align: left;
   border-radius: 10px;
   padding: 0.52rem 0.6rem;
-  background: rgb(30 41 59 / 0.85);
-  border: 1px solid rgb(59 130 246 / 0.25);
+  background: rgb(255 255 255 / 0.9);
+  border: 1px solid rgb(59 130 246 / 0.2);
   font-size: 0.84rem;
 }
 
@@ -181,11 +197,11 @@ h2 {
   margin: 0.35rem 0;
   padding: 0.45rem 0.55rem;
   border-radius: 8px;
-  background: rgb(15 23 42 / 0.74);
-  border: 1px solid rgb(148 163 184 / 0.22);
-  color: #e2e8f0;
+  background: rgb(241 245 249 / 0.92);
+  border: 1px solid rgb(148 163 184 / 0.35);
+  color: #1e293b;
   font-size: 0.86rem;
-  font-family: 'IBM Plex Mono', 'JetBrains Mono', monospace;
+  font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
 }
 
 @media (max-width: 980px) {
