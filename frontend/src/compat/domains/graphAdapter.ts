@@ -70,10 +70,7 @@ export class GraphDomainAdapter implements GraphAdapter {
     }
   }
 
-  private async getGraphAtRound(
-    sessionId: string,
-    round: number,
-  ): Promise<GraphView> {
+  async getGraphAtRound(sessionId: string, round: number): Promise<GraphView> {
     const basePath = `/sessions/${sessionId}/snapshots/${round}`;
     const v1Path = `/api/v1/sessions/${sessionId}/snapshots/${round}`;
 

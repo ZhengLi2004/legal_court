@@ -204,6 +204,29 @@ h2 {
   font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
 }
 
+.replay-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.replay-controls label {
+  display: grid;
+  gap: 0.25rem;
+  color: #1e3a8a;
+  font-size: 0.84rem;
+}
+
+.replay-controls select {
+  min-width: 160px;
+  border-radius: 9px;
+  border: 1px solid rgb(59 130 246 / 0.35);
+  background: rgb(255 255 255 / 0.95);
+  color: #0f172a;
+  padding: 0.45rem 0.5rem;
+}
+
 @media (max-width: 980px) {
   .topbar {
     flex-direction: column;

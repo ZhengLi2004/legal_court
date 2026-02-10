@@ -315,6 +315,18 @@ export class MockTransport implements CompatTransport {
         } as T;
       }
 
+      if (method === "GET" && action === "snapshots") {
+        return {
+          items: session.snapshots.map((item) => ({
+            round_idx: item.round,
+            turn: item.round % 2 === 0 ? "defendant" : "plaintiff",
+            ts_ms: Date.now(),
+            node_count: item.nodes.length,
+            edge_count: item.edges.length,
+          })),
+        } as T;
+      }
+
       if (method === "GET" && action === "memory") {
         return {
           session_id: session.session_id,

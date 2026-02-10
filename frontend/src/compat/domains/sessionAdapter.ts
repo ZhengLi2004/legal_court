@@ -1,9 +1,16 @@
-import { normalizeSnapshot, normalizeSnapshotList } from "../protocol";
+import {
+  normalizeSnapshot,
+  normalizeSnapshotIndex,
+  normalizeSnapshotList,
+} from "../protocol";
+
+import { HttpTransportError } from "../httpTransport";
 import type { CompatClient } from "../client";
 
 import type {
   CreateSessionInput,
   DebateSnapshot,
+  SnapshotIndexItem,
   SessionAdapter,
 } from "../types";
 
@@ -80,5 +87,34 @@ export class SessionDomainAdapter implements SessionAdapter {
     ]);
 
     return normalizeSnapshotList(raw);
+  }
+
+  async getSnapshots(sessionId: string): Promise<SnapshotIndexItem[]> {
+    try {
+      const raw = await this.client.callWithCandidates([
+        { method: "GET", path: `/api/v1/sessions/${sessionId}/snapshots` },
+      ]);
+
+      return normalizeSnapshotIndex(raw);
+    } catch (err) {
+      if (
+        err instanceof HttpTransportError &&
+        (err.status === 404 || err.status === 405)
+      ) {
+        const snapshot = await this.getSnapshot(sessionId);
+
+        return [
+          {
+            round: snapshot.round,
+            turn: "current",
+            ts: Date.now(),
+            nodeCount: snapshot.metrics.arguments,
+            edgeCount: snapshot.metrics.attacks + snapshot.metrics.supports,
+          },
+        ];
+      }
+
+      throw err;
+    }
   }
 }

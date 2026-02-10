@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createCompatAdapter } from "./compat";
 
 import type {
@@ -6,6 +6,7 @@ import type {
   GraphDiffView,
   GraphView,
   MemoryView,
+  SnapshotIndexItem,
   TimelineEvent,
 } from "./compat";
 
@@ -37,9 +38,19 @@ function App() {
   const [graphDiff, setGraphDiff] = useState<GraphDiffView | null>(null);
   const [memoryView, setMemoryView] = useState<MemoryView | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [snapshotIndex, setSnapshotIndex] = useState<SnapshotIndexItem[]>([]);
+  const [replayFromRound, setReplayFromRound] = useState<number>(0);
+  const [replayToRound, setReplayToRound] = useState<number>(0);
+
+  const [streamStatus, setStreamStatus] = useState<"idle" | "ws" | "poll">(
+    "idle",
+  );
+
   const [busyAction, setBusyAction] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [logs, setLogs] = useState<string[]>([]);
+  const lastSeqRef = useRef<number>(0);
+  const wsLiveRef = useRef<boolean>(false);
   const sessionId = snapshot?.sessionId ?? sessions[0]?.sessionId ?? "";
 
   const transcriptDelta = useMemo(() => {
@@ -59,7 +70,80 @@ function App() {
 
   const appendLog = (message: string): void => {
     const row = `${new Date().toISOString()} ${message}`;
-    setLogs((prev) => [row, ...prev].slice(0, 30));
+    setLogs((prev) => [row, ...prev].slice(0, 50));
+  };
+
+  const syncSnapshotIndex = (
+    items: SnapshotIndexItem[],
+    resetSelection: boolean,
+  ): void => {
+    setSnapshotIndex(items);
+
+    if (!items.length) {
+      setReplayFromRound(0);
+      setReplayToRound(0);
+      return;
+    }
+
+    const rounds = items.map((item) => item.round);
+    const latest = rounds[rounds.length - 1];
+    const previous = rounds.length > 1 ? rounds[rounds.length - 2] : rounds[0];
+
+    if (resetSelection) {
+      setReplayFromRound(previous);
+      setReplayToRound(latest);
+      return;
+    }
+
+    setReplayFromRound((prev) => {
+      if (!rounds.includes(prev)) {
+        return previous;
+      }
+
+      return prev === 0 && latest > 0 ? previous : prev;
+    });
+
+    setReplayToRound((prev) => {
+      if (!rounds.includes(prev)) {
+        return latest;
+      }
+
+      return prev === 0 && latest > 0 ? latest : prev;
+    });
+  };
+
+  const replaceTimeline = (rows: TimelineEvent[]): void => {
+    const sorted = [...rows].sort((a, b) => a.seq - b.seq || a.ts - b.ts);
+    const latest = sorted.length > 0 ? sorted[sorted.length - 1] : null;
+    lastSeqRef.current = latest?.seq ?? 0;
+    setTimeline(sorted.slice(-120));
+  };
+
+  const mergeTimeline = (rows: TimelineEvent[]): void => {
+    if (!rows.length) {
+      return;
+    }
+
+    setTimeline((prev) => {
+      const bucket = new Map<number, TimelineEvent>();
+
+      for (const row of prev) {
+        bucket.set(row.seq, row);
+      }
+
+      for (const row of rows) {
+        bucket.set(row.seq, row);
+      }
+
+      const merged = [...bucket.values()].sort(
+        (a, b) => a.seq - b.seq || a.ts - b.ts,
+      );
+
+      const latest = merged.length > 0 ? merged[merged.length - 1] : null;
+      lastSeqRef.current = latest?.seq ?? lastSeqRef.current;
+
+      return merged.slice(-120);
+    });
   };
 
   const runAction = async (
@@ -179,13 +263,108 @@ function App() {
     setError("");
 
     try {
-      const result = await adapter.insight.getTimeline(sessionId, 20);
-      setTimeline(result);
+      const result = await adapter.insight.getTimeline(sessionId, 40);
+      replaceTimeline(result);
       appendLog(`loadTimeline: events=${result.length}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       appendLog(`loadTimeline failed: ${message}`);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const loadSnapshots = async (
+    options: { silent?: boolean } = {},
+  ): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    const silent = options.silent === true;
+
+    if (!silent) {
+      setBusyAction("loadSnapshots");
+    }
+
+    setError("");
+
+    try {
+      const items = await adapter.session.getSnapshots(sessionId);
+      syncSnapshotIndex(items, !silent);
+
+      if (!silent) {
+        appendLog(`loadSnapshots: items=${items.length}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+
+      appendLog(
+        silent
+          ? `loadSnapshots(auto) failed: ${message}`
+          : `loadSnapshots failed: ${message}`,
+      );
+    } finally {
+      if (!silent) {
+        setBusyAction("");
+      }
+    }
+  };
+
+  const loadReplayRound = async (): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    setBusyAction("loadReplayRound");
+    setError("");
+
+    try {
+      const graph = await adapter.graph.getGraphAtRound(
+        sessionId,
+        replayToRound,
+      );
+
+      setGraphView(graph);
+
+      appendLog(
+        `loadReplayRound: round=${replayToRound}, nodes=${graph.nodes.length}, edges=${graph.edges.length}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      appendLog(`loadReplayRound failed: ${message}`);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const loadReplayDiff = async (): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    setBusyAction("loadReplayDiff");
+    setError("");
+
+    try {
+      const result = await adapter.graph.getGraphDiff(
+        sessionId,
+        replayFromRound,
+        replayToRound,
+      );
+
+      setGraphDiff(result);
+
+      appendLog(
+        `loadReplayDiff: ${replayFromRound} -> ${replayToRound}, +N${result.addedNodeIds.length}, +E${result.addedEdgeIds.length}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      appendLog(`loadReplayDiff failed: ${message}`);
     } finally {
       setBusyAction("");
     }
@@ -226,6 +405,97 @@ function App() {
     };
   }, [adapter]);
 
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    void loadSnapshots({ silent: true });
+  }, [adapter, sessionId, snapshot?.round]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setStreamStatus("idle");
+      setTimeline([]);
+      setSnapshotIndex([]);
+      lastSeqRef.current = 0;
+      wsLiveRef.current = false;
+      return;
+    }
+
+    let alive = true;
+    wsLiveRef.current = false;
+
+    const pullTimeline = async (): Promise<void> => {
+      try {
+        const rows = await adapter.insight.getTimeline(sessionId, 40);
+
+        if (!alive) {
+          return;
+        }
+
+        replaceTimeline(rows);
+
+        if (!wsLiveRef.current) {
+          setStreamStatus("poll");
+        }
+      } catch (err) {
+        if (!alive) {
+          return;
+        }
+
+        const message = err instanceof Error ? err.message : String(err);
+        appendLog(`timeline poll failed: ${message}`);
+      }
+    };
+
+    void pullTimeline();
+    void loadSnapshots({ silent: true });
+
+    const stopStreaming = adapter.capabilities.supportsStreaming
+      ? adapter.insight.subscribeTimeline(
+          sessionId,
+          (event) => {
+            if (!alive) {
+              return;
+            }
+
+            wsLiveRef.current = true;
+            setStreamStatus("ws");
+            mergeTimeline([event]);
+          },
+          {
+            fromSeq:
+              lastSeqRef.current > 0 ? lastSeqRef.current + 1 : undefined,
+            onError: (streamErr) => {
+              if (!alive) {
+                return;
+              }
+
+              if (wsLiveRef.current) {
+                appendLog(`stream fallback to polling: ${streamErr.message}`);
+              }
+
+              wsLiveRef.current = false;
+              setStreamStatus("poll");
+            },
+          },
+        )
+      : () => {};
+
+    const timer = window.setInterval(() => {
+      if (!wsLiveRef.current) {
+        void pullTimeline();
+      }
+    }, 3500);
+
+    return () => {
+      alive = false;
+      stopStreaming();
+      window.clearInterval(timer);
+    };
+  }, [adapter, sessionId]);
+
   return (
     <main className="shell">
       <section className="topbar">
@@ -238,6 +508,11 @@ function App() {
           <span>mode: {adapterMode}</span>
           <span>active: {adapter.capabilities.transport}</span>
           <span>diff: {adapter.capabilities.supportsDiff ? "on" : "off"}</span>
+
+          <span>
+            stream:{" "}
+            {adapter.capabilities.supportsStreaming ? streamStatus : "off"}
+          </span>
         </div>
       </section>
 
@@ -314,6 +589,13 @@ function App() {
         >
           Load Timeline
         </button>
+
+        <button
+          disabled={Boolean(busyAction) || !sessionId}
+          onClick={() => void loadSnapshots()}
+        >
+          Load Snapshots
+        </button>
       </section>
 
       {busyAction && <p className="hint">running: {busyAction}</p>}
@@ -370,6 +652,7 @@ function App() {
           </p>
 
           <p className="line">timeline events: {timeline.length || "-"}</p>
+          <p className="line">snapshot index: {snapshotIndex.length || "-"}</p>
 
           <p className="line">
             diff: +N{graphDiff?.addedNodeIds.length ?? 0} -N
@@ -439,6 +722,84 @@ function App() {
               <p className="hint">No memory data loaded.</p>
             )}
           </div>
+        </article>
+
+        <article className="card">
+          <h2>Timeline Stream</h2>
+          <p className="hint">latest seq: {lastSeqRef.current || "-"}</p>
+
+          <div className="scrollbox">
+            {timeline.length ? (
+              timeline
+                .slice(-20)
+                .reverse()
+                .map((row) => (
+                  <p className="log" key={`${row.seq}-${row.event}`}>
+                    #{row.seq} [{row.source}] {row.event}
+                  </p>
+                ))
+            ) : (
+              <p className="hint">No timeline events.</p>
+            )}
+          </div>
+        </article>
+
+        <article className="card wide">
+          <h2>Replay Controls</h2>
+
+          {snapshotIndex.length ? (
+            <div className="replay-controls">
+              <label>
+                from round
+                <select
+                  value={replayFromRound}
+                  onChange={(event) =>
+                    setReplayFromRound(Number(event.target.value))
+                  }
+                >
+                  {snapshotIndex.map((item) => (
+                    <option key={`from-${item.round}`} value={item.round}>
+                      {item.round} ({item.turn || "unknown"})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                to round
+                <select
+                  value={replayToRound}
+                  onChange={(event) =>
+                    setReplayToRound(Number(event.target.value))
+                  }
+                >
+                  {snapshotIndex.map((item) => (
+                    <option key={`to-${item.round}`} value={item.round}>
+                      {item.round} ({item.turn || "unknown"})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <button
+                disabled={Boolean(busyAction) || !sessionId}
+                onClick={() => void loadReplayRound()}
+                type="button"
+              >
+                Load Replay Round
+              </button>
+
+              <button
+                disabled={Boolean(busyAction) || !sessionId}
+                onClick={() => void loadReplayDiff()}
+                type="button"
+              >
+                Compare Replay Diff
+              </button>
+            </div>
+          ) : (
+            <p className="hint">Load snapshots to enable replay controls.</p>
+          )}
         </article>
 
         <article className="card wide">

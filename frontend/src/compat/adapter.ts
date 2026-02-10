@@ -12,6 +12,7 @@ import type {
   GraphAdapter,
   InsightAdapter,
   SessionAdapter,
+  SnapshotIndexItem,
 } from "./types";
 
 export class CompatAdapterFacade implements EngineAdapter {
@@ -28,8 +29,11 @@ export class CompatAdapterFacade implements EngineAdapter {
   }
 
   get capabilities(): AdapterCapabilities {
+    const hasWebSocket =
+      typeof window !== "undefined" && typeof WebSocket !== "undefined";
+
     return {
-      supportsStreaming: false,
+      supportsStreaming: this.client.transportKind === "http" && hasWebSocket,
       supportsDiff: true,
       transport: this.client.transportKind,
     };
@@ -53,6 +57,10 @@ export class CompatAdapterFacade implements EngineAdapter {
 
   listSessions(): Promise<DebateSnapshot[]> {
     return this.session.listSessions();
+  }
+
+  getSnapshots(sessionId: string): Promise<SnapshotIndexItem[]> {
+    return this.session.getSnapshots(sessionId);
   }
 }
 

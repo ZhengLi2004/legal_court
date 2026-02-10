@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.websockets import WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from .serializers import (
@@ -236,6 +237,15 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/api/v1/sessions/{session_id}/snapshots")
+    async def get_snapshots_index(session_id: str) -> Dict[str, Any]:
+        try:
+            items = manager.get_snapshot_index(session_id)
+            return {"items": items, "total": len(items)}
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.get("/api/v1/sessions/{session_id}/diff")
     async def get_graph_diff(
         session_id: str,
@@ -297,6 +307,59 @@ def create_app(
 
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.websocket("/api/v1/sessions/{session_id}/events")
+    async def stream_events(session_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+
+        try:
+            manager.get_session(session_id)
+
+        except KeyError:
+            await websocket.send_json(
+                {"event": "session_error", "detail": "Session not found"}
+            )
+
+            await websocket.close(code=4404)
+            return
+
+        queue = manager.register_event_subscriber(session_id=session_id)
+        from_seq: Optional[int] = None
+        from_seq_raw = websocket.query_params.get("from_seq")
+
+        if from_seq_raw:
+            try:
+                parsed = int(from_seq_raw)
+                from_seq = parsed if parsed > 0 else None
+
+            except ValueError:
+                from_seq = None
+
+        try:
+            if from_seq is not None:
+                history = manager.get_event_history(
+                    session_id=session_id,
+                    limit=5000,
+                    from_seq=from_seq,
+                    to_seq=None,
+                )
+
+                for row in history:
+                    await websocket.send_json(row)
+
+            while True:
+                event_payload = await queue.get()
+                await websocket.send_json(event_payload)
+
+        except WebSocketDisconnect:
+            return
+
+        finally:
+            try:
+                manager.unregister_event_subscriber(session_id=session_id, queue=queue)
+
+            except KeyError:
+                pass
 
     @app.get("/api/v1/sessions/{session_id}/turns/artifacts")
     async def get_turn_artifacts(

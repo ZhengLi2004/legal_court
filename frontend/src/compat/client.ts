@@ -22,14 +22,17 @@ function isNotFound(err: unknown): boolean {
 
 export class CompatClient {
   readonly mode: "auto" | "http" | "mock";
+  readonly baseUrl: string;
   private readonly httpTransport: CompatTransport;
   private readonly mockTransport: CompatTransport;
   private activeTransport: CompatTransport;
 
   constructor(options: AdapterOptions = {}) {
     this.mode = options.mode ?? "auto";
-    this.httpTransport = new HttpTransport(options.baseUrl ?? "/api");
+    this.baseUrl = options.baseUrl ?? "/api";
+    this.httpTransport = new HttpTransport(this.baseUrl);
     this.mockTransport = new MockTransport();
+
     this.activeTransport =
       this.mode === "mock" ? this.mockTransport : this.httpTransport;
   }

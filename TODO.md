@@ -576,7 +576,7 @@
 ### Phase 1：可运行闭环（必须先做）
 - [x] 新增轻量后端 API 适配层（封装 `DebateEngine`）。
 - [x] 打通会话生命周期：create -> setup -> step -> adjudicate -> snapshot。
-- [ ] 打通 WebSocket 事件推流（状态回调 -> 前端）。
+- [x] 打通 WebSocket 事件推流（状态回调 -> 前端）。
 - [x] 完成 live 页面（控制、图谱、日志、指标）。
 
 ### Phase 1.5：可视化数据底座补强（代码遗漏补齐）
@@ -593,7 +593,9 @@
 ### Phase 2：可解释性增强
 - [ ] graph 页面：动作审计 + 公理映射。
 - [ ] judgment 页面：判决文书 + BAF 面板。
-- [ ] replay 页面：快照回放 + diff。
+- [x] replay 页面：快照回放 + diff（最小可演示版本，基于 snapshots 索引 + round diff）。
+
+进展备注（2026-02-10）：已新增 `WS /api/v1/sessions/{id}/events` 实时推流与 `GET /api/v1/sessions/{id}/snapshots` 快照索引；前端接入“WS 优先 + 轮询兜底”事件流，并补充 replay 控件可按 round 加载快照与对比 diff。
 
 ### Phase 2.5：Debug / 演示体验专项（本次新增）
 - [ ] 图谱 Diff 高亮体系（新增/复用/状态变化/拒绝操作）。

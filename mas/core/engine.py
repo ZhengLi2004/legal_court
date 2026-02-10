@@ -374,6 +374,7 @@ class DebateEngine:
             "round_idx": round_idx,
             "turn": turn,
             "timestamp": self.legal_sys.step_counter if self.legal_sys else 0,
+            "ts_ms": int(time.time() * 1000),
             "graph_data": graph_data,
             "convergence": {
                 "delta_phi": self.last_step_log.get("convergence", {}).get(

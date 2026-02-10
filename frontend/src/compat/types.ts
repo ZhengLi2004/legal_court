@@ -23,6 +23,15 @@ export interface DebateSnapshot {
   raw?: unknown;
 }
 
+export interface SnapshotIndexItem {
+  round: number;
+  turn: string;
+  ts: number;
+  nodeCount: number;
+  edgeCount: number;
+  raw?: unknown;
+}
+
 export interface CreateSessionInput {
   caseId?: string;
   plaintiffClaim?: string;
@@ -106,10 +115,12 @@ export interface SessionAdapter {
   adjudicate(sessionId: string): Promise<DebateSnapshot>;
   getSnapshot(sessionId: string): Promise<DebateSnapshot>;
   listSessions(): Promise<DebateSnapshot[]>;
+  getSnapshots(sessionId: string): Promise<SnapshotIndexItem[]>;
 }
 
 export interface GraphAdapter {
   getGraph(sessionId: string): Promise<GraphView>;
+  getGraphAtRound(sessionId: string, round: number): Promise<GraphView>;
 
   getGraphDiff(
     sessionId: string,
@@ -121,6 +132,12 @@ export interface GraphAdapter {
 export interface InsightAdapter {
   getMemory(sessionId: string): Promise<MemoryView>;
   getTimeline(sessionId: string, limit?: number): Promise<TimelineEvent[]>;
+
+  subscribeTimeline(
+    sessionId: string,
+    onEvent: (event: TimelineEvent) => void,
+    options?: { fromSeq?: number; onError?: (error: Error) => void },
+  ): () => void;
 
   getTurnArtifacts(
     sessionId: string,

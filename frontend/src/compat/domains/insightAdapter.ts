@@ -24,6 +24,40 @@ export class InsightDomainAdapter implements InsightAdapter {
     this.sessionAdapter = sessionAdapter;
   }
 
+  private static buildWebSocketUrl(
+    baseUrl: string,
+    path: string,
+    fromSeq?: number,
+  ): string | null {
+    if (typeof window === "undefined" || typeof WebSocket === "undefined") {
+      return null;
+    }
+
+    let absoluteBase = baseUrl.trim();
+
+    if (!/^https?:\/\//i.test(absoluteBase)) {
+      if (absoluteBase.startsWith("/")) {
+        absoluteBase = `${window.location.origin}${absoluteBase}`;
+      } else {
+        absoluteBase = `${window.location.origin}/${absoluteBase}`;
+      }
+    }
+
+    const wsBase = absoluteBase.replace(/^http/i, "ws").replace(/\/$/, "");
+    const query = new URLSearchParams();
+
+    if (
+      typeof fromSeq === "number" &&
+      Number.isFinite(fromSeq) &&
+      fromSeq > 0
+    ) {
+      query.set("from_seq", String(Math.floor(fromSeq)));
+    }
+
+    const suffix = query.toString();
+    return `${wsBase}${path}${suffix ? `?${suffix}` : ""}`;
+  }
+
   async getMemory(sessionId: string): Promise<MemoryView> {
     try {
       const raw = await this.client.callWithCandidates([
@@ -53,6 +87,73 @@ export class InsightDomainAdapter implements InsightAdapter {
     ]);
 
     return normalizeTimeline(raw);
+  }
+
+  subscribeTimeline(
+    sessionId: string,
+    onEvent: (event: TimelineEvent) => void,
+    options: { fromSeq?: number; onError?: (error: Error) => void } = {},
+  ): () => void {
+    if (this.client.transportKind !== "http") {
+      return () => {};
+    }
+
+    const wsUrl = InsightDomainAdapter.buildWebSocketUrl(
+      this.client.baseUrl,
+      `/api/v1/sessions/${sessionId}/events`,
+      options.fromSeq,
+    );
+
+    if (!wsUrl) {
+      return () => {};
+    }
+
+    let socket: WebSocket;
+
+    try {
+      socket = new WebSocket(wsUrl);
+    } catch (err) {
+      if (options.onError) {
+        const message = err instanceof Error ? err.message : String(err);
+        options.onError(new Error(`WebSocket init failed: ${message}`));
+      }
+
+      return () => {};
+    }
+
+    let isClosed = false;
+    socket.onmessage = (event) => {
+      try {
+        const raw = JSON.parse(String(event.data));
+        const rows = normalizeTimeline({ events: [raw] });
+
+        if (rows.length > 0) {
+          onEvent(rows[0]);
+        }
+      } catch (err) {
+        if (options.onError) {
+          const message = err instanceof Error ? err.message : String(err);
+          options.onError(new Error(`WebSocket parse failed: ${message}`));
+        }
+      }
+    };
+
+    socket.onerror = () => {
+      if (options.onError) {
+        options.onError(new Error("WebSocket stream error"));
+      }
+    };
+
+    socket.onclose = () => {
+      if (!isClosed && options.onError) {
+        options.onError(new Error("WebSocket stream closed"));
+      }
+    };
+
+    return () => {
+      isClosed = true;
+      socket.close();
+    };
   }
 
   async getTurnArtifacts(

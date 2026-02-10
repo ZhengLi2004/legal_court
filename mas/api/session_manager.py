@@ -107,6 +107,7 @@ class DebateSession:
     current_turn_uid: str = ""
     last_turn_uid: str = ""
     next_seq: int = 1
+    event_subscribers: List[asyncio.Queue] = field(default_factory=list)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -306,6 +307,62 @@ class SessionManager:
         limit_value = max(1, int(limit))
         return events[-limit_value:]
 
+    def register_event_subscriber(
+        self, session_id: str, max_queue_size: int = 200
+    ) -> asyncio.Queue:
+        session = self.get_session(session_id)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=max(1, int(max_queue_size)))
+        session.event_subscribers.append(queue)
+        return queue
+
+    def unregister_event_subscriber(
+        self, session_id: str, queue: asyncio.Queue
+    ) -> None:
+        session = self.get_session(session_id)
+
+        try:
+            session.event_subscribers.remove(queue)
+
+        except ValueError:
+            return
+
+    def get_snapshot_index(self, session_id: str) -> List[Dict[str, Any]]:
+        session = self.get_session(session_id)
+        snapshots = getattr(session.engine, "round_snapshots", [])
+
+        if not isinstance(snapshots, list):
+            return []
+
+        items: List[Dict[str, Any]] = []
+
+        for idx, row in enumerate(snapshots):
+            if not isinstance(row, dict):
+                continue
+
+            graph_data = row.get("graph_data", {})
+
+            if isinstance(graph_data, dict):
+                nodes = graph_data.get("nodes", [])
+                edges = graph_data.get("edges", [])
+                node_count = len(nodes) if isinstance(nodes, list) else 0
+                edge_count = len(edges) if isinstance(edges, list) else 0
+
+            else:
+                node_count = 0
+                edge_count = 0
+
+            items.append(
+                {
+                    "round_idx": int(row.get("round_idx", idx)),
+                    "turn": str(row.get("turn", "")),
+                    "ts_ms": int(row.get("ts_ms", row.get("timestamp", 0)) or 0),
+                    "node_count": node_count,
+                    "edge_count": edge_count,
+                }
+            )
+
+        return items
+
     def get_turn_artifacts(
         self,
         session_id: str,
@@ -347,20 +404,42 @@ class SessionManager:
 
         turn_uid = session.current_turn_uid or session.last_turn_uid
 
-        session.events.append(
-            {
-                "seq": session.next_seq,
-                "ts_ms": int(time.time() * 1000),
-                "session_id": session_id,
-                "turn_uid": turn_uid,
-                "event": event,
-                "source": source,
-                "data": payload,
-            }
-        )
+        envelope = {
+            "seq": session.next_seq,
+            "ts_ms": int(time.time() * 1000),
+            "session_id": session_id,
+            "turn_uid": turn_uid,
+            "event": event,
+            "source": source,
+            "data": payload,
+        }
+
+        session.events.append(envelope)
 
         if event == "turn_complete":
             session.last_turn_uid = turn_uid
+
+        stale_queues: List[asyncio.Queue] = []
+
+        for queue in list(session.event_subscribers):
+            try:
+                queue.put_nowait(envelope)
+
+            except asyncio.QueueFull:
+                try:
+                    queue.get_nowait()
+                    queue.put_nowait(envelope)
+
+                except Exception:
+                    stale_queues.append(queue)
+
+            except Exception:
+                stale_queues.append(queue)
+
+        if stale_queues:
+            session.event_subscribers = [
+                item for item in session.event_subscribers if item not in stale_queues
+            ]
 
         session.next_seq += 1
         session.updated_at = utc_now_iso()

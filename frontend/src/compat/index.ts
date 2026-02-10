@@ -16,6 +16,7 @@ export type {
   InsightAdapter,
   MemoryView,
   SessionAdapter,
+  SnapshotIndexItem,
   TimelineEvent,
   TurnArtifact,
 } from "./types";

@@ -7,6 +7,7 @@ import type {
   GraphNode,
   GraphView,
   MemoryView,
+  SnapshotIndexItem,
   TimelineEvent,
   TurnArtifact,
 } from "./types";
@@ -198,6 +199,28 @@ export function normalizeSnapshotList(raw: unknown): DebateSnapshot[] {
   }
 
   return [];
+}
+
+export function normalizeSnapshotIndex(raw: unknown): SnapshotIndexItem[] {
+  const payload = unwrapPayload(raw);
+  const listCandidate = payload.items ?? payload.snapshots ?? raw;
+
+  if (!Array.isArray(listCandidate)) {
+    return [];
+  }
+
+  return listCandidate.map((item, index) => {
+    const row = asRecord(item);
+
+    return {
+      round: asNumber(row.round_idx ?? row.round, index),
+      turn: asString(row.turn, ""),
+      ts: asNumber(row.ts_ms ?? row.ts, 0),
+      nodeCount: asNumber(row.node_count ?? row.nodeCount, 0),
+      edgeCount: asNumber(row.edge_count ?? row.edgeCount, 0),
+      raw: item,
+    };
+  });
 }
 
 export function normalizeGraph(
