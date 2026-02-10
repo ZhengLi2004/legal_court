@@ -1,4 +1,9 @@
-import { normalizeMemory, normalizeTimeline } from "../protocol";
+import {
+  normalizeMemory,
+  normalizeTimeline,
+  normalizeTurnArtifacts,
+} from "../protocol";
+
 import { withQuery } from "../client";
 import type { CompatClient } from "../client";
 
@@ -7,6 +12,7 @@ import type {
   MemoryView,
   SessionAdapter,
   TimelineEvent,
+  TurnArtifact,
 } from "../types";
 
 export class InsightDomainAdapter implements InsightAdapter {
@@ -47,5 +53,38 @@ export class InsightDomainAdapter implements InsightAdapter {
     ]);
 
     return normalizeTimeline(raw);
+  }
+
+  async getTurnArtifacts(
+    sessionId: string,
+    options: { turnUid?: string; limit?: number } = {},
+  ): Promise<TurnArtifact[]> {
+    const limit = options.limit ?? 50;
+
+    if (options.turnUid) {
+      const byTurnPath = withQuery(
+        `/api/v1/sessions/${sessionId}/turns/${options.turnUid}/artifacts`,
+        { limit },
+      );
+
+      const raw = await this.client.callWithCandidates([
+        { method: "GET", path: byTurnPath },
+      ]);
+
+      return normalizeTurnArtifacts(raw);
+    }
+
+    const listPath = withQuery(
+      `/api/v1/sessions/${sessionId}/turns/artifacts`,
+      {
+        limit,
+      },
+    );
+
+    const raw = await this.client.callWithCandidates([
+      { method: "GET", path: listPath },
+    ]);
+
+    return normalizeTurnArtifacts(raw);
   }
 }

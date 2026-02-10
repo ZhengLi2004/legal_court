@@ -17,4 +17,5 @@ export type {
   MemoryView,
   SessionAdapter,
   TimelineEvent,
+  TurnArtifact,
 } from "./types";

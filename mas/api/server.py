@@ -298,6 +298,40 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/api/v1/sessions/{session_id}/turns/artifacts")
+    async def get_turn_artifacts(
+        session_id: str,
+        limit: int = Query(50, ge=1, le=5000),
+    ) -> Dict[str, Any]:
+        try:
+            items = manager.get_turn_artifacts(
+                session_id=session_id,
+                turn_uid=None,
+                limit=limit,
+            )
+            return {"items": items, "total": len(items)}
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/v1/sessions/{session_id}/turns/{turn_uid}/artifacts")
+    async def get_single_turn_artifact(
+        session_id: str,
+        turn_uid: str,
+        limit: int = Query(50, ge=1, le=5000),
+    ) -> Dict[str, Any]:
+        try:
+            items = manager.get_turn_artifacts(
+                session_id=session_id,
+                turn_uid=turn_uid,
+                limit=limit,
+            )
+
+            return {"items": items, "total": len(items)}
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.delete("/api/v1/sessions/{session_id}", status_code=204)
     async def delete_session(session_id: str) -> Response:
         try:

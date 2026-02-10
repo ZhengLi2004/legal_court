@@ -8,6 +8,7 @@ import type {
   GraphView,
   MemoryView,
   TimelineEvent,
+  TurnArtifact,
 } from "./types";
 
 const EMPTY_METRICS: DebateMetrics = {
@@ -291,7 +292,46 @@ export function normalizeTimeline(raw: unknown): TimelineEvent[] {
       ts: asNumber(row.ts_ms ?? row.ts, Date.now()),
       event: asString(row.event, "event"),
       source: asString(row.source, "engine"),
+      sessionId: asString(row.session_id ?? row.sessionId) || undefined,
+      turnUid: asString(row.turn_uid ?? row.turnUid) || undefined,
       data: row.data,
+    };
+  });
+}
+
+export function normalizeTurnArtifacts(raw: unknown): TurnArtifact[] {
+  const payload = unwrapPayload(raw);
+  const list = payload.items ?? payload.artifacts ?? raw;
+
+  if (!Array.isArray(list)) {
+    return [];
+  }
+
+  return list.map((item) => {
+    const row = asRecord(item);
+
+    return {
+      turnUid: asString(row.turn_uid ?? row.turnUid),
+      side: asString(row.side, "unknown"),
+      round: asNumber(row.round_idx ?? row.round),
+      decisionRaw: asString(row.decision_raw ?? row.decisionRaw),
+      parsedActions: Array.isArray(row.parsed_actions)
+        ? row.parsed_actions
+        : Array.isArray(row.parsedActions)
+          ? row.parsedActions
+          : [],
+      executionLogs: asString(row.execution_logs ?? row.executionLogs),
+      retryHistory: Array.isArray(row.retry_history)
+        ? row.retry_history
+        : Array.isArray(row.retryHistory)
+          ? row.retryHistory
+          : [],
+      workerReports: Array.isArray(row.worker_reports)
+        ? row.worker_reports
+        : Array.isArray(row.workerReports)
+          ? row.workerReports
+          : [],
+      raw: item,
     };
   });
 }

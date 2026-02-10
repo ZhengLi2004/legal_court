@@ -582,12 +582,13 @@
 ### Phase 1.5：可视化数据底座补强（代码遗漏补齐）
 - [x] 实现 `restore_snapshot()` 真实恢复逻辑。
 - [x] 新增 `get_serializable_snapshot()`，避免对象直出。
-- [ ] 引入 `TurnArtifacts` 持久化（decision_raw、worker_reports、execution_logs）。
-- [ ] 事件 envelope 增加 `seq/turn_uid/source/ts_ms`。
-- [ ] Controller 增加 `error_history`（非覆盖式）。
+- [x] 引入 `TurnArtifacts` 持久化（decision_raw、worker_reports、execution_logs）。
+- [x] 事件 envelope 增加 `seq/turn_uid/source/ts_ms`。
+- [x] Controller 增加 `error_history`（非覆盖式）。
 
 进展备注（2026-02-10）：已完成 engine 快照恢复与 JSON-safe 快照导出，并补充对应单元测试（`tests/test_engine_snapshot.py`）。
 进展备注（2026-02-10）：已新增 FastAPI 轻量会话层（`/api/v1`），并打通前端 `http` 模式所需的 REST 闭环接口（含 graph/diff/memory/events），补充 API 测试（`tests/test_api_sessions.py`）。WebSocket 事件推流保留在下一增量。
+进展备注（2026-02-10）：已完成 Phase 1.5 数据底座三项，新增 turn artifacts API（`/api/v1/sessions/{id}/turns/artifacts`），并提供一键启动脚本（`scripts/start_dev.sh` / `scripts/stop_dev.sh`）。
 
 ### Phase 2：可解释性增强
 - [ ] graph 页面：动作审计 + 公理映射。

@@ -10,8 +10,9 @@ debate graph.
 
 import asyncio
 import json
+import time
 from enum import Enum, auto
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from metagpt.logs import logger
 from metagpt.roles import Role
@@ -101,7 +102,13 @@ class ArgumentController(Role):
         self.investigation_buffer: Dict[str, str] = {}
         self.latest_summary: str = ""
         self.recent_errors: List[str] = []
+        self.error_history: List[Dict[str, Any]] = []
         self.last_executed_actions: List[AgentAction] = []
+        self.last_decision_raw: str = ""
+        self.last_parsed_actions: List[Dict[str, Any]] = []
+        self.last_execution_log: str = ""
+        self.last_batch_instructions: List[Dict[str, Any]] = []
+        self.last_assessment: Dict[str, Dict[str, Any]] = {}
 
     def reset_turn_state(self):
         """Reset the controller's state at the beginning of a new turn."""
@@ -111,6 +118,11 @@ class ArgumentController(Role):
         self.latest_summary = ""
         self.recent_errors = []
         self.last_executed_actions = []
+        self.last_decision_raw = ""
+        self.last_parsed_actions = []
+        self.last_execution_log = ""
+        self.last_batch_instructions = []
+        self.last_assessment = {}
 
     def ingest_results(self, results_list: List[Dict[str, str]]):
         """Process and store the results from worker agents.
@@ -229,6 +241,12 @@ class ArgumentController(Role):
             req_recall = self._parse_requirement(raw_recall)
             instructions = []
 
+            self.last_assessment = {
+                "fact": req_fact.model_dump(exclude_none=True),
+                "law": req_law.model_dump(exclude_none=True),
+                "recall": req_recall.model_dump(exclude_none=True),
+            }
+
             if req_fact.need:
                 if not req_fact.intent:
                     logger.error(
@@ -311,12 +329,14 @@ class ArgumentController(Role):
 
                 self._generate_and_memorize_summary()
                 self.pipeline_step = ControllerPipelineStep.DECIDE
+                self.last_batch_instructions = []
 
                 return Message(
                     content=json.dumps({"batch_instructions": []}), role=self.profile
                 )
 
             self.pipeline_step = ControllerPipelineStep.WAIT_FOR_WORKERS
+            self.last_batch_instructions = [dict(item) for item in instructions]
             batch_msg_content = json.dumps({"batch_instructions": instructions})
             return Message(content=batch_msg_content, role=self.profile)
 
@@ -353,14 +373,21 @@ class ArgumentController(Role):
                 id_inventory=id_list_str,
             )
 
+            self.last_decision_raw = decision_raw
             parsed_actions = parse_agent_action_output(decision_raw)
 
             if isinstance(parsed_actions, list) and all(
                 isinstance(a, AgentAction) for a in parsed_actions
             ):
+                self.last_parsed_actions = [
+                    item.model_dump(exclude_none=True) for item in parsed_actions
+                ]
+
                 exec_msg = await self.graph_tool.process_intent(
                     self.name, parsed_actions
                 )
+
+                self.last_execution_log = exec_msg
 
                 if "REJECT" in exec_msg or "Error" in exec_msg:
                     logger.warning(f"[{self.name}] Action Execution Failed: {exec_msg}")
@@ -370,6 +397,14 @@ class ArgumentController(Role):
                     )
 
                     self.recent_errors = [detailed_error]
+
+                    self.error_history.append(
+                        {
+                            "kind": "execution_error",
+                            "detail": detailed_error,
+                            "ts_ms": int(time.time() * 1000),
+                        }
+                    )
 
                     return Message(
                         content=f"EXECUTION_FAILURE_RETRY: {exec_msg[:50]}...",
@@ -387,12 +422,22 @@ class ArgumentController(Role):
             else:
                 error_msg = f"JSON Parsing Failed: {parsed_actions}"
                 logger.warning(f"[{self.name}] {error_msg}")
+                self.last_parsed_actions = []
+                self.last_execution_log = error_msg
 
                 detailed_error = (
                     f"[格式错误]: {error_msg}\n[你的原始输出]: \n{decision_raw}\n"
                 )
 
                 self.recent_errors = [detailed_error]
+
+                self.error_history.append(
+                    {
+                        "kind": "json_parse_error",
+                        "detail": detailed_error,
+                        "ts_ms": int(time.time() * 1000),
+                    }
+                )
 
                 return Message(
                     content="EXECUTION_FAILURE_RETRY: JSON Error", role=self.profile
@@ -472,3 +517,11 @@ class ArgumentController(Role):
             return text[:length] + "..."
 
         return text
+
+    def get_error_history(self, limit: int | None = None) -> List[Dict[str, Any]]:
+        """Return append-only controller error history."""
+        if limit is None:
+            return [dict(item) for item in self.error_history]
+
+        safe_limit = max(1, int(limit))
+        return [dict(item) for item in self.error_history[-safe_limit:]]

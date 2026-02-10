@@ -104,6 +104,8 @@ class DebateSession:
     updated_at: str = field(default_factory=utc_now_iso)
     last_error: str = ""
     events: List[Dict[str, Any]] = field(default_factory=list)
+    current_turn_uid: str = ""
+    last_turn_uid: str = ""
     next_seq: int = 1
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -304,6 +306,20 @@ class SessionManager:
         limit_value = max(1, int(limit))
         return events[-limit_value:]
 
+    def get_turn_artifacts(
+        self,
+        session_id: str,
+        turn_uid: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        session = self.get_session(session_id)
+        getter = getattr(session.engine, "get_turn_artifacts", None)
+
+        if callable(getter):
+            return getter(turn_uid=turn_uid, limit=limit)
+
+        return []
+
     def _record_event(
         self, session_id: str, event: str, source: str, data: Optional[Dict[str, Any]]
     ) -> None:
@@ -312,15 +328,39 @@ class SessionManager:
         if not session:
             return
 
+        payload = _to_json_safe(data or {})
+        explicit_turn_uid = str(payload.get("turn_uid", "")).strip()
+
+        if explicit_turn_uid:
+            session.current_turn_uid = explicit_turn_uid
+            session.last_turn_uid = explicit_turn_uid
+
+        elif event == "turn_start":
+            round_part = str(payload.get("round", "na"))
+            side_part = str(payload.get("turn", "unknown"))
+
+            session.current_turn_uid = (
+                f"turn_{round_part}_{side_part}_{int(time.time() * 1000)}"
+            )
+
+            session.last_turn_uid = session.current_turn_uid
+
+        turn_uid = session.current_turn_uid or session.last_turn_uid
+
         session.events.append(
             {
                 "seq": session.next_seq,
                 "ts_ms": int(time.time() * 1000),
+                "session_id": session_id,
+                "turn_uid": turn_uid,
                 "event": event,
                 "source": source,
-                "data": _to_json_safe(data or {}),
+                "data": payload,
             }
         )
+
+        if event == "turn_complete":
+            session.last_turn_uid = turn_uid
 
         session.next_seq += 1
         session.updated_at = utc_now_iso()

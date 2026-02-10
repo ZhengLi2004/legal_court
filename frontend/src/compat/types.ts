@@ -77,7 +77,21 @@ export interface TimelineEvent {
   ts: number;
   event: string;
   source: string;
+  sessionId?: string;
+  turnUid?: string;
   data?: unknown;
+}
+
+export interface TurnArtifact {
+  turnUid: string;
+  side: string;
+  round: number;
+  decisionRaw: string;
+  parsedActions: unknown[];
+  executionLogs: string;
+  retryHistory: unknown[];
+  workerReports: unknown[];
+  raw?: unknown;
 }
 
 export interface AdapterCapabilities {
@@ -107,6 +121,11 @@ export interface GraphAdapter {
 export interface InsightAdapter {
   getMemory(sessionId: string): Promise<MemoryView>;
   getTimeline(sessionId: string, limit?: number): Promise<TimelineEvent[]>;
+
+  getTurnArtifacts(
+    sessionId: string,
+    options?: { turnUid?: string; limit?: number },
+  ): Promise<TurnArtifact[]>;
 }
 
 export interface EngineAdapter extends SessionAdapter {

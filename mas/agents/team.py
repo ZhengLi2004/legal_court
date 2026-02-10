@@ -6,7 +6,8 @@ legal debate (either plaintiff or defendant). A team consists of a
 """
 
 import asyncio
-from typing import Callable, Optional, Union
+import time
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from metagpt.logs import logger
 from metagpt.schema import Message
@@ -143,6 +144,47 @@ class DebateTeam:
 
         return None
 
+    def _parse_worker_report(
+        self, worker_name: str, raw_content: str
+    ) -> Dict[str, Any]:
+        """Extract normalized worker report fields from raw response text."""
+        parsed: Dict[str, Any] = {}
+
+        if "{" in raw_content:
+            try:
+                parsed = extract_json_from_text(raw_content)
+
+            except Exception:
+                parsed = {}
+
+        content = raw_content
+
+        if isinstance(parsed, dict):
+            maybe_content = parsed.get("content")
+
+            if isinstance(maybe_content, str) and maybe_content.strip():
+                content = maybe_content
+
+        status = "UNKNOWN"
+        max_score = 0.0
+
+        if isinstance(parsed, dict):
+            status = str(parsed.get("status", "UNKNOWN"))
+
+            try:
+                max_score = float(parsed.get("max_score", 0.0))
+
+            except Exception:
+                max_score = 0.0
+
+        return {
+            "worker": worker_name,
+            "status": status,
+            "content": content,
+            "max_score": max_score,
+            "raw": raw_content,
+        }
+
     async def run_turn(self, graph: ShadowGraph) -> dict:
         """Execute the workflow for a single debate turn.
 
@@ -162,6 +204,9 @@ class DebateTeam:
         transcript = []
         final_result = None
         step_count = 0
+        turn_uid = f"turn_{self.side}_{int(time.time() * 1000)}"
+        worker_reports_raw: List[Dict[str, Any]] = []
+        error_history_start = len(getattr(self.controller, "error_history", []))
 
         while step_count < self.max_internal_steps:
             step_count += 1
@@ -214,6 +259,7 @@ class DebateTeam:
 
                     tasks = []
                     worker_names = []
+                    dispatch_times: List[float] = []
 
                     logger.info(
                         f"[{self.side}] Dispatching {len(instructions_list)} parallel tasks..."
@@ -231,6 +277,7 @@ class DebateTeam:
 
                             tasks.append(worker._act())
                             worker_names.append(worker.name)
+                            dispatch_times.append(time.perf_counter())
 
                         else:
                             logger.warning(
@@ -256,6 +303,16 @@ class DebateTeam:
                             results_payload.append(
                                 {"worker": w_name, "content": str(res_msg.content)}
                             )
+
+                            report_row = self._parse_worker_report(
+                                w_name, str(res_msg.content)
+                            )
+
+                            report_row["duration_ms"] = int(
+                                (time.perf_counter() - dispatch_times[i]) * 1000
+                            )
+
+                            worker_reports_raw.append(report_row)
 
                         logger.info(
                             f"[{self.side}] Workers finished. Calling ingest_results()."
@@ -294,7 +351,21 @@ class DebateTeam:
             self._notify_state_change("turn_complete", {"result": "timeout"})
 
         return {
+            "turn_uid": turn_uid,
             "summary": final_result,
             "transcript": transcript,
             "actions": self.controller.last_executed_actions,
+            "controller_assessment": dict(self.controller.last_assessment),
+            "batch_instructions": list(self.controller.last_batch_instructions),
+            "worker_reports_raw": worker_reports_raw,
+            "decision_raw": self.controller.last_decision_raw,
+            "parsed_actions": list(self.controller.last_parsed_actions),
+            "execution_log": self.controller.last_execution_log,
+            "retry_history": list(
+                getattr(self.controller, "error_history", [])[error_history_start:]
+            ),
+            "narrative_raw_sentences": [
+                str(item.content) for item in self.controller.last_executed_actions
+            ],
+            "ts_ms": int(time.time() * 1000),
         }

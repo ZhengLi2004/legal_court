@@ -5,6 +5,7 @@ entire lifecycle of a legal debate.
 """
 
 import json
+import time
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
@@ -76,6 +77,8 @@ class DebateEngine:
         self.prev_stats: Dict[str, int] = {"claim_nodes": 0, "conflict_edges": 0}
         self.transcript: List[str] = []
         self.round_snapshots: List[Dict[str, Any]] = []
+        self.turn_artifacts: List[Dict[str, Any]] = []
+        self.latest_turn_uid: str = ""
         self.narrator: Optional[GraphNarrator] = None
         self.baf_details: Dict[str, Any] = {}
         self.preferred_extension: Set[str] = set()
@@ -173,6 +176,8 @@ class DebateEngine:
                 raise ValueError("Either case_data_path or case_data must be provided.")
 
             self.raw_facts = case_data.get("fact_finding", "")
+            self.turn_artifacts = []
+            self.latest_turn_uid = ""
             cause = case_data.get("cause", ["未知案由"])
 
             if isinstance(cause, list):
@@ -579,6 +584,52 @@ class DebateEngine:
 
         return {"plaintiff": p_mem, "defendant": d_mem}
 
+    def _build_turn_artifact(
+        self, turn: str, turn_result: Dict[str, Any], narrative_text: str
+    ) -> Dict[str, Any]:
+        """Build a JSON-safe turn artifact record."""
+        turn_uid = str(turn_result.get("turn_uid", "")).strip()
+
+        if not turn_uid:
+            turn_uid = f"turn_{self.round_idx}_{turn}_{int(time.time() * 1000)}"
+
+        try:
+            ts_ms = int(turn_result.get("ts_ms", int(time.time() * 1000)))
+
+        except Exception:
+            ts_ms = int(time.time() * 1000)
+
+        artifact = {
+            "turn_uid": turn_uid,
+            "side": turn,
+            "round_idx": self.round_idx,
+            "controller_assessment": turn_result.get("controller_assessment", {}),
+            "batch_instructions": turn_result.get("batch_instructions", []),
+            "worker_reports": turn_result.get("worker_reports_raw", []),
+            "decision_raw": turn_result.get("decision_raw", ""),
+            "parsed_actions": turn_result.get("parsed_actions", []),
+            "execution_logs": turn_result.get("execution_log", ""),
+            "retry_history": turn_result.get("retry_history", []),
+            "narrative_raw_sentences": turn_result.get("narrative_raw_sentences", []),
+            "narrative_polished": narrative_text or "",
+            "action_summary": turn_result.get("summary", ""),
+            "ts_ms": ts_ms,
+        }
+
+        return self._to_json_safe(artifact)
+
+    def get_turn_artifacts(
+        self, turn_uid: Optional[str] = None, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Return stored turn artifacts, optionally filtered by turn UID."""
+        rows = list(self.turn_artifacts)
+
+        if turn_uid:
+            rows = [item for item in rows if str(item.get("turn_uid", "")) == turn_uid]
+
+        safe_limit = max(1, int(limit))
+        return rows[-safe_limit:]
+
     def restore_snapshot(self, round_idx: int) -> bool:
         """Restore the graph state from a snapshot.
 
@@ -806,6 +857,15 @@ class DebateEngine:
                 },
             }
 
+            turn_artifact = self._build_turn_artifact(
+                turn=turn_name_str,
+                turn_result=turn_result,
+                narrative_text=narrative_text,
+            )
+
+            self.turn_artifacts.append(turn_artifact)
+            self.latest_turn_uid = str(turn_artifact.get("turn_uid", ""))
+
             self._notify_state_change(
                 "turn_complete",
                 {
@@ -813,6 +873,7 @@ class DebateEngine:
                     "round": self.round_idx,
                     "delta_phi": delta_phi,
                     "sma": sma,
+                    "turn_uid": self.latest_turn_uid,
                 },
             )
 
@@ -861,6 +922,7 @@ class DebateEngine:
                     "round": self.round_idx,
                     "turn": turn_name_str,
                     "total": len(self.round_snapshots),
+                    "turn_uid": self.latest_turn_uid,
                 },
             )
 
@@ -1000,6 +1062,8 @@ class DebateEngine:
             "transcript": transcript_rows,
             "full_transcript": transcript_rows,
             "convergence_history": list(self.convergence_history),
+            "latest_turn_uid": self.latest_turn_uid,
+            "turn_artifact_count": len(self.turn_artifacts),
             "graph_data": graph_data,
             "graph_stats": {
                 "node_count": graph_stats["node_count"],
@@ -1011,4 +1075,5 @@ class DebateEngine:
             },
             "agent_memories": self._collect_agent_memories(),
         }
+
         return self._to_json_safe(state)

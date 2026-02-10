@@ -1,4 +1,4 @@
-.vscode
+.*
 bge-m3
 config
 logs
@@ -8,13 +8,9 @@ __pycache__
 *.json
 demo
 temp_*
-.pytest_cache
 tests
-.env
 sampling
 context.txt
-.VSCode*
 README.md
 AGENTS.md
-.iflow
 *.pdf
