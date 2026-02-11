@@ -15,7 +15,6 @@ export interface DebateSnapshot {
   sessionId: string;
   phase: DebatePhase;
   round: number;
-  maxRounds: number;
   convergence: DebateConvergence;
   termination: DebateTermination;
   winner: string | null;
@@ -37,7 +36,7 @@ export interface DebateConvergence {
 
 export interface DebateTermination {
   ready: boolean;
-  reason: "convergence" | "max_rounds" | "unknown";
+  reason: "convergence" | "unknown";
 }
 
 export interface SnapshotIndexItem {
@@ -53,7 +52,6 @@ export interface CreateSessionInput {
   caseId?: string;
   plaintiffClaim?: string;
   defendantAnswer?: string;
-  maxRounds?: number;
 }
 
 export interface GraphNode {
@@ -93,6 +91,9 @@ export interface GraphDiffView {
   removedNodeIds: string[];
   addedEdgeIds: string[];
   removedEdgeIds: string[];
+  statusChangedNodeIds: string[];
+  changedNodeIds: string[];
+  changedEdgeIds: string[];
   raw?: unknown;
 }
 
@@ -105,8 +106,27 @@ export interface MemoryView {
   dynamicLawCaseCount: number;
   taskLayerNodeCount: number;
   taskLayerEdgeCount: number;
+  taskLayerGraph: TaskLayerGraph;
   caseSnapshots: MemoryCaseSnapshot[];
   raw?: unknown;
+}
+
+export interface TaskLayerGraph {
+  nodes: TaskLayerNode[];
+  edges: TaskLayerEdge[];
+}
+
+export interface TaskLayerNode {
+  id: string;
+  label: string;
+  kind?: string;
+}
+
+export interface TaskLayerEdge {
+  id: string;
+  source: string;
+  target: string;
+  type?: string;
 }
 
 export interface MemoryInsightItem {

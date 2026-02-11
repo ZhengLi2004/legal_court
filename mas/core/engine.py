@@ -64,7 +64,6 @@ class DebateEngine:
         self.raw_facts: str = ""
         self.current_turn: Turn = Turn.PLAINTIFF
         self.round_idx: int = 0
-        self.max_rounds: int = 10
         self.is_finished: bool = False
         self.is_ready_for_adjudication: bool = False
         self.winner: str = "Unsettled"
@@ -878,20 +877,15 @@ class DebateEngine:
                 },
             )
 
-            cond_max_rounds = self.round_idx >= self.max_rounds
-
             cond_converged = (
                 self.round_idx >= self.cfg.convergence.min_rounds
                 and sma < self.cfg.convergence.epsilon
             )
 
-            should_adjudicate = cond_max_rounds or cond_converged
+            should_adjudicate = cond_converged
 
             if should_adjudicate:
-                reason = (
-                    "Max Rounds Reached" if cond_max_rounds else "Convergence Reached"
-                )
-
+                reason = "Convergence Reached"
                 logger.info(f">>> [Engine] Adjudication ready. Reason: {reason}")
                 self.last_step_log["convergence"]["is_converged"] = True
                 self.is_ready_for_adjudication = True
@@ -1051,7 +1045,6 @@ class DebateEngine:
         state = {
             "current_round": self.round_idx,
             "current_turn": self.current_turn.value,
-            "max_rounds": self.max_rounds,
             "is_ready_for_adjudication": self.is_ready_for_adjudication,
             "is_finished": self.is_finished,
             "winner": self.winner,

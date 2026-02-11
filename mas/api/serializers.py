@@ -100,12 +100,10 @@ def graph_diff_response(
     """Compute graph diff between two rounds."""
     from_graph = graph_response(session, from_round)["graph_data"]
     to_graph = graph_response(session, to_round)["graph_data"]
-
-    from_node_ids = {
-        str(node.get("id", "")) for node in _as_list(from_graph.get("nodes"))
-    }
-
-    to_node_ids = {str(node.get("id", "")) for node in _as_list(to_graph.get("nodes"))}
+    from_nodes = _as_list(from_graph.get("nodes"))
+    to_nodes = _as_list(to_graph.get("nodes"))
+    from_node_ids = {str(node.get("id", "")) for node in from_nodes}
+    to_node_ids = {str(node.get("id", "")) for node in to_nodes}
 
     from_edge_ids = {
         _edge_identifier(edge, idx)
@@ -117,22 +115,46 @@ def graph_diff_response(
         for idx, edge in enumerate(_as_list(to_graph.get("edges")))
     }
 
+    status_changed_node_ids: List[str] = []
+
+    from_node_by_id = {
+        str(node.get("id", "")): node
+        for node in from_nodes
+        if isinstance(node, dict) and node.get("id") is not None
+    }
+
+    for node in to_nodes:
+        if not isinstance(node, dict):
+            continue
+
+        node_id = str(node.get("id", ""))
+        prev = from_node_by_id.get(node_id)
+
+        if not isinstance(prev, dict):
+            continue
+
+        if str(prev.get("status", "")) != str(node.get("status", "")):
+            status_changed_node_ids.append(node_id)
+
+    added_nodes = sorted([item for item in to_node_ids if item not in from_node_ids])
+    removed_nodes = sorted([item for item in from_node_ids if item not in to_node_ids])
+    added_edges = sorted([item for item in to_edge_ids if item not in from_edge_ids])
+    removed_edges = sorted([item for item in from_edge_ids if item not in to_edge_ids])
+    status_changed_node_ids = sorted(list(set(status_changed_node_ids)))
+
     return {
         "session_id": session.session_id,
         "from_round": from_round,
         "to_round": to_round,
-        "added_node_ids": sorted(
-            [item for item in to_node_ids if item not in from_node_ids]
+        "added_node_ids": added_nodes,
+        "removed_node_ids": removed_nodes,
+        "added_edge_ids": added_edges,
+        "removed_edge_ids": removed_edges,
+        "status_changed_node_ids": status_changed_node_ids,
+        "changed_node_ids": sorted(
+            list(set(added_nodes + removed_nodes + status_changed_node_ids))
         ),
-        "removed_node_ids": sorted(
-            [item for item in from_node_ids if item not in to_node_ids]
-        ),
-        "added_edge_ids": sorted(
-            [item for item in to_edge_ids if item not in from_edge_ids]
-        ),
-        "removed_edge_ids": sorted(
-            [item for item in from_edge_ids if item not in to_edge_ids]
-        ),
+        "changed_edge_ids": sorted(list(set(added_edges + removed_edges))),
     }
 
 
@@ -147,6 +169,7 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
     dynamic_law_case_count = 0
     task_layer_node_count = 0
     task_layer_edge_count = 0
+    task_layer_graph: Dict[str, List[Dict[str, Any]]] = {"nodes": [], "edges": []}
     case_snapshots: List[Dict[str, Any]] = []
 
     if legal_sys is not None:
@@ -226,6 +249,41 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
             except Exception:
                 task_layer_edge_count = 0
 
+        if graph is not None:
+            try:
+                for idx, node in enumerate(graph.nodes()):
+                    node_id = str(node).strip() or f"case-{idx}"
+
+                    task_layer_graph["nodes"].append(
+                        {
+                            "id": node_id,
+                            "label": node_id,
+                            "kind": "case",
+                        }
+                    )
+
+                for idx, edge in enumerate(graph.edges()):
+                    source = str(edge[0]).strip() if len(edge) > 0 else ""
+                    target = str(edge[1]).strip() if len(edge) > 1 else ""
+
+                    edge_type = (
+                        str(edge[2]).strip()
+                        if len(edge) > 2 and edge[2] not in {None, ""}
+                        else "reference"
+                    )
+
+                    task_layer_graph["edges"].append(
+                        {
+                            "id": f"{source}->{target}:{edge_type}:{idx}",
+                            "source": source,
+                            "target": target,
+                            "type": edge_type,
+                        }
+                    )
+
+            except Exception:
+                task_layer_graph = {"nodes": [], "edges": []}
+
     snapshots = _as_list(getattr(engine, "round_snapshots", []))
 
     for idx, row in enumerate(snapshots):
@@ -273,5 +331,6 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
             "node_count": task_layer_node_count,
             "edge_count": task_layer_edge_count,
         },
+        "task_layer_graph": task_layer_graph,
         "case_snapshots": case_snapshots,
     }

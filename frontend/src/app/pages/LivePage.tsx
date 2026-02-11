@@ -1,10 +1,17 @@
 import { useMemo, useState } from "react";
-
 import { ForceArgumentGraph } from "../components/ForceArgumentGraph";
 import { useDebate } from "../state/useDebate";
 import { asRecord, phaseLabel, unwrapPayload } from "../utils/payload";
-
 import type { TimelineEvent } from "../../compat";
+type DialogueSide = "plaintiff" | "defendant" | "judge" | "system" | "other";
+
+interface DialogueRow {
+  idx: number;
+  side: DialogueSide;
+  speakerLabel: string;
+  text: string;
+  isNew: boolean;
+}
 
 function canAdjudicate(phase: string): boolean {
   return phase === "ready_for_adjudication" || phase === "finished";
@@ -15,11 +22,52 @@ function terminationReasonLabel(reason: string): string {
     return "收敛阈值达成";
   }
 
-  if (reason === "max_rounds") {
-    return "达到安全上限";
+  return "待确认";
+}
+
+function normalizeSpeaker(speakerRaw: string): {
+  side: DialogueSide;
+  label: string;
+} {
+  const speaker = speakerRaw.toLowerCase();
+
+  if (speaker.includes("plaintiff") || speaker.includes("原告")) {
+    return { side: "plaintiff", label: "原告" };
   }
 
-  return "待确认";
+  if (speaker.includes("defendant") || speaker.includes("被告")) {
+    return { side: "defendant", label: "被告" };
+  }
+
+  if (speaker.includes("judge") || speaker.includes("法官")) {
+    return { side: "judge", label: "法官" };
+  }
+
+  if (speaker.includes("system") || speaker.includes("系统")) {
+    return { side: "system", label: "系统" };
+  }
+
+  return { side: "other", label: speakerRaw || "记录" };
+}
+
+function toDialogueRows(
+  transcript: string[],
+  isNewIndexStart: number,
+): DialogueRow[] {
+  return transcript.map((line, idx) => {
+    const match = line.match(/^\[(.+?)\]\s*(.*)$/);
+    const speakerRaw = match ? match[1] : "record";
+    const text = (match ? match[2] : line).trim() || line.trim();
+    const normalized = normalizeSpeaker(speakerRaw);
+
+    return {
+      idx,
+      side: normalized.side,
+      speakerLabel: normalized.label,
+      text,
+      isNew: idx >= isNewIndexStart,
+    };
+  });
 }
 
 function timelineReason(row: TimelineEvent): string {
@@ -34,10 +82,6 @@ function timelineReason(row: TimelineEvent): string {
 
   if (lower.includes("convergence")) {
     return "收敛阈值达成";
-  }
-
-  if (lower.includes("max")) {
-    return "达到安全上限";
   }
 
   return rawReason;
@@ -60,18 +104,6 @@ export function LivePage() {
 
   const [selectedSeq, setSelectedSeq] = useState<number>(0);
 
-  const transcriptDelta = useMemo(() => {
-    if (!snapshot) {
-      return [];
-    }
-
-    if (!previousSnapshot || previousSnapshot.sessionId !== snapshot.sessionId) {
-      return snapshot.transcript;
-    }
-
-    return snapshot.transcript.slice(previousSnapshot.transcript.length);
-  }, [snapshot, previousSnapshot]);
-
   const rootClaimEntries = useMemo(() => {
     if (!snapshot) {
       return [];
@@ -92,6 +124,31 @@ export function LivePage() {
   const visibleTimeline = useMemo(
     () => [...timeline].slice(-30).reverse(),
     [timeline],
+  );
+
+  const newStart = useMemo(() => {
+    if (!snapshot) {
+      return 0;
+    }
+
+    if (
+      !previousSnapshot ||
+      previousSnapshot.sessionId !== snapshot.sessionId
+    ) {
+      return 0;
+    }
+
+    return previousSnapshot.transcript.length;
+  }, [previousSnapshot, snapshot]);
+
+  const dialogueRows = useMemo(
+    () => (snapshot ? toDialogueRows(snapshot.transcript, newStart) : []),
+    [newStart, snapshot],
+  );
+
+  const transcriptDelta = useMemo(
+    () => dialogueRows.filter((row) => row.isNew).map((row) => row.text),
+    [dialogueRows],
   );
 
   const convergenceHistoryText = useMemo(() => {
@@ -141,51 +198,60 @@ export function LivePage() {
     <section className="ux-grid ux-grid-2">
       <article className="ux-card">
         <h2>庭审结论总览</h2>
+
         <div className="ux-kv">
           <p>
             <span>阶段</span>
             <strong>{phaseLabel(snapshot.phase)}</strong>
           </p>
+
           <p>
             <span>收敛状态</span>
             <strong>{convergenceStateText}</strong>
           </p>
+
           <p>
             <span>ΔΦ</span>
             <strong>{snapshot.convergence.deltaPhi.toFixed(3)}</strong>
           </p>
+
           <p>
             <span>SMA</span>
             <strong>{snapshot.convergence.sma.toFixed(3)}</strong>
           </p>
+
           <p>
             <span>收敛阈值</span>
+
             <strong>
-              SMA &lt; {snapshot.convergence.epsilon.toFixed(2)} 且回合 &gt;=
-              {" "}
+              SMA &lt; {snapshot.convergence.epsilon.toFixed(2)} 且回合 &gt;={" "}
               {snapshot.convergence.minRounds}
             </strong>
           </p>
+
           <p>
-            <span>回合信息</span>
-            <strong>
-              {snapshot.round}（安全上限 {snapshot.maxRounds}）
-            </strong>
+            <span>当前回合</span>
+            <strong>{snapshot.round}</strong>
           </p>
+
           <p>
             <span>论点数</span>
             <strong>{snapshot.metrics.arguments}</strong>
           </p>
+
           <p>
             <span>冲突边</span>
             <strong>{snapshot.metrics.attacks}</strong>
           </p>
+
           <p>
             <span>支持边</span>
             <strong>{snapshot.metrics.supports}</strong>
           </p>
+
           <p>
             <span>根主张采纳</span>
+
             <strong>
               {validatedCount}/{rootClaimEntries.length || 0}
             </strong>
@@ -264,12 +330,39 @@ export function LivePage() {
       </article>
 
       <article className="ux-card ux-card-full">
+        <h2>庭审对话</h2>
+
+        <p className="ux-muted">
+          以下为完整庭审自然语言陈述，按真实发生顺序展示；高亮项为本次刷新后新增内容。
+        </p>
+
+        {dialogueRows.length > 0 ? (
+          <div className="ux-dialogue-board">
+            {dialogueRows.map((row) => (
+              <div
+                className={`ux-dialogue-row ux-dialogue-${row.side} ${row.isNew ? "ux-dialogue-new" : ""}`}
+                key={`${row.idx}-${row.speakerLabel}-${row.text}`}
+              >
+                <div className="ux-dialogue-bubble">
+                  <p className="ux-dialogue-speaker">{row.speakerLabel}</p>
+                  <p className="ux-dialogue-text">{row.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="ux-empty">暂无庭审陈述。</p>
+        )}
+      </article>
+
+      <article className="ux-card ux-card-full">
         <ForceArgumentGraph graph={graphView} title="论证图（力导布局）" />
       </article>
 
       <article className="ux-card ux-card-full">
         <details>
-          <summary>查看本轮新增庭审陈述</summary>
+          <summary>本轮新增陈述（辅助）</summary>
+
           {transcriptDelta.length > 0 ? (
             <div className="ux-log-box">
               {transcriptDelta.map((line, idx) => (
@@ -286,4 +379,3 @@ export function LivePage() {
     </section>
   );
 }
-

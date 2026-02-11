@@ -1191,9 +1191,7 @@ function App() {
         <button
           disabled={Boolean(busyAction)}
           onClick={() =>
-            void runAction("createSession", () =>
-              adapter.createSession({ maxRounds: 6 }),
-            )
+            void runAction("createSession", () => adapter.createSession())
           }
         >
           Create Session
@@ -1325,9 +1323,7 @@ function App() {
                 phase: <strong>{snapshot.phase}</strong>
               </p>
 
-              <p className="line">
-                round: {snapshot.round} / {snapshot.maxRounds}
-              </p>
+              <p className="line">round: {snapshot.round}</p>
 
               <p className="line">
                 root-claim status:{" "}
@@ -1431,9 +1427,7 @@ function App() {
               >
                 <span>{item.sessionId}</span>
 
-                <span>
-                  r{item.round}/{item.maxRounds}
-                </span>
+                <span>r{item.round}</span>
 
                 <span>{item.phase}</span>
               </button>

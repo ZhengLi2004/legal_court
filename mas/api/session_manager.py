@@ -176,15 +176,10 @@ class SessionManager:
     async def create_session(
         self,
         case_data: Optional[Dict[str, Any]] = None,
-        max_rounds: Optional[int] = None,
         auto_setup: bool = True,
     ) -> DebateSession:
         session_id = f"sess_{uuid.uuid4().hex[:12]}"
         engine = self._engine_factory()
-
-        if isinstance(max_rounds, int) and max_rounds > 0:
-            engine.max_rounds = max_rounds
-
         session = DebateSession(session_id=session_id, engine=engine)
 
         engine.set_state_callback(

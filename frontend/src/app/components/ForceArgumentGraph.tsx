@@ -38,6 +38,7 @@ interface GraphNodeView {
   label: string;
   content: string;
   agentId: string;
+  degree: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -46,11 +47,12 @@ interface GraphEdgeView {
   source: string;
   target: string;
   family: EdgeFamily;
-  rawType: string;
 }
 
 interface SimNode {
   id: string;
+  family: NodeFamily;
+  radius: number;
   x?: number;
   y?: number;
   vx?: number;
@@ -64,12 +66,28 @@ interface SimLink {
 }
 
 const NODE_FAMILIES: NodeFamily[] = ["FACT", "LAW", "CLAIM", "OTHER"];
+const LAYOUT_WIDTH = 1700;
+const LAYOUT_HEIGHT = 980;
 
 const NODE_FAMILY_LABEL: Record<NodeFamily, string> = {
   FACT: "事实",
   LAW: "法条",
   CLAIM: "主张",
   OTHER: "其他",
+};
+
+const NODE_FAMILY_GLYPH: Record<NodeFamily, string> = {
+  FACT: "F",
+  LAW: "L",
+  CLAIM: "C",
+  OTHER: "O",
+};
+
+const CLUSTER_CENTER: Record<NodeFamily, { x: number; y: number }> = {
+  FACT: { x: 460, y: 260 },
+  LAW: { x: 1230, y: 260 },
+  CLAIM: { x: 860, y: 720 },
+  OTHER: { x: 1360, y: 720 },
 };
 
 function normalizeNodeFamily(type: string): NodeFamily {
@@ -122,16 +140,32 @@ function normalizeEdgeFamily(type: string): EdgeFamily {
   return "OTHER";
 }
 
-function statusPalette(status: string): { border: string; bg: string } {
+function nodeTypePalette(family: NodeFamily): { bg: string; text: string } {
+  if (family === "FACT") {
+    return { bg: "#fef3c7", text: "#78350f" };
+  }
+
+  if (family === "LAW") {
+    return { bg: "#dbeafe", text: "#1e40af" };
+  }
+
+  if (family === "CLAIM") {
+    return { bg: "#dcfce7", text: "#166534" };
+  }
+
+  return { bg: "#e2e8f0", text: "#334155" };
+}
+
+function statusBorder(status: string): string {
   if (status === "VALIDATED") {
-    return { border: "#15803d", bg: "#dcfce7" };
+    return "#15803d";
   }
 
   if (status === "DEFEATED") {
-    return { border: "#be123c", bg: "#ffe4e6" };
+    return "#be123c";
   }
 
-  return { border: "#1d4ed8", bg: "#dbeafe" };
+  return "#1d4ed8";
 }
 
 function edgePalette(family: EdgeFamily): { stroke: string; dash?: string } {
@@ -146,7 +180,7 @@ function edgePalette(family: EdgeFamily): { stroke: string; dash?: string } {
   return { stroke: "#64748b", dash: "3 3" };
 }
 
-function shortText(value: string, max = 64): string {
+function shortText(value: string, max = 20): string {
   const text = value.trim();
 
   if (!text) {
@@ -160,6 +194,42 @@ function shortText(value: string, max = 64): string {
   return `${text.slice(0, max - 1)}…`;
 }
 
+function compactNodeKey(id: string): string {
+  const text = id.trim();
+
+  if (!text) {
+    return "node";
+  }
+
+  if (text.length <= 10) {
+    return text;
+  }
+
+  return `${text.slice(0, 4)}…${text.slice(-3)}`;
+}
+
+function hashText(text: string): number {
+  let hash = 0;
+
+  for (let idx = 0; idx < text.length; idx += 1) {
+    hash = (hash * 31 + text.charCodeAt(idx)) >>> 0;
+  }
+
+  return hash;
+}
+
+function radiusFromDegree(degree: number): number {
+  if (degree >= 8) {
+    return 52;
+  }
+
+  if (degree >= 4) {
+    return 46;
+  }
+
+  return 42;
+}
+
 function toNodeView(row: GraphNode): GraphNodeView {
   const content = (row.content ?? row.label ?? row.id).trim();
 
@@ -167,9 +237,10 @@ function toNodeView(row: GraphNode): GraphNodeView {
     id: row.id,
     family: normalizeNodeFamily(row.type),
     status: normalizeStatus(row.status ?? "HYPOTHETICAL"),
-    label: shortText(row.label || row.id, 60),
+    label: shortText(row.label || row.id || "node", 22),
     content,
     agentId: row.agentId ?? "unknown",
+    degree: 0,
     metadata: row.metadata,
   };
 }
@@ -180,7 +251,6 @@ function toEdgeView(row: GraphEdge): GraphEdgeView {
     source: row.source,
     target: row.target,
     family: normalizeEdgeFamily(row.type),
-    rawType: row.type,
   };
 }
 
@@ -265,13 +335,30 @@ export function ForceArgumentGraph({
       );
     }
 
-    const simNodes: SimNode[] = displayedNodes.map((node, index) => {
-      const angle = (Math.PI * 2 * index) / Math.max(displayedNodes.length, 1);
+    const degreeById = new Map<string, number>();
+
+    for (const edge of displayedEdges) {
+      degreeById.set(edge.source, (degreeById.get(edge.source) ?? 0) + 1);
+      degreeById.set(edge.target, (degreeById.get(edge.target) ?? 0) + 1);
+    }
+
+    const enrichedNodes = displayedNodes.map((node) => ({
+      ...node,
+      degree: degreeById.get(node.id) ?? 0,
+    }));
+
+    const simNodes: SimNode[] = enrichedNodes.map((node, index) => {
+      const angle = (Math.PI * 2 * index) / Math.max(enrichedNodes.length, 1);
+      const center = CLUSTER_CENTER[node.family];
+      const seed = hashText(node.id);
+      const jitterRadius = 80 + (seed % 120);
 
       return {
         id: node.id,
-        x: 760 + Math.cos(angle) * 180,
-        y: 430 + Math.sin(angle) * 180,
+        family: node.family,
+        radius: radiusFromDegree(node.degree),
+        x: center.x + Math.cos(angle + seed * 0.001) * jitterRadius,
+        y: center.y + Math.sin(angle + seed * 0.001) * jitterRadius,
       };
     });
 
@@ -286,33 +373,60 @@ export function ForceArgumentGraph({
         .id((d: SimNode) => d.id)
         .distance((link: SimLink) => {
           const family = link.family;
-          return family === "CONFLICT" ? 190 : family === "SUPPORT" ? 140 : 170;
+          return family === "CONFLICT" ? 170 : family === "SUPPORT" ? 130 : 145;
         })
-        .strength((link: SimLink) => (link.family === "CONFLICT" ? 0.45 : 0.3));
+        .strength((link: SimLink) =>
+          link.family === "CONFLICT" ? 0.34 : 0.22,
+        );
+
+      const chargeStrength = Math.max(-540, -280 - simNodes.length * 1.7);
 
       const simulation = forceSimulation(simNodes)
-        .force("charge", forceManyBody().strength(-420))
+        .force("charge", forceManyBody<SimNode>().strength(chargeStrength))
         .force("link", linkForce)
-        .force("collide", forceCollide(88))
-        .force("center", forceCenter(760, 430))
-        .force("x", forceX(760).strength(0.015))
-        .force("y", forceY(430).strength(0.015))
+        .force(
+          "collide",
+          forceCollide<SimNode>()
+            .radius((node) => node.radius + 16)
+            .iterations(2),
+        )
+        .force("center", forceCenter(LAYOUT_WIDTH / 2, LAYOUT_HEIGHT / 2))
+        .force(
+          "x",
+          forceX<SimNode>((node) => CLUSTER_CENTER[node.family].x).strength(
+            0.085,
+          ),
+        )
+        .force(
+          "y",
+          forceY<SimNode>((node) => CLUSTER_CENTER[node.family].y).strength(
+            0.085,
+          ),
+        )
         .stop();
 
-      const ticks = Math.min(460, Math.max(220, simNodes.length * 9));
+      const ticks = Math.min(780, Math.max(360, simNodes.length * 11));
 
       for (let idx = 0; idx < ticks; idx += 1) {
         simulation.tick();
       }
     }
 
-    const positionMap = new Map<string, { x: number; y: number }>(
-      simNodes.map((node) => [node.id, { x: node.x ?? 0, y: node.y ?? 0 }]),
+    const positionMap = new Map<
+      string,
+      { x: number; y: number; radius: number }
+    >(
+      simNodes.map((node) => [
+        node.id,
+        { x: node.x ?? 0, y: node.y ?? 0, radius: node.radius },
+      ]),
     );
 
-    const reactNodes: Node[] = displayedNodes.map((node) => {
-      const palette = statusPalette(node.status);
-      const position = positionMap.get(node.id) ?? { x: 0, y: 0 };
+    const reactNodes: Node[] = enrichedNodes.map((node) => {
+      const palette = nodeTypePalette(node.family);
+      const position = positionMap.get(node.id) ?? { x: 0, y: 0, radius: 42 };
+      const nodeWidth = Math.max(84, Math.round(position.radius * 1.9));
+      const badge = NODE_FAMILY_GLYPH[node.family];
 
       return {
         id: node.id,
@@ -320,58 +434,55 @@ export function ForceArgumentGraph({
         data: {
           label: (
             <div className="ux-force-node">
+              <span
+                className={`ux-force-node-badge ux-force-node-badge-${node.family.toLowerCase()}`}
+              >
+                {badge}
+              </span>
               <strong className="ux-force-node-title">
-                {node.label || node.id}
+                {compactNodeKey(node.id)}
               </strong>
-
-              <div className="ux-force-node-meta">
-                {NODE_FAMILY_LABEL[node.family]} ·{" "}
-                {nodeStatusLabel(node.status)}
-              </div>
             </div>
           ),
         },
         style: {
-          width: 228,
-          border: `2px solid ${palette.border}`,
+          width: nodeWidth,
+          border: `1.35px solid ${statusBorder(node.status)}`,
           borderRadius: 12,
           background: palette.bg,
-          color: "#0f172a",
-          padding: 8,
+          color: palette.text,
+          padding: "4px 6px",
+          fontSize: 9.5,
+          boxShadow: "0 1px 2px rgb(15 23 42 / 0.15)",
         },
       } as Node;
     });
 
     const reactEdges: Edge[] = displayedEdges.map((edge) => {
       const palette = edgePalette(edge.family);
-      const label = edge.family === "OTHER" ? edge.rawType : edge.family;
 
       return {
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        type: "straight",
-        label,
+        type: "smoothstep",
         style: {
           stroke: palette.stroke,
-          strokeWidth: edge.family === "CONFLICT" ? 2.3 : 2,
+          strokeWidth: edge.family === "CONFLICT" ? 1.65 : 1.5,
           strokeDasharray: palette.dash,
+          opacity: edge.family === "OTHER" ? 0.55 : 0.82,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          width: 18,
-          height: 18,
+          width: 16,
+          height: 16,
           color: palette.stroke,
-        },
-        labelStyle: {
-          fill: "#334155",
-          fontSize: 10,
         },
       } as Edge;
     });
 
     const nodeById = new Map<string, GraphNodeView>(
-      displayedNodes.map((node) => [node.id, node]),
+      enrichedNodes.map((node) => [node.id, node]),
     );
 
     return {
@@ -410,7 +521,8 @@ export function ForceArgumentGraph({
       <h2>{title}</h2>
 
       <p className="ux-muted">
-        自动力导布局：蓝线为支持、红虚线为冲突。点击节点可查看完整内容与关联关系。
+        自动力导布局：节点按 FACT / LAW / CLAIM / OTHER
+        分组聚类，蓝线为支持、红虚线为冲突。点击节点查看完整内容。
       </p>
 
       <div className="ux-graph-toolbar">
@@ -450,7 +562,8 @@ export function ForceArgumentGraph({
       </div>
 
       <div className="ux-graph-legend">
-        <span>节点状态：绿色=被采纳，蓝色=待验证，红色=被驳回</span>
+        <span>节点类型：黄=事实，浅蓝=法条，浅绿=主张，灰=其他</span>
+        <span>节点边框状态：绿=被采纳，蓝=待验证，红=被驳回</span>
         <span>关系：蓝实线=SUPPORT，红虚线=CONFLICT</span>
 
         <span>
@@ -465,9 +578,9 @@ export function ForceArgumentGraph({
             <ReactFlow
               edges={model.edges}
               fitView
-              fitViewOptions={{ padding: 0.15, maxZoom: 1.3 }}
-              minZoom={0.1}
-              maxZoom={1.8}
+              fitViewOptions={{ padding: 0.22, maxZoom: 1.35 }}
+              minZoom={0.08}
+              maxZoom={1.7}
               nodes={model.nodes}
               nodesConnectable={false}
               onNodeClick={(_, node) => setSelectedNodeId(node.id)}
@@ -507,6 +620,11 @@ export function ForceArgumentGraph({
                 <p>
                   <span>关联边</span>
                   <strong>{selectedEdges.length}</strong>
+                </p>
+
+                <p>
+                  <span>节点连接度</span>
+                  <strong>{selectedNode.degree}</strong>
                 </p>
 
                 <div className="ux-inspector-text">

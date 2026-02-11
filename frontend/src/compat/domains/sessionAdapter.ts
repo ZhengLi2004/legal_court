@@ -26,7 +26,6 @@ export class SessionDomainAdapter implements SessionAdapter {
       case_id: input.caseId,
       plaintiff_claim: input.plaintiffClaim,
       defendant_answer: input.defendantAnswer,
-      max_rounds: input.maxRounds,
     };
 
     const raw = await this.client.callWithCandidates([

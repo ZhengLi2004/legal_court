@@ -1,6 +1,17 @@
 import { createContext } from "react";
 
-import type { DebateSnapshot, GraphView, TimelineEvent } from "../../compat";
+import type {
+  DebateSnapshot,
+  DemoKeyframe,
+  GraphDiffView,
+  GraphView,
+  MemoryView,
+  ReplayExportView,
+  SnapshotIndexItem,
+  TimelineEvent,
+  TurnArtifact,
+} from "../../compat";
+
 import type { AdapterMode, StreamStatus } from "../types";
 
 export interface DebateContextValue {
@@ -11,20 +22,39 @@ export interface DebateContextValue {
   previousSnapshot: DebateSnapshot | null;
   sessions: DebateSnapshot[];
   graphView: GraphView | null;
+  baselineGraphView: GraphView | null;
+  graphDiff: GraphDiffView | null;
   timeline: TimelineEvent[];
+  snapshotIndex: SnapshotIndexItem[];
+  turnArtifacts: TurnArtifact[];
+  memoryView: MemoryView | null;
+  demoKeyframes: DemoKeyframe[];
+  replayExport: ReplayExportView | null;
   busyAction: string;
   error: string;
   clearError: () => void;
   listSessions: () => Promise<void>;
-  createSession: (maxRounds: number) => Promise<boolean>;
+  createSession: () => Promise<boolean>;
   selectSession: (nextSessionId: string) => Promise<boolean>;
   step: () => Promise<boolean>;
   adjudicate: () => Promise<boolean>;
   refreshSnapshot: () => Promise<boolean>;
   loadGraph: () => Promise<boolean>;
   loadGraphAtRound: (round: number) => Promise<boolean>;
+  loadGraphDiff: (fromRound: number, toRound: number) => Promise<boolean>;
   loadTimeline: (limit?: number) => Promise<boolean>;
+  loadSnapshots: () => Promise<boolean>;
+
+  loadTurnArtifacts: (options?: {
+    turnUid?: string;
+    limit?: number;
+  }) => Promise<boolean>;
+
+  loadMemory: () => Promise<boolean>;
+  loadDemoKeyframes: () => Promise<boolean>;
+  exportReplayJson: () => Promise<boolean>;
+  exportGraphGexf: (round?: number) => Promise<Blob | null>;
+  loadReplayBundle: () => Promise<boolean>;
 }
 
 export const DebateContext = createContext<DebateContextValue | null>(null);
-

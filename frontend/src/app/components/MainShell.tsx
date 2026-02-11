@@ -42,10 +42,6 @@ function terminationLabel(reason: string): string {
     return "收敛";
   }
 
-  if (reason === "max_rounds") {
-    return "上限";
-  }
-
   return "未触发";
 }
 
@@ -73,10 +69,7 @@ export function MainShell({ route, onNavigate, children }: MainShellProps) {
           <span>模式：{adapterMode}</span>
           <span>实时：{streamStatus}</span>
 
-          <span>
-            回合：
-            {snapshot ? `${snapshot.round} / 上限${snapshot.maxRounds}` : "-"}
-          </span>
+          <span>回合：{snapshot ? `r${snapshot.round}` : "-"}</span>
 
           <span>
             终止：
@@ -124,6 +117,46 @@ export function MainShell({ route, onNavigate, children }: MainShellProps) {
           type="button"
         >
           裁决解释
+        </button>
+
+        <button
+          className={route === "/app/graph" ? "ux-nav-active" : ""}
+          onClick={() => onNavigate("/app/graph")}
+          type="button"
+        >
+          论证图谱
+        </button>
+
+        <button
+          className={route === "/app/team" ? "ux-nav-active" : ""}
+          onClick={() => onNavigate("/app/team")}
+          type="button"
+        >
+          团队协作
+        </button>
+
+        <button
+          className={route === "/app/memory" ? "ux-nav-active" : ""}
+          onClick={() => onNavigate("/app/memory")}
+          type="button"
+        >
+          记忆类比
+        </button>
+
+        <button
+          className={route === "/app/replay" ? "ux-nav-active" : ""}
+          onClick={() => onNavigate("/app/replay")}
+          type="button"
+        >
+          回放导出
+        </button>
+
+        <button
+          className={route === "/app/playbook" ? "ux-nav-active" : ""}
+          onClick={() => onNavigate("/app/playbook")}
+          type="button"
+        >
+          演示剧本
         </button>
 
         <button onClick={() => onNavigate("/admin/debug")} type="button">

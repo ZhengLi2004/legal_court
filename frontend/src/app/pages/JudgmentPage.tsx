@@ -15,10 +15,6 @@ function terminationReasonLabel(reason: string): string {
     return "收敛阈值达成";
   }
 
-  if (reason === "max_rounds") {
-    return "达到安全上限";
-  }
-
   return "信息不足";
 }
 
@@ -132,7 +128,7 @@ export function JudgmentPage() {
             <strong>
               {snapshot.termination.reason === "convergence"
                 ? `SMA ${snapshot.convergence.sma.toFixed(3)} 小于阈值 ${snapshot.convergence.epsilon.toFixed(2)}`
-                : `回合达到安全上限 ${snapshot.maxRounds}`}
+                : "收敛信息不足，建议继续辩论或人工裁决"}
             </strong>
           </p>
         </div>

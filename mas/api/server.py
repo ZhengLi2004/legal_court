@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketDisconnect
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .serializers import (
     graph_diff_response,
@@ -23,10 +23,10 @@ from .session_manager import SessionManager
 class CreateSessionRequest(BaseModel):
     """Request body for creating a new debate session."""
 
+    model_config = ConfigDict(extra="forbid")
     case_id: Optional[str] = Field(default=None)
     case_uid: Optional[str] = Field(default=None)
     case_data: Optional[Dict[str, Any]] = Field(default=None)
-    max_rounds: Optional[int] = Field(default=None, ge=1)
 
 
 class SetupSessionRequest(BaseModel):
@@ -158,7 +158,6 @@ def create_app(
         try:
             session = await manager.create_session(
                 case_data=case_data,
-                max_rounds=body.max_rounds,
                 auto_setup=True,
             )
 

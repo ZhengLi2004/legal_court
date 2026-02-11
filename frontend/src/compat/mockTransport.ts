@@ -35,11 +35,20 @@ interface MockEvent {
 interface MockSession {
   session_id: string;
   current_round: number;
-  max_rounds: number;
   is_ready_for_adjudication: boolean;
   is_finished: boolean;
   winner: string | null;
   transcript: string[];
+  convergence_history: number[];
+  last_log: {
+    action: string;
+    convergence?: {
+      delta_phi: number;
+      sma: number;
+      is_converged: boolean;
+      gc_removed: number;
+    };
+  };
 
   metrics: {
     arguments: number;
@@ -125,6 +134,13 @@ function cloneSession(session: MockSession): MockSession {
   return {
     ...session,
     transcript: [...session.transcript],
+    convergence_history: [...session.convergence_history],
+    last_log: {
+      action: session.last_log.action,
+      convergence: session.last_log.convergence
+        ? { ...session.last_log.convergence }
+        : undefined,
+    },
     metrics: { ...session.metrics },
     snapshots: session.snapshots.map((item) => ({
       round: item.round,
@@ -166,15 +182,33 @@ function computeDiff(
   const toNodeIds = new Set(to.nodes.map((node) => node.id));
   const fromEdgeIds = new Set(from.edges.map((edge) => edge.id));
   const toEdgeIds = new Set(to.edges.map((edge) => edge.id));
+  const fromNodeById = new Map(from.nodes.map((node) => [node.id, node]));
+
+  const statusChangedNodeIds = to.nodes
+    .filter((node) => {
+      const prev = fromNodeById.get(node.id);
+      return prev && (prev.status ?? "") !== (node.status ?? "");
+    })
+    .map((node) => node.id);
+
+  const addedNodeIds = [...toNodeIds].filter((id) => !fromNodeIds.has(id));
+  const removedNodeIds = [...fromNodeIds].filter((id) => !toNodeIds.has(id));
+  const addedEdgeIds = [...toEdgeIds].filter((id) => !fromEdgeIds.has(id));
+  const removedEdgeIds = [...fromEdgeIds].filter((id) => !toEdgeIds.has(id));
 
   return {
     session_id: session.session_id,
     from_round: from.round,
     to_round: to.round,
-    added_node_ids: [...toNodeIds].filter((id) => !fromNodeIds.has(id)),
-    removed_node_ids: [...fromNodeIds].filter((id) => !toNodeIds.has(id)),
-    added_edge_ids: [...toEdgeIds].filter((id) => !fromEdgeIds.has(id)),
-    removed_edge_ids: [...fromEdgeIds].filter((id) => !toEdgeIds.has(id)),
+    added_node_ids: addedNodeIds,
+    removed_node_ids: removedNodeIds,
+    added_edge_ids: addedEdgeIds,
+    removed_edge_ids: removedEdgeIds,
+    status_changed_node_ids: statusChangedNodeIds,
+    changed_node_ids: [
+      ...new Set([...addedNodeIds, ...removedNodeIds, ...statusChangedNodeIds]),
+    ],
+    changed_edge_ids: [...new Set([...addedEdgeIds, ...removedEdgeIds])],
   };
 }
 
@@ -184,10 +218,11 @@ function toSnapshotResponse(session: MockSession): Record<string, unknown> {
   return {
     session_id: session.session_id,
     current_round: session.current_round,
-    max_rounds: session.max_rounds,
     is_ready_for_adjudication: session.is_ready_for_adjudication,
     is_finished: session.is_finished,
     winner: session.winner,
+    last_log: session.last_log,
+    convergence_history: session.convergence_history,
     transcript: session.transcript,
     metrics: session.metrics,
     graph_data: {
@@ -212,23 +247,25 @@ export class MockTransport implements CompatTransport {
         pathname === "/engine/init" ||
         pathname === "/api/v1/sessions")
     ) {
-      const payload = body as Record<string, unknown> | undefined;
-      const maxRoundsRaw = payload?.max_rounds ?? payload?.maxRounds;
-      const parsed =
-        typeof maxRoundsRaw === "number" && Number.isFinite(maxRoundsRaw)
-          ? Math.max(1, Math.floor(maxRoundsRaw))
-          : 6;
-
       const graph = buildGraph(0);
 
       const session: MockSession = {
         session_id: makeId(),
         current_round: 0,
-        max_rounds: parsed,
         is_ready_for_adjudication: false,
         is_finished: false,
         winner: null,
         transcript: ["[system] mock debate session created"],
+        convergence_history: [],
+        last_log: {
+          action: "setup",
+          convergence: {
+            delta_phi: 0,
+            sma: 0,
+            is_converged: false,
+            gc_removed: 0,
+          },
+        },
         metrics: {
           arguments: graph.nodes.length,
           attacks: 0,
@@ -437,6 +474,41 @@ export class MockTransport implements CompatTransport {
           task_layer: {
             node_count: 5 + session.current_round,
             edge_count: 4 + session.current_round,
+          },
+          task_layer_graph: {
+            nodes: [
+              { id: "case-A", label: "当前案件", kind: "current" },
+              { id: "case-B", label: "代表案例 B", kind: "representative" },
+              { id: "case-C", label: "代表案例 C", kind: "representative" },
+              { id: "case-D", label: "代表案例 D", kind: "representative" },
+              { id: "case-E", label: "关联案例 E", kind: "related" },
+            ],
+            edges: [
+              {
+                id: "case-A->case-B:reference",
+                source: "case-A",
+                target: "case-B",
+                type: "reference",
+              },
+              {
+                id: "case-A->case-C:reference",
+                source: "case-A",
+                target: "case-C",
+                type: "reference",
+              },
+              {
+                id: "case-B->case-D:similar",
+                source: "case-B",
+                target: "case-D",
+                type: "similar",
+              },
+              {
+                id: "case-C->case-E:citation",
+                source: "case-C",
+                target: "case-E",
+                type: "citation",
+              },
+            ],
           },
           case_snapshots: session.snapshots.map((item) => ({
             round_idx: item.round,
@@ -777,12 +849,29 @@ export class MockTransport implements CompatTransport {
       `[defendant] mock rebuttal at round ${session.current_round}`,
     );
 
-    if (session.current_round >= session.max_rounds) {
+    const deltaPhi = Math.max(0.6, 3.6 - session.current_round * 0.85);
+    session.convergence_history.push(deltaPhi);
+    const recent = session.convergence_history.slice(-4);
+    const sma = recent.reduce((sum, value) => sum + value, 0) / recent.length;
+    const converged = session.current_round >= 2 && sma < 3;
+
+    session.last_log = {
+      action: `step-${session.current_round}`,
+      convergence: {
+        delta_phi: deltaPhi,
+        sma,
+        is_converged: converged,
+        gc_removed: 0,
+      },
+    };
+
+    if (converged) {
       session.is_ready_for_adjudication = true;
       session.transcript.push("[system] ready for adjudication");
 
       this.recordEvent(session, "adjudication_ready", "engine", {
         round: session.current_round,
+        reason: "Convergence Reached",
       });
     }
 
@@ -847,6 +936,8 @@ export class MockTransport implements CompatTransport {
       phase: session.is_ready_for_adjudication
         ? "ready_for_adjudication"
         : "running",
+      delta_phi: deltaPhi,
+      sma,
     });
   }
 

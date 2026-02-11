@@ -12,6 +12,7 @@ import type {
   GraphNode,
   GraphView,
   MemoryView,
+  TaskLayerGraph,
   ReplayExportView,
   SnapshotIndexItem,
   TimelineEvent,
@@ -197,6 +198,48 @@ function parseEdges(value: unknown): GraphEdge[] {
   });
 }
 
+function parseTaskLayerGraph(
+  payload: Record<string, unknown>,
+  taskLayer: Record<string, unknown>,
+): TaskLayerGraph {
+  const source = asRecord(
+    payload.task_layer_graph ??
+      payload.taskLayerGraph ??
+      taskLayer.graph ??
+      taskLayer.task_layer_graph,
+  );
+
+  const nodeRows = Array.isArray(source.nodes) ? source.nodes : [];
+  const edgeRows = Array.isArray(source.edges) ? source.edges : [];
+
+  const nodes = nodeRows.map((item, index) => {
+    const row = asRecord(item);
+    const id = asString(row.id ?? row.case_id ?? row.caseId, `case-${index}`);
+
+    return {
+      id,
+      label: asString(row.label ?? row.title ?? row.name, id),
+      kind: asString(row.kind ?? row.type) || undefined,
+    };
+  });
+
+  const edges = edgeRows.map((item, index) => {
+    const row = asRecord(item);
+    const sourceId = asString(row.source ?? row.from ?? row.u, "");
+    const targetId = asString(row.target ?? row.to ?? row.v, "");
+    const type = asString(row.type ?? row.kind ?? row.relation, "reference");
+
+    return {
+      id: asString(row.id, `${sourceId}->${targetId}:${type}:${index}`),
+      source: sourceId,
+      target: targetId,
+      type,
+    };
+  });
+
+  return { nodes, edges };
+}
+
 export function unwrapPayload(raw: unknown): Record<string, unknown> {
   const outer = asRecord(raw);
 
@@ -303,7 +346,6 @@ function deriveConvergence(payload: Record<string, unknown>) {
 function deriveTermination(
   payload: Record<string, unknown>,
   round: number,
-  maxRounds: number,
   convergence: {
     sma: number;
     epsilon: number;
@@ -336,13 +378,6 @@ function deriveTermination(
     };
   }
 
-  if (round >= maxRounds) {
-    return {
-      ready,
-      reason: "max_rounds" as const,
-    };
-  }
-
   return {
     ready,
     reason: "unknown" as const,
@@ -358,15 +393,13 @@ export function normalizeSnapshot(raw: unknown): DebateSnapshot {
   );
 
   const round = asNumber(payload.current_round ?? payload.round);
-  const maxRounds = asNumber(payload.max_rounds ?? payload.maxRounds, 6);
   const convergence = deriveConvergence(payload);
-  const termination = deriveTermination(payload, round, maxRounds, convergence);
+  const termination = deriveTermination(payload, round, convergence);
 
   return {
     sessionId,
     phase: derivePhase(payload),
     round,
-    maxRounds,
     convergence,
     termination,
     winner: asString(payload.winner, "") || null,
@@ -447,18 +480,57 @@ export function normalizeGraphDiff(
 ): GraphDiffView {
   const payload = unwrapPayload(raw);
 
+  const addedNodeIds = asStringList(
+    payload.added_node_ids ?? payload.addedNodes,
+  );
+
+  const removedNodeIds = asStringList(
+    payload.removed_node_ids ?? payload.removedNodes,
+  );
+
+  const addedEdgeIds = asStringList(
+    payload.added_edge_ids ?? payload.addedEdges,
+  );
+
+  const removedEdgeIds = asStringList(
+    payload.removed_edge_ids ?? payload.removedEdges,
+  );
+
+  const statusChangedNodeIds = asStringList(
+    payload.status_changed_node_ids ?? payload.statusChangedNodeIds,
+  );
+
+  const changedNodeIds = asStringList(
+    payload.changed_node_ids ?? payload.changedNodes,
+  );
+
+  const changedEdgeIds = asStringList(
+    payload.changed_edge_ids ?? payload.changedEdges,
+  );
+
   return {
     sessionId: asString(payload.session_id ?? payload.sessionId, sessionId),
     fromRound: asNumber(payload.from_round ?? payload.fromRound, fromRound),
     toRound: asNumber(payload.to_round ?? payload.toRound, toRound),
-    addedNodeIds: asStringList(payload.added_node_ids ?? payload.addedNodes),
-    removedNodeIds: asStringList(
-      payload.removed_node_ids ?? payload.removedNodes,
-    ),
-    addedEdgeIds: asStringList(payload.added_edge_ids ?? payload.addedEdges),
-    removedEdgeIds: asStringList(
-      payload.removed_edge_ids ?? payload.removedEdges,
-    ),
+    addedNodeIds,
+    removedNodeIds,
+    addedEdgeIds,
+    removedEdgeIds,
+    statusChangedNodeIds,
+    changedNodeIds:
+      changedNodeIds.length > 0
+        ? changedNodeIds
+        : [
+            ...new Set([
+              ...addedNodeIds,
+              ...removedNodeIds,
+              ...statusChangedNodeIds,
+            ]),
+          ],
+    changedEdgeIds:
+      changedEdgeIds.length > 0
+        ? changedEdgeIds
+        : [...new Set([...addedEdgeIds, ...removedEdgeIds])],
     raw,
   };
 }
@@ -472,6 +544,7 @@ export function normalizeMemory(
   const taskLayer = asRecord(payload.task_layer);
   const insightItems = parseMemoryInsightItems(payload.insight_items);
   const caseSnapshots = parseMemoryCaseSnapshots(payload.case_snapshots);
+  const taskLayerGraph = parseTaskLayerGraph(payload, taskLayer);
 
   return {
     sessionId: asString(
@@ -493,6 +566,7 @@ export function normalizeMemory(
     taskLayerEdgeCount: asNumber(
       taskLayer.edge_count ?? payload.task_layer_edge_count,
     ),
+    taskLayerGraph,
     caseSnapshots,
     raw,
   };
@@ -712,13 +786,37 @@ export function buildLocalGraphDiff(
   const prevEdgeIds = new Set(previous.edges.map((edge) => edge.id));
   const currEdgeIds = new Set(current.edges.map((edge) => edge.id));
 
+  const previousNodeById = new Map(
+    previous.nodes.map((node) => [node.id, node]),
+  );
+
+  const statusChangedNodeIds: string[] = [];
+
+  for (const node of current.nodes) {
+    const prev = previousNodeById.get(node.id);
+
+    if (prev && (prev.status ?? "") !== (node.status ?? "")) {
+      statusChangedNodeIds.push(node.id);
+    }
+  }
+
+  const addedNodeIds = [...currNodeIds].filter((id) => !prevNodeIds.has(id));
+  const removedNodeIds = [...prevNodeIds].filter((id) => !currNodeIds.has(id));
+  const addedEdgeIds = [...currEdgeIds].filter((id) => !prevEdgeIds.has(id));
+  const removedEdgeIds = [...prevEdgeIds].filter((id) => !currEdgeIds.has(id));
+
   return {
     sessionId,
     fromRound: previous.round,
     toRound: current.round,
-    addedNodeIds: [...currNodeIds].filter((id) => !prevNodeIds.has(id)),
-    removedNodeIds: [...prevNodeIds].filter((id) => !currNodeIds.has(id)),
-    addedEdgeIds: [...currEdgeIds].filter((id) => !prevEdgeIds.has(id)),
-    removedEdgeIds: [...prevEdgeIds].filter((id) => !currEdgeIds.has(id)),
+    addedNodeIds,
+    removedNodeIds,
+    addedEdgeIds,
+    removedEdgeIds,
+    statusChangedNodeIds,
+    changedNodeIds: [
+      ...new Set([...addedNodeIds, ...removedNodeIds, ...statusChangedNodeIds]),
+    ],
+    changedEdgeIds: [...new Set([...addedEdgeIds, ...removedEdgeIds])],
   };
 }

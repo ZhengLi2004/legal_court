@@ -364,18 +364,64 @@
 }
 
 .ux-force-node {
-  line-height: 1.25;
+  display: grid;
+  justify-items: center;
+  align-items: center;
+  line-height: 1.1;
+  gap: 0.12rem;
+  min-height: 34px;
+}
+
+.ux-force-node-badge {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.58rem;
+  font-weight: 700;
+  border: 1px solid rgb(15 23 42 / 0.2);
+}
+
+.ux-force-node-badge-fact {
+  background: rgb(250 204 21 / 0.35);
+  color: #78350f;
+}
+
+.ux-force-node-badge-law {
+  background: rgb(96 165 250 / 0.24);
+  color: #1e3a8a;
+}
+
+.ux-force-node-badge-claim {
+  background: rgb(34 197 94 / 0.24);
+  color: #14532d;
+}
+
+.ux-force-node-badge-other {
+  background: rgb(148 163 184 / 0.25);
+  color: #334155;
 }
 
 .ux-force-node-title {
   display: block;
-  font-size: 0.82rem;
+  max-width: 100%;
+  font-size: 0.62rem;
+  line-height: 1.1;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ux-force-node-meta {
-  margin-top: 0.28rem;
-  font-size: 0.74rem;
-  color: #334155;
+  margin-top: 0.2rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  color: rgb(51 65 85 / 0.92);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ux-graph-canvas-compact {
@@ -396,6 +442,79 @@
   margin: 0.3rem 0;
   color: #0f172a;
   font-size: 0.85rem;
+}
+
+.ux-dialogue-board {
+  display: grid;
+  gap: 0.48rem;
+  max-height: 460px;
+  overflow: auto;
+  border: 1px solid rgb(148 163 184 / 0.35);
+  border-radius: 12px;
+  background: rgb(248 250 252 / 0.9);
+  padding: 0.65rem;
+}
+
+.ux-dialogue-row {
+  display: flex;
+}
+
+.ux-dialogue-bubble {
+  max-width: min(78%, 760px);
+  border-radius: 12px;
+  border: 1px solid rgb(148 163 184 / 0.4);
+  background: rgb(255 255 255 / 0.95);
+  padding: 0.48rem 0.58rem;
+}
+
+.ux-dialogue-speaker {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #334155;
+}
+
+.ux-dialogue-text {
+  margin: 0.25rem 0 0;
+  line-height: 1.5;
+  color: #0f172a;
+  white-space: pre-wrap;
+}
+
+.ux-dialogue-plaintiff {
+  justify-content: flex-start;
+}
+
+.ux-dialogue-plaintiff .ux-dialogue-bubble {
+  border-color: rgb(21 94 117 / 0.5);
+  background: rgb(224 242 254 / 0.7);
+}
+
+.ux-dialogue-defendant {
+  justify-content: flex-end;
+}
+
+.ux-dialogue-defendant .ux-dialogue-bubble {
+  border-color: rgb(124 45 18 / 0.45);
+  background: rgb(255 237 213 / 0.75);
+}
+
+.ux-dialogue-judge,
+.ux-dialogue-system,
+.ux-dialogue-other {
+  justify-content: center;
+}
+
+.ux-dialogue-judge .ux-dialogue-bubble,
+.ux-dialogue-system .ux-dialogue-bubble,
+.ux-dialogue-other .ux-dialogue-bubble {
+  max-width: min(86%, 840px);
+  background: rgb(241 245 249 / 0.92);
+}
+
+.ux-dialogue-new .ux-dialogue-bubble {
+  box-shadow: inset 0 0 0 1px rgb(2 132 199 / 0.35);
 }
 
 .ux-document {

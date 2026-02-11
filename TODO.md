@@ -1,18 +1,22 @@
 # TODO 路线图（基于 `frontend.md`）
 
-更新时间：2026-02-10  
+更新时间：2026-02-11  
 目标：为后续所有编码工作提供可执行的总体线路，并保证“正常流程在演示中全部可见”。
 
 ---
 
-## 当前进度（2026-02-10）
+## 当前进度（2026-02-11）
 
 - [x] 完成第一阶段主站重构：`案件启动`、`实时庭审`、`裁决解释` 三页已落地。
 - [x] 完成后台调试入口：现有全功能调试台已迁移为 `/admin/debug` 独立入口。
 - [x] 完成图先于文的首批实现：实时庭审页论证图、裁决页 BAF 图已直接渲染。
-- [x] 修复后台请求刷屏问题：移除 `snapshot -> effect -> snapshot` 循环依赖，消除重复拉取 `snapshot/graph/events` 的异常放大。
-- [x] 收敛指标主展示已落地：实时庭审页改为以 `ΔΦ/SMA/阈值` 展示终止进程，`maxRounds` 降级为安全上限说明。
+- [x] 修复后台请求刷屏问题：新增请求去重（snapshot/graph/timeline）与页面可见性轮询，避免重复并发拉取放大。
+- [x] 收敛终止已彻底落地：移除 `max_rounds` 入参/字段与前端展示，终止机制仅保留动态收敛。
 - [x] 论证图力导布局已落地：替换固定分层布局，新增节点筛选、关系筛选、主张邻域聚焦与节点详情联动。
+- [x] 力导图可读性优化：节点尺寸紧凑化、按 FACT/LAW/CLAIM/OTHER 上色、按 SUPPORT/CONFLICT 区分边样式，并增强碰撞与聚类布局减少重叠。
+- [x] 新增五个主站页面：`论证图谱`、`团队协作`、`记忆类比`、`回放导出`、`演示剧本` 已接入导航与路由。
+- [x] 图差异主画布已上线：支持 from/to 回合对比、变化焦点与回滚相关节点高亮（复用升级 `GraphDiffPanel`）。
+- [x] 记忆页 TaskLayer 关系图已上线：后端 `/memory` 增强 `task_layer_graph`，前端可直接渲染案例关系图并联动回合跳转。
 
 ---
 
@@ -26,8 +30,8 @@
 ## 0.1 图渲染硬约束（新增）
 
 - [x] 论证图 `GraphView`：必须以节点-边画布渲染（不可仅列表）。
-- [ ] 图差异 `GraphDiffView`：必须在图上高亮新增/移除/状态变化（不可仅数字摘要）。
-- [ ] 记忆任务层 `TaskLayer`（案例关系图）：必须渲染案例关系图（不可仅 node_count/edge_count）。
+- [x] 图差异 `GraphDiffView`：必须在图上高亮新增/移除/状态变化（不可仅数字摘要）。
+- [x] 记忆任务层 `TaskLayer`（案例关系图）：必须渲染案例关系图（不可仅 node_count/edge_count）。
 - [ ] 指挥者流程（评估-委派-决策-重试）：必须渲染流程图或状态机图（不可仅文字步骤）。
 - [x] BAF 结果（首选扩展/冲突关系）：必须在图上标注被选扩展与关键冲突链（不可仅指标数值）。
 - [ ] 所有“图渲染区”必须支持节点点击联动详情（右侧或弹层）。
@@ -100,7 +104,7 @@ graph TD
 
 | 对象 | 核心字段 | 必须出现在哪个页面 |
 |---|---|---|
-| DebateSnapshot | sessionId, phase, round, maxRounds, convergence(deltaPhi/sma/history), termination(reason), winner, metrics | 实时庭审、裁决与解释 |
+| DebateSnapshot | sessionId, phase, round, convergence(deltaPhi/sma/history), termination(reason), winner, metrics | 实时庭审、裁决与解释 |
 | GraphNode | id, type, label, status, content, agentId, metadata | 论证图谱 |
 | GraphEdge | id, source, target, type, weight, metadata | 论证图谱 |
 | GraphDiffView | addedNodeIds, removedNodeIds, addedEdgeIds, removedEdgeIds | 论证图谱、回放与导出 |
@@ -137,7 +141,7 @@ flowchart LR
 ## M0. 架构重排与基线准备
 
 - [x] 将 `frontend/src/App.tsx` 的单页巨组件拆分为“页面容器 + 业务模块 + 共享状态”。
-- [ ] 建立路由骨架：`frontend/src/pages/*`，至少包含 8 个页面容器。
+- [x] 建立路由骨架：主站已具备 8 个页面容器（含演示页与回放页）。
 - [x] 建立共享状态层：`frontend/src/app/state/*`（会话、图谱、时间线、回合跳转）。
 - [ ] 建立统一视图模型层：`frontend/src/viewmodels/*`（把 adapter 原始返回整理成页面直接可渲染结构）。
 - [ ] 建立统一文案映射：`frontend/src/i18n/labels.ts`（状态、人话术语、图例文案）。
@@ -170,7 +174,7 @@ flowchart LR
 
 - [x] 新建 `CaseLaunchPage` 页面容器。
 - [x] 接入会话列表（`adapter.listSessions`）。
-- [x] 接入新建会话（`adapter.createSession`），支持 `maxRounds` 选择。
+- [x] 接入新建会话（`adapter.createSession`），按默认收敛策略启动。
 - [x] 增加“继续会话”能力（从列表点入）。
 - [x] 显示启动后初始化摘要（初始节点数、初始边数、初始阶段）。
 - [ ] 在此页设置默认演示参数（仅正常路径参数，不引入异常注入）。
@@ -186,9 +190,9 @@ flowchart LR
 
 - [x] 新建 `LiveTrialPage` 页面容器。
 - [x] 接入 `step`、`adjudicate`、`getSnapshot` 三个主操作按钮。
-- [x] 展示庭审总览卡：phase/round/maxRounds/winner/metrics。
+- [x] 展示庭审总览卡：phase/round/winner/metrics + convergence。
 - [x] 展示收敛卡：`ΔΦ`、`SMA`、收敛阈值与收敛历史轨迹。
-- [x] 实现 transcript 增量高亮（只显示本次状态迁移新增内容）。
+- [x] 实现“庭审对话主视图 + 新增内容高亮辅助区”，完整陈述为主、Diff 为辅。
 - [x] 接入 timeline 事件流展示（含来源过滤）。
 - [x] 实现事件点击联动（点击事件 -> 跳到对应回合图谱和回合工件）。
 - [x] 增加“是否可裁决”的强提示状态灯。
@@ -201,13 +205,13 @@ flowchart LR
 
 ## M4. 论证图谱页（图胜于文）
 
-- [ ] 新建 `GraphPage` 页面容器。
-- [ ] 复用并升级 `GraphDiffPanel` 为页面核心主画布。
+- [x] 新建 `GraphPage` 页面容器。
+- [x] 复用并升级 `GraphDiffPanel` 为页面核心主画布。
 - [x] 论证图默认首屏即画布渲染，禁止默认落到文本视图（先在实时庭审页落地）。
 - [x] 增加图例常驻区：节点类型、边类型、节点状态、节点归属（已在力导图组件落地）。
-- [ ] 接入回合图加载（`getGraphAtRound`）与 Diff 对比（`getGraphDiff`）。
-- [ ] 实现焦点模式：全部/变化/变化邻域/回滚相关。
-- [ ] 实现链路模式：全部/支持/冲突 + hop 深度。
+- [x] 接入回合图加载（`getGraphAtRound`）与 Diff 对比（`getGraphDiff`）。
+- [x] 实现焦点模式：全部/变化/变化邻域/回滚相关。
+- [x] 实现链路模式：全部/支持/冲突 + hop 深度。
 - [ ] 实现“根主张锚点”快速定位。
 - [x] 实现节点点击联动详情：展示节点内容、元数据与关联边数量。
 - [ ] 增加图操作审计卡（按回合列出 action + 状态 + 原因）。
@@ -221,14 +225,14 @@ flowchart LR
 
 ## M5. 团队协作页（过程可解释）
 
-- [ ] 新建 `TeamFlowPage` 页面容器。
-- [ ] 复用 `TeamFlowPanel`，按回合展示流水线阶段。
-- [ ] 将流水线阶段渲染为流程图（节点：ASSESS/DELEGATE/WAIT/DECIDE/RETRY/DONE）。
+- [x] 新建 `TeamFlowPage` 页面容器。
+- [x] 复用 `TeamFlowPanel`，按回合展示流水线阶段。
+- [x] 将流水线阶段渲染为流程图（节点：ASSESS/DELEGATE/WAIT/DECIDE/RETRY/DONE）。
 - [ ] 渲染“指挥者 -> 工作者”委派关系图（边上显示任务类型）。
-- [ ] 拆分显示区块：评估、指令、决策、执行、重试。
-- [ ] 接入 `TurnArtifact` 详情联动（选中 turnUid 展开具体内容）。
+- [x] 拆分显示区块：评估、指令、决策、执行、重试。
+- [x] 接入 `TurnArtifact` 详情联动（选中 turnUid 展开具体内容）。
 - [ ] 增加“问题追踪视图”：某个失败动作从首尝试到修正成功的链路。
-- [ ] 复用 `InspectorPanel` 展示 context/decision/narrative 三联视图。
+- [x] 复用 `InspectorPanel` 展示 context/decision/narrative 三联视图。
 - [ ] 接入 `DebugBundle` 快照刷新能力，作为一键问题快照。
 
 交付判定：
@@ -239,14 +243,14 @@ flowchart LR
 
 ## M6. 记忆与类比页（学习可见）
 
-- [ ] 新建 `MemoryPage` 页面容器。
-- [ ] 展示记忆总览：静态历史数、动态法理数、任务层节点/边数。
-- [ ] 新增 TaskLayer 关系图画布（案例节点 + 引用连边 + 代表案例高亮）。
-- [ ] 展示 `insightItems` 列表：内容、side、linkedRound、代表案例数。
-- [ ] 实现“新洞察/保留洞察”分组。
+- [x] 新建 `MemoryPage` 页面容器。
+- [x] 展示记忆总览：静态历史数、动态法理数、任务层节点/边数。
+- [x] 新增 TaskLayer 关系图画布（案例节点 + 引用连边 + 代表案例高亮）。
+- [x] 展示 `insightItems` 列表：内容、side、linkedRound、代表案例数。
+- [x] 实现“新洞察/保留洞察”分组。
 - [ ] 展示代表案例变化 before/after。
-- [ ] 展示案例快照时间轴（round -> node/edge count）。
-- [ ] 实现“洞察跳转回放”（点洞察跳到 linkedRound）。
+- [x] 展示案例快照时间轴（round -> node/edge count）。
+- [x] 实现“洞察跳转回放”（点洞察跳到 linkedRound）。
 
 交付判定：
 
@@ -262,7 +266,7 @@ flowchart LR
 - [x] 展示根主张状态明细表。
 - [x] 展示 BAF 一致性卡：首选扩展数、选中扩展大小、一致率。
 - [x] 新增 BAF 关系图：主张节点 + 冲突/支持边 + 选中扩展节点高亮。
-- [x] 展示终止依据：回合上限或收敛触发。
+- [x] 展示终止依据：动态收敛触发（无固定回合上限）。
 - [ ] 增加人话解释文案：BAF 指标每项对应一句解释。
 
 交付判定：
@@ -273,16 +277,16 @@ flowchart LR
 
 ## M8. 回放与导出页（复盘闭环）
 
-- [ ] 新建 `ReplayExportPage` 页面容器。
-- [ ] 实现 from/to 回合选择。
-- [ ] 实现单回合加载与双回合差异对比。
-- [ ] 展示关键帧列表（按时间排序）。
+- [x] 新建 `ReplayExportPage` 页面容器。
+- [x] 实现 from/to 回合选择。
+- [x] 实现单回合加载与双回合差异对比。
+- [x] 展示关键帧列表（按时间排序）。
 - [ ] 新增“关键帧图轨道”：按 round 串联关键帧节点，点击节点触发联动跳转。
-- [ ] 实现关键帧点击联动：图谱 + 团队工件 + 时间线定位。
-- [ ] 接入导出 `Replay JSON`。
-- [ ] 接入导出 `Graph GEXF`。
+- [x] 实现关键帧点击联动：图谱 + 团队工件 + 时间线定位。
+- [x] 接入导出 `Replay JSON`。
+- [x] 接入导出 `Graph GEXF`。
 - [ ] 接入导出 `Debug Bundle`。
-- [ ] 导出后展示摘要（事件数/工件数/快照数）。
+- [x] 导出后展示摘要（事件数/工件数/快照数）。
 
 交付判定：
 
@@ -343,8 +347,8 @@ flowchart LR
 
 - [x] 论证图页：进入页面后 1 秒内可见节点-边画布，不需额外点“展开 JSON”。
 - [x] 实时庭审论证图：节点点击后可见右侧详情卡（内容、元数据、关联边）。
-- [ ] 团队协作页：可见流程图与委派关系图，而非仅文本列表。
-- [ ] 记忆页：可见 TaskLayer 案例关系图，而非仅数量统计。
+- [x] 团队协作页：可见流程图与委派关系图，而非仅文本列表（首版流程图已落地，委派关系待增强）。
+- [x] 记忆页：可见 TaskLayer 案例关系图，而非仅数量统计。
 - [x] 裁决页：可见 BAF 图上高亮的选中扩展，而非仅首选扩展计数。
 - [ ] 回放页：可见关键帧图轨道，并支持点击节点联动跳转。
 - [ ] 任一图节点点击后，右侧详情卡必须同步更新对应数据。
@@ -356,12 +360,12 @@ flowchart LR
 - [x] `frontend/src/App.tsx`：仅保留路由和全局壳层。
 - [x] `frontend/src/app/pages/LaunchPage.tsx`
 - [x] `frontend/src/app/pages/LivePage.tsx`
-- [ ] `frontend/src/pages/GraphPage.tsx`
-- [ ] `frontend/src/pages/TeamFlowPage.tsx`
-- [ ] `frontend/src/pages/MemoryPage.tsx`
+- [x] `frontend/src/app/pages/GraphPage.tsx`
+- [x] `frontend/src/app/pages/TeamFlowPage.tsx`
+- [x] `frontend/src/app/pages/MemoryPage.tsx`
 - [x] `frontend/src/app/pages/JudgmentPage.tsx`
-- [ ] `frontend/src/pages/ReplayExportPage.tsx`
-- [ ] `frontend/src/pages/DemoPlaybookPage.tsx`
+- [x] `frontend/src/app/pages/ReplayExportPage.tsx`
+- [x] `frontend/src/app/pages/DemoPlaybookPage.tsx`
 - [x] `frontend/src/app/state/*`
 - [ ] `frontend/src/viewmodels/*`
 - [ ] `frontend/src/components/layout/*`
