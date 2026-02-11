@@ -1,17 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Core } from "cytoscape";
-import CytoscapeComponent from "react-cytoscapejs";
+import { useEffect, useMemo, useRef, useState } from "react";
+import * as echarts from "echarts";
+import type { EChartsOption, EChartsType } from "echarts";
 
 import {
-  clearNeighborhoodFocus,
-  DEBATE_GRAPH_STYLESHEET,
-  ensureCytoscapeFcoseRegistered,
-  mapDebateGraphToElements,
-  runFcoseLayout,
-  setNeighborhoodFocus,
+  buildLouvainCommunities,
+  shortText,
   toEdgeRelation,
   toNodeFamily,
-} from "../../app/graph/cytoscape/debateGraphCytoscape";
+  type DebateNodeFamily,
+  type DebateEdgeRelation,
+} from "../../app/graph/echarts/debateGraphEcharts";
 
 import type { GraphDiffView, GraphView, TurnArtifact } from "../../compat";
 type FocusMode = "all" | "changed" | "changedNeighbors" | "rejected";
@@ -25,14 +23,64 @@ interface GraphDiffPanelProps {
   title?: string;
 }
 
+interface DiffNodeView {
+  id: string;
+  label: string;
+  content: string;
+  family: DebateNodeFamily;
+  status: string;
+  agentId: string;
+  isAdded: boolean;
+  isRejected: boolean;
+  isStatusChanged: boolean;
+  isReused: boolean;
+  isChain: boolean;
+  isAnchor: boolean;
+}
+
+interface DiffEdgeView {
+  id: string;
+  source: string;
+  target: string;
+  relation: DebateEdgeRelation;
+  isAdded: boolean;
+  isChain: boolean;
+  isMuted: boolean;
+}
+
+interface DiffModel {
+  nodes: DiffNodeView[];
+  edges: DiffEdgeView[];
+  claimIds: string[];
+  resolvedClaimId: string;
+
+  summary: {
+    addedNodes: number;
+    addedEdges: number;
+    statusChanged: number;
+    reused: number;
+    rejected: number;
+    visibleNodes: number;
+    visibleEdges: number;
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object"
     ? (value as Record<string, unknown>)
     : {};
 }
 
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : "";
+function asString(value: unknown, fallback = ""): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  return fallback;
 }
 
 function shortId(id: string): string {
@@ -95,7 +143,7 @@ function gatherRejectedNodeIds(artifacts: TurnArtifact[]): Set<string> {
 }
 
 function buildUndirectedAdjacency(
-  edges: GraphView["edges"],
+  edges: Array<{ source: string; target: string }>,
 ): Map<string, Set<string>> {
   const adjacency = new Map<string, Set<string>>();
 
@@ -147,7 +195,12 @@ function collectWithinHops(
 
 function collectClaimChain(
   startClaimId: string,
-  edges: GraphView["edges"],
+  edges: Array<{
+    id: string;
+    source: string;
+    target: string;
+    relation: DebateEdgeRelation;
+  }>,
   hops: number,
   chainMode: ChainMode,
 ): { nodeIds: Set<string>; edgeIds: Set<string> } {
@@ -159,13 +212,11 @@ function collectClaimChain(
     const next = new Set<string>();
 
     for (const edge of edges) {
-      const relation = toEdgeRelation(edge.type);
-
-      if (chainMode === "support" && relation !== "support") {
+      if (chainMode === "support" && edge.relation !== "support") {
         continue;
       }
 
-      if (chainMode === "conflict" && relation !== "attack") {
+      if (chainMode === "conflict" && edge.relation !== "attack") {
         continue;
       }
 
@@ -199,7 +250,21 @@ function collectClaimChain(
   return { nodeIds, edgeIds };
 }
 
-ensureCytoscapeFcoseRegistered();
+function nodeColorByFamily(family: DebateNodeFamily): string {
+  if (family === "FACT") {
+    return "#14b8a6";
+  }
+
+  if (family === "LAW") {
+    return "#facc15";
+  }
+
+  if (family === "CLAIM") {
+    return "#2563eb";
+  }
+
+  return "#94a3b8";
+}
 
 export function GraphDiffPanel({
   currentGraph,
@@ -212,31 +277,74 @@ export function GraphDiffPanel({
   const [chainMode, setChainMode] = useState<ChainMode>("all");
   const [selectedClaimId, setSelectedClaimId] = useState<string>("auto");
   const [selectedNodeId, setSelectedNodeId] = useState<string>("");
-  const cyRef = useRef<Core | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<EChartsType | null>(null);
 
-  const model = useMemo(() => {
+  const model = useMemo<DiffModel | null>(() => {
     if (!currentGraph) {
       return null;
     }
 
+    const mappedNodes = currentGraph.nodes
+      .map((node) => ({
+        id: asString(node.id),
+        label: asString(node.label, asString(node.id)),
+        content: asString(
+          node.content,
+          asString(node.label, asString(node.id)),
+        ),
+        family: toNodeFamily(asString(node.type)),
+        status: asString(node.status, "HYPOTHETICAL"),
+        agentId: asString(node.agentId, "unknown"),
+      }))
+      .filter((node) => node.family !== "OTHER");
+
+    const nodeIdSet = new Set(mappedNodes.map((node) => node.id));
+
+    const mappedEdges = currentGraph.edges
+      .map((edge, index) => {
+        const source = asString(edge.source);
+        const target = asString(edge.target);
+        const relation = toEdgeRelation(asString(edge.type));
+
+        return {
+          id: asString(edge.id, `${source}->${target}#${index}`),
+          source,
+          target,
+          relation,
+        };
+      })
+      .filter(
+        (edge) =>
+          edge.relation !== "cite" &&
+          nodeIdSet.has(edge.source) &&
+          nodeIdSet.has(edge.target),
+      );
+
     const previousNodes = new Map(
-      (baselineGraph?.nodes ?? []).map((node) => [node.id, node]),
+      (baselineGraph?.nodes ?? []).map((node) => [asString(node.id), node]),
     );
 
-    const currentNodeIds = new Set(currentGraph.nodes.map((node) => node.id));
+    const currentNodeIds = new Set(mappedNodes.map((node) => node.id));
 
     const previousNodeIds = new Set(
-      (baselineGraph?.nodes ?? []).map((n) => n.id),
+      (baselineGraph?.nodes ?? []).map((n) => asString(n.id)),
     );
 
-    const addedNodeIds = new Set(diff?.addedNodeIds ?? []);
-    const addedEdgeIds = new Set(diff?.addedEdgeIds ?? []);
+    const addedNodeIds = new Set(
+      (diff?.addedNodeIds ?? []).map((id) => asString(id)),
+    );
+
+    const addedEdgeIds = new Set(
+      (diff?.addedEdgeIds ?? []).map((id) => asString(id)),
+    );
+
     const statusChangedNodeIds = new Set<string>();
 
-    for (const node of currentGraph.nodes) {
+    for (const node of mappedNodes) {
       const prev = previousNodes.get(node.id);
 
-      if (prev && (prev.status ?? "") !== (node.status ?? "")) {
+      if (prev && asString(prev.status) !== node.status) {
         statusChangedNodeIds.add(node.id);
       }
     }
@@ -257,13 +365,12 @@ export function GraphDiffPanel({
       ...rejectedNodeIds,
     ]);
 
-    const claimIds = currentGraph.nodes
-      .filter((node) => toNodeFamily(node.type) === "CLAIM")
+    const claimIds = mappedNodes
+      .filter((node) => node.family === "CLAIM")
       .map((node) => node.id)
       .sort();
 
-    const adjacency = buildUndirectedAdjacency(currentGraph.edges);
-
+    const adjacency = buildUndirectedAdjacency(mappedEdges);
     let baseVisibleIds = new Set<string>(currentNodeIds);
 
     if (focusMode === "changed") {
@@ -291,7 +398,7 @@ export function GraphDiffPanel({
           : selectedClaimId;
 
     const chain = resolvedClaimId
-      ? collectClaimChain(resolvedClaimId, currentGraph.edges, 3, chainMode)
+      ? collectClaimChain(resolvedClaimId, mappedEdges, 3, chainMode)
       : { nodeIds: new Set<string>(), edgeIds: new Set<string>() };
 
     const visibleNodeIds = new Set<string>(baseVisibleIds);
@@ -300,7 +407,7 @@ export function GraphDiffPanel({
       visibleNodeIds.add(nodeId);
     }
 
-    let visibleEdges = currentGraph.edges.filter(
+    let visibleEdges = mappedEdges.filter(
       (edge) =>
         visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target),
     );
@@ -309,74 +416,31 @@ export function GraphDiffPanel({
       visibleEdges = visibleEdges.filter((edge) => chain.edgeIds.has(edge.id));
     }
 
-    const visibleEdgeIds = new Set(visibleEdges.map((edge) => edge.id));
-    const nodeClassById: Record<string, string[]> = {};
+    const nodes: DiffNodeView[] = mappedNodes
+      .filter((node) => visibleNodeIds.has(node.id))
+      .map((node) => ({
+        ...node,
+        isAdded: addedNodeIds.has(node.id),
+        isRejected: rejectedNodeIds.has(node.id),
+        isStatusChanged: statusChangedNodeIds.has(node.id),
+        isReused: reusedNodeIds.has(node.id),
+        isChain: chain.nodeIds.has(node.id),
+        isAnchor: resolvedClaimId !== "" && node.id === resolvedClaimId,
+      }));
 
-    for (const node of currentGraph.nodes) {
-      if (!visibleNodeIds.has(node.id)) {
-        continue;
-      }
-
-      const classes: string[] = [];
-
-      if (addedNodeIds.has(node.id)) {
-        classes.push("node-added");
-      } else if (rejectedNodeIds.has(node.id)) {
-        classes.push("node-rejected");
-      } else if (statusChangedNodeIds.has(node.id)) {
-        classes.push("node-status-changed");
-      } else if (reusedNodeIds.has(node.id)) {
-        classes.push("node-reused");
-      }
-
-      if (chain.nodeIds.has(node.id)) {
-        classes.push("node-chain");
-      }
-
-      if (resolvedClaimId && resolvedClaimId === node.id) {
-        classes.push("node-anchor");
-      }
-
-      nodeClassById[node.id] = classes;
-    }
-
-    const edgeClassById: Record<string, string[]> = {};
-
-    for (const edge of visibleEdges) {
-      const classes: string[] = [];
-
-      if (addedEdgeIds.has(edge.id)) {
-        classes.push("edge-added");
-      }
-
-      if (chain.edgeIds.has(edge.id)) {
-        classes.push("edge-chain");
-      }
-
-      if (
-        resolvedClaimId &&
+    const edges: DiffEdgeView[] = visibleEdges.map((edge) => ({
+      ...edge,
+      isAdded: addedEdgeIds.has(edge.id),
+      isChain: chain.edgeIds.has(edge.id),
+      isMuted:
+        resolvedClaimId !== "" &&
         focusMode !== "all" &&
-        !chain.edgeIds.has(edge.id)
-      ) {
-        classes.push("edge-muted");
-      }
-
-      edgeClassById[edge.id] = classes;
-    }
-
-    const mapped = mapDebateGraphToElements(
-      currentGraph.nodes,
-      currentGraph.edges,
-      {
-        visibleNodeIds,
-        visibleEdgeIds,
-        nodeClassById,
-        edgeClassById,
-      },
-    );
+        !chain.edgeIds.has(edge.id),
+    }));
 
     return {
-      ...mapped,
+      nodes,
+      edges,
       claimIds,
       resolvedClaimId,
       summary: {
@@ -385,8 +449,8 @@ export function GraphDiffPanel({
         statusChanged: statusChangedNodeIds.size,
         reused: reusedNodeIds.size,
         rejected: rejectedNodeIds.size,
-        visibleNodes: mapped.nodes.length,
-        visibleEdges: mapped.edges.length,
+        visibleNodes: nodes.length,
+        visibleEdges: edges.length,
       },
     };
   }, [
@@ -410,54 +474,187 @@ export function GraphDiffPanel({
   }, [model, selectedNodeId]);
 
   useEffect(() => {
-    const cy = cyRef.current;
+    const container = containerRef.current;
 
-    if (!cy) {
+    if (!container) {
       return;
     }
 
-    if (!effectiveSelectedNodeId) {
-      clearNeighborhoodFocus(cy);
-      return;
-    }
+    const chart = echarts.init(container);
+    chartRef.current = chart;
+    const observer = new ResizeObserver(() => chart.resize());
+    observer.observe(container);
 
-    setNeighborhoodFocus(cy, effectiveSelectedNodeId);
-  }, [effectiveSelectedNodeId, model?.elements.length]);
+    return () => {
+      observer.disconnect();
+      chart.dispose();
+      chartRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
-    const cy = cyRef.current;
+    const chart = chartRef.current;
 
-    if (!cy || !model) {
+    if (!chart || !model) {
       return;
     }
 
-    const frame = requestAnimationFrame(() => {
-      runFcoseLayout(cy);
+    const selectedNeighborIds = new Set<string>();
+
+    if (effectiveSelectedNodeId) {
+      selectedNeighborIds.add(effectiveSelectedNodeId);
+
+      for (const edge of model.edges) {
+        if (edge.source === effectiveSelectedNodeId) {
+          selectedNeighborIds.add(edge.target);
+        } else if (edge.target === effectiveSelectedNodeId) {
+          selectedNeighborIds.add(edge.source);
+        }
+      }
+    }
+
+    const focused = selectedNeighborIds.size > 0;
+
+    const communities = buildLouvainCommunities(
+      model.nodes.map((node) => node.id),
+      model.edges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+      })),
+    );
+
+    const nodes = model.nodes.map((node) => {
+      const selected = node.id === effectiveSelectedNodeId;
+      const neighbor = selectedNeighborIds.has(node.id);
+      const opacity = focused ? (neighbor ? 1 : 0.18) : 1;
+      let borderColor = "#64748b";
+      let borderWidth = selected ? 3 : 2;
+      let borderType: "solid" | "dashed" = "solid";
+
+      if (node.isAdded) {
+        borderColor = "#16a34a";
+        borderWidth = 3;
+      } else if (node.isRejected) {
+        borderColor = "#e11d48";
+        borderWidth = 3;
+      } else if (node.isStatusChanged) {
+        borderColor = "#2563eb";
+        borderWidth = 3;
+      } else if (node.isReused) {
+        borderColor = "#0ea5e9";
+        borderType = "dashed";
+      }
+
+      return {
+        id: node.id,
+        name: shortText(node.label, 16),
+        value: node.content,
+        category: communities.get(node.id) ?? 0,
+        symbol: "circle",
+        symbolSize: 20 + (node.isChain ? 6 : 0) + (selected ? 6 : 0),
+        itemStyle: {
+          color: nodeColorByFamily(node.family),
+          borderColor,
+          borderWidth,
+          borderType,
+          opacity,
+          shadowBlur: node.isAnchor ? 18 : 0,
+          shadowColor: node.isAnchor ? "rgba(2,132,199,0.28)" : "transparent",
+        },
+        label: {
+          show: false,
+        },
+      };
     });
 
-    return () => cancelAnimationFrame(frame);
-  }, [model]);
+    const links = model.edges.map((edge) => {
+      const edgeSelected =
+        effectiveSelectedNodeId &&
+        (edge.source === effectiveSelectedNodeId ||
+          edge.target === effectiveSelectedNodeId);
 
-  const onCyMount = useCallback((cy: Core) => {
-    cyRef.current = cy;
-    cy.off("tap.graphDiff");
-    cy.off("tap.graphDiff", "node");
-
-    cy.on("tap.graphDiff", "node", (event) => {
-      const nodeId = event.target.id();
-      setSelectedNodeId(nodeId);
-      setNeighborhoodFocus(cy, nodeId);
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        lineStyle: {
+          color: edge.relation === "support" ? "#86d694" : "#f39b76",
+          type: edge.relation === "support" ? "solid" : "dashed",
+          width: edge.isChain ? 3.2 : edge.isAdded ? 2.8 : edgeSelected ? 3 : 2,
+          opacity: edge.isMuted
+            ? 0.2
+            : effectiveSelectedNodeId
+              ? edgeSelected
+                ? 1
+                : 0.16
+              : 0.9,
+          curveness: edge.relation === "attack" ? 0.12 : 0.06,
+        },
+      };
     });
 
-    cy.on("tap.graphDiff", (event) => {
-      if (event.target !== cy) {
+    const option = {
+      backgroundColor: "#e5e7eb",
+      tooltip: {
+        trigger: "item",
+        confine: true,
+        formatter: (params: unknown) => {
+          const row = params as {
+            dataType?: string;
+            data?: { value?: string };
+          };
+
+          return row.dataType === "node"
+            ? String(row.data?.value ?? "").replace(/\n/g, "<br/>")
+            : "";
+        },
+      },
+      series: [
+        {
+          type: "graph",
+          layout: "force",
+          roam: true,
+          draggable: true,
+          data: nodes,
+          links,
+          force: {
+            repulsion: 520,
+            gravity: 0.06,
+            edgeLength: [95, 210],
+            friction: 0.12,
+          },
+          emphasis: {
+            focus: "adjacency",
+          },
+          edgeSymbol: ["none", "none"],
+        },
+      ],
+    } as EChartsOption;
+
+    chart.setOption(option, true);
+    chart.off("click");
+
+    chart.on("click", (params) => {
+      if (params.dataType !== "node") {
+        return;
+      }
+
+      const payload = params.data as { id?: string } | undefined;
+      setSelectedNodeId(asString(payload?.id));
+    });
+
+    const zr = chart.getZr();
+    zr.off("click");
+
+    zr.on("click", (event) => {
+      if (event.target) {
         return;
       }
 
       setSelectedNodeId("");
-      clearNeighborhoodFocus(cy);
     });
-  }, []);
+  }, [effectiveSelectedNodeId, model]);
 
   return (
     <article className="card wide">
@@ -531,16 +728,7 @@ export function GraphDiffPanel({
           </p>
 
           <div className="graph-canvas">
-            <CytoscapeComponent
-              boxSelectionEnabled={false}
-              cy={onCyMount}
-              elements={model.elements}
-              maxZoom={2.2}
-              minZoom={0.08}
-              stylesheet={DEBATE_GRAPH_STYLESHEET}
-              style={{ width: "100%", height: "100%" }}
-              wheelSensitivity={0.18}
-            />
+            <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
           </div>
         </>
       ) : (

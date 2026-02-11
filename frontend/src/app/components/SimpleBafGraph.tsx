@@ -1,13 +1,15 @@
-import { useMemo } from "react";
-import CytoscapeComponent from "react-cytoscapejs";
+import { useEffect, useMemo, useRef } from "react";
+import * as echarts from "echarts";
+import type { EChartsOption, EChartsType } from "echarts";
+import type { GraphView } from "../../compat";
 
 import {
-  DEBATE_GRAPH_STYLESHEET,
-  mapDebateGraphToElements,
-} from "../graph/cytoscape/debateGraphCytoscape";
+  shortText,
+  toEdgeRelation,
+  toNodeFamily,
+} from "../graph/echarts/debateGraphEcharts";
 
 import { nodeStatusLabel } from "../utils/payload";
-import type { GraphView } from "../../compat";
 
 interface SimpleBafGraphProps {
   graph: GraphView | null;
@@ -20,16 +22,20 @@ export function SimpleBafGraph({
   preferredExtension,
   rootClaimStatusMap,
 }: SimpleBafGraphProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<EChartsType | null>(null);
+
   const model = useMemo(() => {
     if (!graph) {
       return null;
     }
 
     const claimNodes = graph.nodes
-      .filter((node) => node.type.toUpperCase() === "CLAIM")
+      .filter((node) => toNodeFamily(node.type) === "CLAIM")
       .map((node) => ({
-        ...node,
-        status: rootClaimStatusMap[node.id] ?? node.status,
+        id: node.id,
+        label: node.label || node.id,
+        status: rootClaimStatusMap[node.id] ?? node.status ?? "HYPOTHETICAL",
       }));
 
     if (!claimNodes.length) {
@@ -38,32 +44,128 @@ export function SimpleBafGraph({
 
     const claimIdSet = new Set(claimNodes.map((node) => node.id));
 
-    const claimEdges = graph.edges.filter(
-      (edge) =>
-        claimIdSet.has(edge.source) &&
-        claimIdSet.has(edge.target) &&
-        ["SUPPORT", "CONFLICT", "ATTACK"].includes(edge.type.toUpperCase()),
-    );
-
-    const preferredSet = new Set(preferredExtension);
-    const nodeClassById: Record<string, string[]> = {};
-
-    for (const node of claimNodes) {
-      nodeClassById[node.id] = preferredSet.has(node.id)
-        ? ["node-preferred"]
-        : [];
-    }
-
-    const mapped = mapDebateGraphToElements(claimNodes, claimEdges, {
-      nodeClassById,
-    });
+    const claimEdges = graph.edges
+      .map((edge, index) => ({
+        id: edge.id || `${edge.source}->${edge.target}#${index}`,
+        source: edge.source,
+        target: edge.target,
+        relation: toEdgeRelation(edge.type),
+      }))
+      .filter(
+        (edge) =>
+          edge.relation !== "cite" &&
+          claimIdSet.has(edge.source) &&
+          claimIdSet.has(edge.target),
+      );
 
     return {
-      ...mapped,
+      nodes: claimNodes,
+      edges: claimEdges,
+      preferredSet: new Set(preferredExtension),
       statusMap: rootClaimStatusMap,
-      preferredSet,
     };
   }, [graph, preferredExtension, rootClaimStatusMap]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const chart = echarts.init(container);
+    chartRef.current = chart;
+    const observer = new ResizeObserver(() => chart.resize());
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      chart.dispose();
+      chartRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+
+    if (!chart || !model) {
+      return;
+    }
+
+    const nodes = model.nodes.map((node) => {
+      const preferred = model.preferredSet.has(node.id);
+
+      return {
+        id: node.id,
+        name: shortText(node.label, 16),
+        value: node.label,
+        symbolSize: preferred ? 54 : 42,
+        itemStyle: {
+          color: preferred ? "#86efac" : "#93c5fd",
+          borderColor: preferred ? "#15803d" : "#1d4ed8",
+          borderWidth: preferred ? 4 : 2,
+        },
+        label: {
+          show: true,
+          color: "#0f172a",
+          fontSize: 10,
+        },
+      };
+    });
+
+    const links = model.edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      lineStyle: {
+        color: edge.relation === "support" ? "#0284c7" : "#dc2626",
+        width: 2.4,
+        type: edge.relation === "support" ? "solid" : "dashed",
+      },
+    }));
+
+    const option = {
+      backgroundColor: "#f8fafc",
+      tooltip: {
+        trigger: "item",
+        formatter: (params: unknown) => {
+          const row = params as {
+            dataType?: string;
+            data?: { value?: string };
+          };
+
+          return row.dataType === "node" ? String(row.data?.value ?? "") : "";
+        },
+      },
+      series: [
+        {
+          type: "graph",
+          layout: "circular",
+          circular: {
+            rotateLabel: false,
+          },
+          roam: true,
+          draggable: true,
+          data: nodes,
+          links,
+          edgeSymbol: ["none", "arrow"],
+          edgeSymbolSize: 8,
+          lineStyle: {
+            opacity: 0.88,
+          },
+          label: {
+            position: "inside",
+            overflow: "truncate",
+          },
+          emphasis: {
+            focus: "adjacency",
+          },
+        },
+      ],
+    } as EChartsOption;
+
+    chart.setOption(option, true);
+  }, [model]);
 
   return (
     <article className="ux-card">
@@ -76,25 +178,12 @@ export function SimpleBafGraph({
       {model ? (
         <>
           <div className="ux-graph-canvas ux-graph-canvas-compact">
-            <CytoscapeComponent
-              boxSelectionEnabled={false}
-              elements={model.elements}
-              layout={{
-                name: "circle",
-                fit: true,
-                padding: 40,
-              }}
-              maxZoom={2.2}
-              minZoom={0.15}
-              stylesheet={DEBATE_GRAPH_STYLESHEET}
-              style={{ width: "100%", height: "100%" }}
-              wheelSensitivity={0.18}
-            />
+            <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
           </div>
 
           <div className="ux-kv" style={{ marginTop: "0.65rem" }}>
             {model.nodes.map((node) => {
-              const status = model.statusMap[node.id] ?? node.statusFamily;
+              const status = model.statusMap[node.id] ?? node.status;
 
               return (
                 <p key={node.id}>

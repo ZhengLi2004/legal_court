@@ -1,5 +1,6 @@
-import { useMemo } from "react";
-import CytoscapeComponent from "react-cytoscapejs";
+import { useEffect, useMemo, useRef } from "react";
+import * as echarts from "echarts";
+import type { EChartsOption, EChartsType } from "echarts";
 import type { TurnArtifact } from "../../compat";
 type StepStatus = "done" | "active" | "pending" | "warning";
 
@@ -65,69 +66,25 @@ function deriveStatuses(
   };
 }
 
-const PIPELINE_STYLESHEET = [
-  {
-    selector: "node",
-    style: {
-      shape: "round-rectangle",
-      label: "data(label)",
-      width: 126,
-      height: 52,
-      "font-size": "11px",
-      "font-weight": 700,
-      "text-valign": "center",
-      "text-halign": "center",
-      "background-color": "#f1f5f9",
-      "border-width": 2,
-      "border-color": "#64748b",
-      color: "#334155",
-      "overlay-opacity": 0,
-    },
-  },
-  {
-    selector: 'node[status = "done"]',
-    style: {
-      "background-color": "#dcfce7",
-      "border-color": "#15803d",
-      color: "#14532d",
-    },
-  },
-  {
-    selector: 'node[status = "active"]',
-    style: {
-      "background-color": "#dbeafe",
-      "border-color": "#1d4ed8",
-      color: "#1e3a8a",
-    },
-  },
-  {
-    selector: 'node[status = "warning"]',
-    style: {
-      "background-color": "#fee2e2",
-      "border-color": "#dc2626",
-      color: "#7f1d1d",
-    },
-  },
-  {
-    selector: "edge",
-    style: {
-      width: 2,
-      "curve-style": "bezier",
-      "line-color": "#0284c7",
-      "target-arrow-color": "#0284c7",
-      "target-arrow-shape": "triangle",
-      "arrow-scale": 0.9,
-    },
-  },
-  {
-    selector: ".retry-edge",
-    style: {
-      "line-color": "#dc2626",
-      "target-arrow-color": "#dc2626",
-      "line-style": "dashed",
-    },
-  },
-];
+function colorByStatus(status: StepStatus): {
+  fill: string;
+  border: string;
+  text: string;
+} {
+  if (status === "done") {
+    return { fill: "#dcfce7", border: "#15803d", text: "#14532d" };
+  }
+
+  if (status === "active") {
+    return { fill: "#dbeafe", border: "#1d4ed8", text: "#1e3a8a" };
+  }
+
+  if (status === "warning") {
+    return { fill: "#fee2e2", border: "#dc2626", text: "#7f1d1d" };
+  }
+
+  return { fill: "#f1f5f9", border: "#64748b", text: "#334155" };
+}
 
 interface ControllerPipelineGraphProps {
   artifact: TurnArtifact | null;
@@ -136,74 +93,152 @@ interface ControllerPipelineGraphProps {
 export function ControllerPipelineGraph({
   artifact,
 }: ControllerPipelineGraphProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<EChartsType | null>(null);
   const status = deriveStatuses(artifact);
 
   const elements = useMemo(
     () => [
       {
-        data: { id: "ASSESS", label: "ASSESS", status: status.ASSESS },
-        position: { x: 80, y: 120 },
+        id: "ASSESS",
+        label: "ASSESS",
+        status: status.ASSESS,
+        x: 80,
+        y: 120,
       },
       {
-        data: { id: "DELEGATE", label: "DELEGATE", status: status.DELEGATE },
-        position: { x: 250, y: 120 },
+        id: "DELEGATE",
+        label: "DELEGATE",
+        status: status.DELEGATE,
+        x: 250,
+        y: 120,
       },
       {
-        data: { id: "WAIT", label: "WAIT", status: status.WAIT },
-        position: { x: 430, y: 120 },
+        id: "WAIT",
+        label: "WAIT",
+        status: status.WAIT,
+        x: 430,
+        y: 120,
       },
       {
-        data: { id: "DECIDE", label: "DECIDE", status: status.DECIDE },
-        position: { x: 600, y: 120 },
+        id: "DECIDE",
+        label: "DECIDE",
+        status: status.DECIDE,
+        x: 600,
+        y: 120,
       },
       {
-        data: { id: "DONE", label: "DONE", status: status.DONE },
-        position: { x: 770, y: 120 },
+        id: "DONE",
+        label: "DONE",
+        status: status.DONE,
+        x: 770,
+        y: 120,
       },
       {
-        data: { id: "RETRY", label: "RETRY", status: status.RETRY },
-        position: { x: 600, y: 260 },
-      },
-      {
-        data: { id: "A-D", source: "ASSESS", target: "DELEGATE" },
-      },
-      {
-        data: { id: "D-W", source: "DELEGATE", target: "WAIT" },
-      },
-      {
-        data: { id: "W-C", source: "WAIT", target: "DECIDE" },
-      },
-      {
-        data: { id: "C-F", source: "DECIDE", target: "DONE" },
-      },
-      {
-        data: { id: "C-R", source: "DECIDE", target: "RETRY" },
-        classes: "retry-edge",
-      },
-      {
-        data: { id: "R-D", source: "RETRY", target: "DELEGATE" },
-        classes: "retry-edge",
+        id: "RETRY",
+        label: "RETRY",
+        status: status.RETRY,
+        x: 600,
+        y: 260,
       },
     ],
     [status],
   );
 
+  useEffect(() => {
+    const container = containerRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const chart = echarts.init(container);
+    chartRef.current = chart;
+    const observer = new ResizeObserver(() => chart.resize());
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      chart.dispose();
+      chartRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+
+    if (!chart) {
+      return;
+    }
+
+    const nodes = elements.map((node) => {
+      const color = colorByStatus(node.status);
+
+      return {
+        id: node.id,
+        name: node.label,
+        x: node.x,
+        y: node.y,
+        symbol: "roundRect",
+        symbolSize: [126, 52],
+        itemStyle: {
+          color: color.fill,
+          borderColor: color.border,
+          borderWidth: 2,
+        },
+        label: {
+          show: true,
+          color: color.text,
+          fontSize: 11,
+          fontWeight: "bold",
+        },
+        draggable: false,
+      };
+    });
+
+    const links = [
+      { source: "ASSESS", target: "DELEGATE", retry: false },
+      { source: "DELEGATE", target: "WAIT", retry: false },
+      { source: "WAIT", target: "DECIDE", retry: false },
+      { source: "DECIDE", target: "DONE", retry: false },
+      { source: "DECIDE", target: "RETRY", retry: true },
+      { source: "RETRY", target: "DELEGATE", retry: true },
+    ].map((edge, idx) => ({
+      id: `${edge.source}-${edge.target}-${idx}`,
+      source: edge.source,
+      target: edge.target,
+      lineStyle: {
+        color: edge.retry ? "#dc2626" : "#0284c7",
+        width: 2,
+        type: edge.retry ? "dashed" : "solid",
+      },
+    }));
+
+    const option = {
+      backgroundColor: "#f8fafc",
+      series: [
+        {
+          type: "graph",
+          layout: "none",
+          coordinateSystem: null,
+          roam: false,
+          data: nodes,
+          links,
+          edgeSymbol: ["none", "arrow"],
+          edgeSymbolSize: 9,
+          lineStyle: {
+            curveness: 0.05,
+          },
+        },
+      ],
+    } as EChartsOption;
+
+    chart.setOption(option, true);
+  }, [elements]);
+
   return (
     <div className="ux-graph-canvas ux-graph-canvas-compact">
-      <CytoscapeComponent
-        boxSelectionEnabled={false}
-        elements={elements}
-        layout={{
-          name: "preset",
-          fit: true,
-          padding: 24,
-        }}
-        maxZoom={1.8}
-        minZoom={0.4}
-        stylesheet={PIPELINE_STYLESHEET}
-        style={{ width: "100%", height: "100%" }}
-        wheelSensitivity={0.18}
-      />
+      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );
 }

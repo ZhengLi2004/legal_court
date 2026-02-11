@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ForceArgumentGraph } from "../components/ForceArgumentGraph";
 import { useDebate } from "../state/useDebate";
 import { asRecord, phaseLabel, unwrapPayload } from "../utils/payload";
@@ -98,11 +98,18 @@ export function LivePage() {
     step,
     adjudicate,
     refreshSnapshot,
+    loadGraph,
     loadTimeline,
     loadGraphAtRound,
   } = useDebate();
 
   const [selectedSeq, setSelectedSeq] = useState<number>(0);
+
+  const [currentDialogueIdx, setCurrentDialogueIdx] = useState<number | null>(
+    null,
+  );
+
+  const dialogueBoardRef = useRef<HTMLDivElement | null>(null);
 
   const rootClaimEntries = useMemo(() => {
     if (!snapshot) {
@@ -146,10 +153,15 @@ export function LivePage() {
     [newStart, snapshot],
   );
 
-  const transcriptDelta = useMemo(
-    () => dialogueRows.filter((row) => row.isNew).map((row) => row.text),
-    [dialogueRows],
-  );
+  const latestNewDialogueIdx = useMemo(() => {
+    for (let idx = dialogueRows.length - 1; idx >= 0; idx -= 1) {
+      if (dialogueRows[idx].isNew) {
+        return dialogueRows[idx].idx;
+      }
+    }
+
+    return null;
+  }, [dialogueRows]);
 
   const convergenceHistoryText = useMemo(() => {
     const recent = snapshot?.convergence.history.slice(-6) ?? [];
@@ -183,6 +195,43 @@ export function LivePage() {
     if (typeof row.roundIdx === "number") {
       await loadGraphAtRound(row.roundIdx);
     }
+  };
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    void loadGraph();
+  }, [loadGraph, sessionId]);
+
+  const effectiveCurrentDialogueIdx = useMemo(() => {
+    if (!dialogueRows.length || currentDialogueIdx === null) {
+      return null;
+    }
+
+    const maxIdx = dialogueRows[dialogueRows.length - 1].idx;
+    return currentDialogueIdx <= maxIdx ? currentDialogueIdx : null;
+  }, [currentDialogueIdx, dialogueRows]);
+
+  const jumpToCurrentDialogue = (): void => {
+    if (!dialogueRows.length) {
+      return;
+    }
+
+    const targetIdx =
+      latestNewDialogueIdx ?? dialogueRows[dialogueRows.length - 1].idx;
+
+    const target = dialogueBoardRef.current?.querySelector<HTMLElement>(
+      `[data-dialogue-idx="${targetIdx}"]`,
+    );
+
+    if (!target) {
+      return;
+    }
+
+    setCurrentDialogueIdx(targetIdx);
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   if (!sessionId || !snapshot) {
@@ -338,11 +387,26 @@ export function LivePage() {
           以下为完整庭审自然语言陈述，按真实发生顺序展示；高亮项为本次刷新后新增内容。
         </p>
 
+        <div className="ux-row">
+          <button
+            disabled={!dialogueRows.length}
+            onClick={jumpToCurrentDialogue}
+            type="button"
+          >
+            跳转当前对话
+          </button>
+        </div>
+
         {dialogueRows.length > 0 ? (
-          <div className="ux-dialogue-board">
+          <div className="ux-dialogue-board" ref={dialogueBoardRef}>
             {dialogueRows.map((row) => (
               <div
-                className={`ux-dialogue-row ux-dialogue-${row.side} ${row.isNew ? "ux-dialogue-new" : ""}`}
+                className={`ux-dialogue-row ux-dialogue-${row.side} ${row.isNew ? "ux-dialogue-new" : ""} ${
+                  effectiveCurrentDialogueIdx === row.idx
+                    ? "ux-dialogue-current"
+                    : ""
+                }`}
+                data-dialogue-idx={row.idx}
                 key={`${row.idx}-${row.speakerLabel}-${row.text}`}
               >
                 <div className="ux-dialogue-bubble">
@@ -359,24 +423,6 @@ export function LivePage() {
 
       <article className="ux-card ux-card-full">
         <ForceArgumentGraph graph={graphView} title="论证图（力导布局）" />
-      </article>
-
-      <article className="ux-card ux-card-full">
-        <details>
-          <summary>本轮新增陈述（辅助）</summary>
-
-          {transcriptDelta.length > 0 ? (
-            <div className="ux-log-box">
-              {transcriptDelta.map((line, idx) => (
-                <p className="ux-log-line" key={`${line}-${idx}`}>
-                  + {line}
-                </p>
-              ))}
-            </div>
-          ) : (
-            <p className="ux-empty">本轮暂无新增陈述。</p>
-          )}
-        </details>
       </article>
     </section>
   );

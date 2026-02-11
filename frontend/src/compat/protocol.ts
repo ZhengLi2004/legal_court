@@ -60,7 +60,19 @@ function asNumber(value: unknown, fallback = 0): number {
 }
 
 function asString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+
+  return fallback;
 }
 
 function asStringList(value: unknown): string[] {
@@ -117,12 +129,21 @@ function parseNodes(value: unknown): GraphNode[] {
 
   return value.map((item, index) => {
     const row = asRecord(item);
-    const id = asString(row.id, `node-${index}`);
+
+    const id = asString(
+      row.id ?? row.node_id ?? row.nodeId ?? row.uid,
+      `node-${index}`,
+    );
+
+    const type = asString(
+      row.type ?? row.kind ?? row.node_type ?? row.nodeType,
+      "UNKNOWN",
+    );
 
     return {
       id,
-      type: asString(row.type, "UNKNOWN"),
-      label: asString(row.label ?? row.content, id),
+      type,
+      label: asString(row.label ?? row.name ?? row.content, id),
       status: asString(row.status) || undefined,
       content: asString(row.content) || undefined,
       agentId: asString(row.agent_id ?? row.agentId) || undefined,
@@ -180,13 +201,47 @@ function parseEdges(value: unknown): GraphEdge[] {
     return [];
   }
 
-  return value.map((item, index) => {
-    const row = asRecord(item);
-    const source = asString(row.source, "");
-    const target = asString(row.target, "");
-    const type = normalizeEdgeType(asString(row.type, "RELATION"));
+  const edges: GraphEdge[] = [];
 
-    return {
+  for (const [index, item] of value.entries()) {
+    const row = asRecord(item);
+
+    const source = asString(
+      row.source ??
+        row.from ??
+        row.u ??
+        row.src ??
+        row.from_id ??
+        row.fromId ??
+        row.source_id ??
+        row.sourceId,
+      "",
+    );
+
+    const target = asString(
+      row.target ??
+        row.to ??
+        row.v ??
+        row.dst ??
+        row.to_id ??
+        row.toId ??
+        row.target_id ??
+        row.targetId,
+      "",
+    );
+
+    const rawType = asString(
+      row.type ?? row.relation ?? row.edge_type ?? row.edgeType ?? row.kind,
+      "SUPPORT",
+    );
+
+    if (!source || !target) {
+      continue;
+    }
+
+    const type = normalizeEdgeType(rawType);
+
+    edges.push({
       id: asString(row.id, `${source}->${target}:${type}:${index}`),
       source,
       target,
@@ -194,8 +249,10 @@ function parseEdges(value: unknown): GraphEdge[] {
       weight: asNumber(row.weight, 1),
       metadata: asMaybeRecord(row.metadata),
       raw: item,
-    };
-  });
+    });
+  }
+
+  return edges;
 }
 
 function parseTaskLayerGraph(
@@ -467,7 +524,9 @@ export function normalizeGraph(
     sessionId,
     round,
     nodes: parseNodes(graphData.nodes ?? payload.nodes),
-    edges: parseEdges(graphData.edges ?? payload.edges),
+    edges: parseEdges(
+      graphData.edges ?? graphData.links ?? payload.edges ?? payload.links,
+    ),
     raw,
   };
 }
