@@ -151,14 +151,6 @@ export function MainShell({ route, onNavigate, children }: MainShellProps) {
           回放导出
         </button>
 
-        <button
-          className={route === "/app/playbook" ? "ux-nav-active" : ""}
-          onClick={() => onNavigate("/app/playbook")}
-          type="button"
-        >
-          演示剧本
-        </button>
-
         <button onClick={() => onNavigate("/admin/debug")} type="button">
           进入后台调试
         </button>

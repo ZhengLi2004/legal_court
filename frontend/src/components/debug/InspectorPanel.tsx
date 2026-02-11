@@ -7,6 +7,10 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function isEmptyRecord(value: unknown): boolean {
+  return Object.keys(asRecord(value)).length === 0;
+}
+
 function toPretty(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
@@ -36,9 +40,12 @@ export function InspectorPanel({ snapshot, artifact }: InspectorPanelProps) {
 
   const payload = useMemo(() => unwrapPayload(snapshot?.raw ?? {}), [snapshot]);
 
-  const contextPayload =
+  const latestContext =
     payload.latest_context ?? payload.context ?? payload.latestContext ?? {};
 
+  const idInventory = payload.id_inventory ?? {};
+  const hasLatestContext = !isEmptyRecord(latestContext);
+  const hasIdInventory = !isEmptyRecord(idInventory);
   const executionText = (artifact?.executionLogs ?? "").toLowerCase();
 
   const hasParserIssue =
@@ -68,11 +75,18 @@ export function InspectorPanel({ snapshot, artifact }: InspectorPanelProps) {
       {tab === "context" ? (
         <>
           <p className="line">latest_context + id_inventory</p>
-          <pre className="json-block">{toPretty(contextPayload)}</pre>
 
-          <pre className="json-block">
-            {toPretty(payload.id_inventory ?? {})}
-          </pre>
+          {hasLatestContext ? (
+            <pre className="json-block">{toPretty(latestContext)}</pre>
+          ) : null}
+
+          {hasIdInventory ? (
+            <pre className="json-block">{toPretty(idInventory)}</pre>
+          ) : null}
+
+          {!hasLatestContext && !hasIdInventory ? (
+            <p className="hint">暂无上下文数据。</p>
+          ) : null}
         </>
       ) : null}
 

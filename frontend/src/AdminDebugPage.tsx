@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import "@xyflow/react/dist/style.css";
 import { createCompatAdapter } from "./compat";
 
 import {
@@ -1325,12 +1324,14 @@ function App() {
 
               <p className="line">round: {snapshot.round}</p>
 
-              <p className="line">
-                root-claim status:{" "}
-                {rootClaimEntries.length > 0
-                  ? `${rootClaimValidatedCount}/${rootClaimEntries.length} validated`
-                  : "pending adjudication"}
-              </p>
+              {snapshot.phase === "finished" ? (
+                <p className="line">
+                  root-claim status:{" "}
+                  {rootClaimEntries.length > 0
+                    ? `${rootClaimValidatedCount}/${rootClaimEntries.length} validated`
+                    : "pending adjudication"}
+                </p>
+              ) : null}
 
               <div className="metrics">
                 <div>

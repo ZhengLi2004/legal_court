@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import "@xyflow/react/dist/style.css";
 import AdminDebugPage from "./AdminDebugPage";
 import { MainShell } from "./app/components/MainShell";
-import { DemoPlaybookPage } from "./app/pages/DemoPlaybookPage";
 import { GraphPage } from "./app/pages/GraphPage";
 import { JudgmentPage } from "./app/pages/JudgmentPage";
 import { LaunchPage } from "./app/pages/LaunchPage";
@@ -41,10 +39,6 @@ function normalizeRoute(pathname: string): AppRoute {
 
   if (pathname === "/app/replay") {
     return "/app/replay";
-  }
-
-  if (pathname === "/app/playbook") {
-    return "/app/playbook";
   }
 
   return "/app/launch";
@@ -123,7 +117,6 @@ function App() {
         {route === "/app/memory" ? <MemoryPage /> : null}
         {route === "/app/judgment" ? <JudgmentPage /> : null}
         {route === "/app/replay" ? <ReplayExportPage /> : null}
-        {route === "/app/playbook" ? <DemoPlaybookPage /> : null}
       </MainShell>
     </DebateProvider>
   );

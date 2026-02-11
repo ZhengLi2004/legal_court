@@ -6,7 +6,6 @@ export type AppRoute =
   | "/app/memory"
   | "/app/judgment"
   | "/app/replay"
-  | "/app/playbook"
   | "/admin/debug";
 
 export type AdapterMode = "auto" | "http" | "mock";

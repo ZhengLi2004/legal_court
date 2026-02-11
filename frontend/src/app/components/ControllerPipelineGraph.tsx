@@ -1,33 +1,7 @@
-import {
-  Background,
-  MarkerType,
-  ReactFlow,
-  type Edge,
-  type Node,
-} from "@xyflow/react";
-
+import { useMemo } from "react";
+import CytoscapeComponent from "react-cytoscapejs";
 import type { TurnArtifact } from "../../compat";
 type StepStatus = "done" | "active" | "pending" | "warning";
-
-function statusColor(status: StepStatus): {
-  bg: string;
-  border: string;
-  text: string;
-} {
-  if (status === "done") {
-    return { bg: "#dcfce7", border: "#15803d", text: "#14532d" };
-  }
-
-  if (status === "active") {
-    return { bg: "#dbeafe", border: "#1d4ed8", text: "#1e3a8a" };
-  }
-
-  if (status === "warning") {
-    return { bg: "#fee2e2", border: "#dc2626", text: "#7f1d1d" };
-  }
-
-  return { bg: "#f1f5f9", border: "#64748b", text: "#334155" };
-}
 
 function hasValue(value: unknown): boolean {
   if (value === null || value === undefined) {
@@ -91,6 +65,70 @@ function deriveStatuses(
   };
 }
 
+const PIPELINE_STYLESHEET = [
+  {
+    selector: "node",
+    style: {
+      shape: "round-rectangle",
+      label: "data(label)",
+      width: 126,
+      height: 52,
+      "font-size": "11px",
+      "font-weight": 700,
+      "text-valign": "center",
+      "text-halign": "center",
+      "background-color": "#f1f5f9",
+      "border-width": 2,
+      "border-color": "#64748b",
+      color: "#334155",
+      "overlay-opacity": 0,
+    },
+  },
+  {
+    selector: 'node[status = "done"]',
+    style: {
+      "background-color": "#dcfce7",
+      "border-color": "#15803d",
+      color: "#14532d",
+    },
+  },
+  {
+    selector: 'node[status = "active"]',
+    style: {
+      "background-color": "#dbeafe",
+      "border-color": "#1d4ed8",
+      color: "#1e3a8a",
+    },
+  },
+  {
+    selector: 'node[status = "warning"]',
+    style: {
+      "background-color": "#fee2e2",
+      "border-color": "#dc2626",
+      color: "#7f1d1d",
+    },
+  },
+  {
+    selector: "edge",
+    style: {
+      width: 2,
+      "curve-style": "bezier",
+      "line-color": "#0284c7",
+      "target-arrow-color": "#0284c7",
+      "target-arrow-shape": "triangle",
+      "arrow-scale": 0.9,
+    },
+  },
+  {
+    selector: ".retry-edge",
+    style: {
+      "line-color": "#dc2626",
+      "target-arrow-color": "#dc2626",
+      "line-style": "dashed",
+    },
+  },
+];
+
 interface ControllerPipelineGraphProps {
   artifact: TurnArtifact | null;
 }
@@ -100,75 +138,72 @@ export function ControllerPipelineGraph({
 }: ControllerPipelineGraphProps) {
   const status = deriveStatuses(artifact);
 
-  const nodes: Node[] = [
-    { id: "ASSESS", position: { x: 20, y: 120 }, data: { label: "ASSESS" } },
-    {
-      id: "DELEGATE",
-      position: { x: 190, y: 120 },
-      data: { label: "DELEGATE" },
-    },
-    { id: "WAIT", position: { x: 370, y: 120 }, data: { label: "WAIT" } },
-    { id: "DECIDE", position: { x: 540, y: 120 }, data: { label: "DECIDE" } },
-    { id: "DONE", position: { x: 710, y: 120 }, data: { label: "DONE" } },
-    { id: "RETRY", position: { x: 540, y: 260 }, data: { label: "RETRY" } },
-  ].map((node) => {
-    const row = statusColor(status[node.id] ?? "pending");
-
-    return {
-      ...node,
-      draggable: false,
-      selectable: false,
-      style: {
-        width: 132,
-        borderRadius: 10,
-        border: `1.5px solid ${row.border}`,
-        background: row.bg,
-        color: row.text,
-        textAlign: "center",
-        fontWeight: 700,
+  const elements = useMemo(
+    () => [
+      {
+        data: { id: "ASSESS", label: "ASSESS", status: status.ASSESS },
+        position: { x: 80, y: 120 },
       },
-    };
-  });
-
-  const edges: Edge[] = [
-    { id: "A-D", source: "ASSESS", target: "DELEGATE" },
-    { id: "D-W", source: "DELEGATE", target: "WAIT" },
-    { id: "W-C", source: "WAIT", target: "DECIDE" },
-    { id: "C-F", source: "DECIDE", target: "DONE" },
-    { id: "C-R", source: "DECIDE", target: "RETRY" },
-    { id: "R-D", source: "RETRY", target: "DELEGATE" },
-  ].map((edge) => ({
-    ...edge,
-    type: "smoothstep",
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: edge.id === "C-R" || edge.id === "R-D" ? "#dc2626" : "#0284c7",
-    },
-    style: {
-      stroke: edge.id === "C-R" || edge.id === "R-D" ? "#dc2626" : "#0284c7",
-      strokeDasharray:
-        edge.id === "C-R" || edge.id === "R-D" ? "6 4" : undefined,
-      strokeWidth: 1.8,
-    },
-    selectable: false,
-  }));
+      {
+        data: { id: "DELEGATE", label: "DELEGATE", status: status.DELEGATE },
+        position: { x: 250, y: 120 },
+      },
+      {
+        data: { id: "WAIT", label: "WAIT", status: status.WAIT },
+        position: { x: 430, y: 120 },
+      },
+      {
+        data: { id: "DECIDE", label: "DECIDE", status: status.DECIDE },
+        position: { x: 600, y: 120 },
+      },
+      {
+        data: { id: "DONE", label: "DONE", status: status.DONE },
+        position: { x: 770, y: 120 },
+      },
+      {
+        data: { id: "RETRY", label: "RETRY", status: status.RETRY },
+        position: { x: 600, y: 260 },
+      },
+      {
+        data: { id: "A-D", source: "ASSESS", target: "DELEGATE" },
+      },
+      {
+        data: { id: "D-W", source: "DELEGATE", target: "WAIT" },
+      },
+      {
+        data: { id: "W-C", source: "WAIT", target: "DECIDE" },
+      },
+      {
+        data: { id: "C-F", source: "DECIDE", target: "DONE" },
+      },
+      {
+        data: { id: "C-R", source: "DECIDE", target: "RETRY" },
+        classes: "retry-edge",
+      },
+      {
+        data: { id: "R-D", source: "RETRY", target: "DELEGATE" },
+        classes: "retry-edge",
+      },
+    ],
+    [status],
+  );
 
   return (
     <div className="ux-graph-canvas ux-graph-canvas-compact">
-      <ReactFlow
-        edges={edges}
-        fitView
-        fitViewOptions={{ padding: 0.18 }}
-        maxZoom={1.5}
+      <CytoscapeComponent
+        boxSelectionEnabled={false}
+        elements={elements}
+        layout={{
+          name: "preset",
+          fit: true,
+          padding: 24,
+        }}
+        maxZoom={1.8}
         minZoom={0.4}
-        nodes={nodes}
-        nodesConnectable={false}
-        nodesDraggable={false}
-        panOnDrag={false}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background gap={18} size={1} />
-      </ReactFlow>
+        stylesheet={PIPELINE_STYLESHEET}
+        style={{ width: "100%", height: "100%" }}
+        wheelSensitivity={0.18}
+      />
     </div>
   );
 }

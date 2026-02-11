@@ -249,13 +249,15 @@ export function LivePage() {
             <strong>{snapshot.metrics.supports}</strong>
           </p>
 
-          <p>
-            <span>根主张采纳</span>
+          {snapshot.phase === "finished" ? (
+            <p>
+              <span>根主张采纳</span>
 
-            <strong>
-              {validatedCount}/{rootClaimEntries.length || 0}
-            </strong>
-          </p>
+              <strong>
+                {validatedCount}/{rootClaimEntries.length || 0}
+              </strong>
+            </p>
+          ) : null}
         </div>
         <p className="ux-muted">收敛轨迹：{convergenceHistoryText}</p>
 

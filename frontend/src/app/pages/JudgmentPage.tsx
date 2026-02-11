@@ -91,13 +91,15 @@ export function JudgmentPage() {
             <strong>{snapshot.winner ?? "待裁决"}</strong>
           </p>
 
-          <p>
-            <span>根主张采纳</span>
+          {snapshot.phase === "finished" ? (
+            <p>
+              <span>根主张采纳</span>
 
-            <strong>
-              {validatedCount}/{rootClaimEntries.length || 0}
-            </strong>
-          </p>
+              <strong>
+                {validatedCount}/{rootClaimEntries.length || 0}
+              </strong>
+            </p>
+          ) : null}
 
           <p>
             <span>首选扩展数</span>
@@ -137,7 +139,9 @@ export function JudgmentPage() {
       <article className="ux-card">
         <h2>根主张状态表</h2>
 
-        {rootClaimEntries.length > 0 ? (
+        {snapshot.phase !== "finished" ? (
+          <p className="ux-empty">尚未裁决，暂无根主张状态。</p>
+        ) : rootClaimEntries.length > 0 ? (
           <div className="ux-list">
             {rootClaimEntries.map(([claimId, status]) => (
               <div className="ux-list-row ux-list-row-static" key={claimId}>
