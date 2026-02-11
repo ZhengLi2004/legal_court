@@ -9,6 +9,7 @@ import {
   toNodeFamily,
 } from "../graph/echarts/debateGraphEcharts";
 
+import { renderScrollableNodeTooltip } from "../graph/echarts/tooltip";
 import { nodeStatusLabel } from "../utils/payload";
 
 interface SimpleBafGraphProps {
@@ -98,6 +99,7 @@ export function SimpleBafGraph({
       return {
         id: node.id,
         name: shortText(node.label, 16),
+        tooltipTitle: node.label,
         value: node.label,
         symbolSize: preferred ? 54 : 42,
         itemStyle: {
@@ -128,13 +130,24 @@ export function SimpleBafGraph({
       backgroundColor: "#f8fafc",
       tooltip: {
         trigger: "item",
+        confine: true,
+        enterable: true,
         formatter: (params: unknown) => {
           const row = params as {
             dataType?: string;
-            data?: { value?: string };
+            data?: { id?: string; tooltipTitle?: string; value?: string };
           };
 
-          return row.dataType === "node" ? String(row.data?.value ?? "") : "";
+          if (row.dataType !== "node") {
+            return "";
+          }
+
+          const titleText = row.data?.tooltipTitle ?? row.data?.id ?? "";
+
+          return renderScrollableNodeTooltip(
+            String(titleText),
+            String(row.data?.value ?? ""),
+          );
         },
       },
       series: [

@@ -409,9 +409,24 @@ export function LivePage() {
                 data-dialogue-idx={row.idx}
                 key={`${row.idx}-${row.speakerLabel}-${row.text}`}
               >
-                <div className="ux-dialogue-bubble">
-                  <p className="ux-dialogue-speaker">{row.speakerLabel}</p>
-                  <p className="ux-dialogue-text">{row.text}</p>
+                <div className="ux-dialogue-main">
+                  <span className="ux-dialogue-avatar" aria-hidden="true">
+                    {row.speakerLabel.slice(0, 1)}
+                  </span>
+
+                  <div className="ux-dialogue-bubble">
+                    <div className="ux-dialogue-head">
+                      <p className="ux-dialogue-speaker">{row.speakerLabel}</p>
+
+                      <span className="ux-dialogue-index">#{row.idx + 1}</span>
+
+                      {row.isNew ? (
+                        <span className="ux-dialogue-tag">NEW</span>
+                      ) : null}
+                    </div>
+
+                    <p className="ux-dialogue-text">{row.text}</p>
+                  </div>
                 </div>
               </div>
             ))}

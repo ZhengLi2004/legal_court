@@ -3,6 +3,7 @@ import * as echarts from "echarts";
 import type { EChartsOption, EChartsType } from "echarts";
 import type { MemoryView } from "../../compat";
 import { shortText } from "../graph/echarts/debateGraphEcharts";
+import { renderScrollableNodeTooltip } from "../graph/echarts/tooltip";
 
 interface TaskLayerGraphProps {
   memoryView: MemoryView | null;
@@ -125,6 +126,7 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
       return {
         id: node.id,
         name: shortText(node.label, 14),
+        tooltipTitle: node.label,
         value: `${node.label}\n${node.kind}`,
         symbol: "circle",
         symbolSize: isSelected ? 44 : 34,
@@ -166,15 +168,23 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
       tooltip: {
         trigger: "item",
         confine: true,
+        enterable: true,
         formatter: (params: unknown) => {
           const row = params as {
             dataType?: string;
-            data?: { value?: string };
+            data?: { id?: string; tooltipTitle?: string; value?: string };
           };
 
-          return row.dataType === "node"
-            ? String(row.data?.value ?? "").replace(/\n/g, "<br/>")
-            : "";
+          if (row.dataType !== "node") {
+            return "";
+          }
+
+          const titleText = row.data?.tooltipTitle ?? row.data?.id ?? "";
+
+          return renderScrollableNodeTooltip(
+            String(titleText),
+            String(row.data?.value ?? ""),
+          );
         },
       },
       series: [

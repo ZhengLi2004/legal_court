@@ -11,6 +11,7 @@ import {
   type DebateEdgeRelation,
 } from "../../app/graph/echarts/debateGraphEcharts";
 
+import { renderScrollableNodeTooltip } from "../../app/graph/echarts/tooltip";
 import type { GraphDiffView, GraphView, TurnArtifact } from "../../compat";
 type FocusMode = "all" | "changed" | "changedNeighbors" | "rejected";
 type ChainMode = "all" | "support" | "conflict";
@@ -549,6 +550,7 @@ export function GraphDiffPanel({
       return {
         id: node.id,
         name: shortText(node.label, 16),
+        tooltipTitle: node.label,
         value: node.content,
         category: communities.get(node.id) ?? 0,
         symbol: "circle",
@@ -599,15 +601,23 @@ export function GraphDiffPanel({
       tooltip: {
         trigger: "item",
         confine: true,
+        enterable: true,
         formatter: (params: unknown) => {
           const row = params as {
             dataType?: string;
-            data?: { value?: string };
+            data?: { id?: string; tooltipTitle?: string; value?: string };
           };
 
-          return row.dataType === "node"
-            ? String(row.data?.value ?? "").replace(/\n/g, "<br/>")
-            : "";
+          if (row.dataType !== "node") {
+            return "";
+          }
+
+          const titleText = row.data?.tooltipTitle ?? row.data?.id ?? "";
+
+          return renderScrollableNodeTooltip(
+            String(titleText),
+            String(row.data?.value ?? ""),
+          );
         },
       },
       series: [

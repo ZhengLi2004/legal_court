@@ -11,6 +11,8 @@ import {
   type DebateNodeFamily,
 } from "../graph/echarts/debateGraphEcharts";
 
+import { renderScrollableNodeTooltip } from "../graph/echarts/tooltip";
+
 interface ForceArgumentGraphProps {
   graph: GraphView | null;
   title?: string;
@@ -63,11 +65,11 @@ const CATEGORY_COLOR: Record<NodeLegendCategory, string> = {
 };
 
 const CATEGORY_SIZE: Record<NodeLegendCategory, number> = {
-  事实: 20,
-  原告观点: 34,
-  核心诉求: 40,
-  法条: 16,
-  被告观点: 34,
+  事实: 28,
+  原告观点: 44,
+  核心诉求: 52,
+  法条: 24,
+  被告观点: 44,
 };
 
 function resolveLegendCategory(node: {
@@ -220,6 +222,7 @@ export function ForceArgumentGraph({
     const nodes = model.nodes.map((node) => ({
       id: node.id,
       name: shortText(node.label, 16),
+      tooltipTitle: node.label,
       value: node.content,
       category: categoryIndex.get(node.category) ?? 0,
       symbol: "circle",
@@ -254,6 +257,7 @@ export function ForceArgumentGraph({
       tooltip: {
         trigger: "item",
         confine: true,
+        enterable: true,
         backgroundColor: "rgba(30, 41, 59, 0.96)",
         borderWidth: 0,
         textStyle: {
@@ -264,27 +268,40 @@ export function ForceArgumentGraph({
         formatter: (params: unknown) => {
           const row = params as {
             dataType?: string;
-            data?: { id?: string; name?: string; value?: string };
+
+            data?: {
+              id?: string;
+              name?: string;
+              tooltipTitle?: string;
+              value?: string;
+            };
           };
 
           if (row.dataType === "node") {
-            const titleText = row.data?.name ?? row.data?.id ?? "";
-            return `${titleText}<br/>${String(row.data?.value ?? "").replace(/\n/g, "<br/>")}`;
+            const titleText =
+              row.data?.tooltipTitle ?? row.data?.name ?? row.data?.id ?? "";
+
+            return renderScrollableNodeTooltip(
+              String(titleText),
+              String(row.data?.value ?? ""),
+            );
           }
 
           return "";
         },
       },
       legend: {
-        top: 10,
+        top: 8,
         left: "center",
-        icon: "roundRect",
-        itemWidth: 36,
-        itemHeight: 18,
+        icon: "circle",
+        itemWidth: 14,
+        itemHeight: 10,
+        itemGap: 18,
         data: LEGEND_ORDER,
         textStyle: {
           color: "#334155",
-          fontSize: 24,
+          fontSize: 12,
+          fontWeight: 500,
         },
       },
       series: [
@@ -302,9 +319,9 @@ export function ForceArgumentGraph({
             },
           })),
           force: {
-            repulsion: 680,
+            repulsion: 760,
             gravity: 0.05,
-            edgeLength: [120, 260],
+            edgeLength: [130, 280],
             friction: 0.08,
             layoutAnimation: true,
           },
