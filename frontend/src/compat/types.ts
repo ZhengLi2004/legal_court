@@ -225,6 +225,32 @@ export interface ReplayExportView {
   raw?: unknown;
 }
 
+export interface FrontendSnapshotListItem {
+  snapshotId: string;
+  label: string;
+  sourceSessionId: string;
+  createdAt: string;
+  eventCount: number;
+  artifactCount: number;
+  snapshotCount: number;
+  raw?: unknown;
+}
+
+export interface FrontendSnapshotLoadResult {
+  snapshot: FrontendSnapshotListItem;
+  frontendState: Record<string, unknown>;
+
+  session: {
+    sessionId: string;
+    status: string;
+    currentRound: number;
+    updatedAt: string;
+  };
+
+  snapshotPayload: DebateSnapshot | null;
+  raw?: unknown;
+}
+
 export interface AdapterCapabilities {
   supportsStreaming: boolean;
   supportsDiff: boolean;
@@ -238,6 +264,25 @@ export interface SessionAdapter {
   getSnapshot(sessionId: string): Promise<DebateSnapshot>;
   listSessions(): Promise<DebateSnapshot[]>;
   getSnapshots(sessionId: string): Promise<SnapshotIndexItem[]>;
+
+  saveFrontendSnapshot(input: {
+    sessionId: string;
+    label?: string;
+    frontendState?: Record<string, unknown>;
+  }): Promise<FrontendSnapshotListItem>;
+
+  importFrontendSnapshot(input: {
+    bundle: Record<string, unknown>;
+    label?: string;
+    frontendState?: Record<string, unknown>;
+  }): Promise<FrontendSnapshotListItem>;
+
+  listFrontendSnapshots(
+    limit?: number,
+    offset?: number,
+  ): Promise<FrontendSnapshotListItem[]>;
+
+  loadFrontendSnapshot(snapshotId: string): Promise<FrontendSnapshotLoadResult>;
 }
 
 export interface GraphAdapter {

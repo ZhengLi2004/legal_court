@@ -14,6 +14,8 @@ import type {
   MemoryView,
   TaskLayerGraph,
   ReplayExportView,
+  FrontendSnapshotListItem,
+  FrontendSnapshotLoadResult,
   SnapshotIndexItem,
   TimelineEvent,
   TurnArtifact,
@@ -465,12 +467,15 @@ function deriveTermination(
   };
 }
 
-export function normalizeSnapshot(raw: unknown): DebateSnapshot {
+export function normalizeSnapshot(
+  raw: unknown,
+  fallbackSessionId = "",
+): DebateSnapshot {
   const payload = unwrapPayload(raw);
 
   const sessionId = asString(
     payload.session_id ?? payload.sessionId ?? payload.id,
-    "local-session",
+    fallbackSessionId,
   );
 
   const round = asNumber(payload.current_round ?? payload.round);
@@ -496,11 +501,11 @@ export function normalizeSnapshotList(raw: unknown): DebateSnapshot[] {
   const listCandidate = payload.sessions ?? payload.items ?? payload.list;
 
   if (Array.isArray(listCandidate)) {
-    return listCandidate.map(normalizeSnapshot);
+    return listCandidate.map((item) => normalizeSnapshot(item));
   }
 
   if (Array.isArray(raw)) {
-    return raw.map(normalizeSnapshot);
+    return raw.map((item) => normalizeSnapshot(item));
   }
 
   return [];
@@ -530,7 +535,7 @@ export function normalizeSnapshotIndex(raw: unknown): SnapshotIndexItem[] {
 
 export function normalizeGraph(
   raw: unknown,
-  fallbackSessionId = "local-session",
+  fallbackSessionId = "",
 ): GraphView {
   const payload = unwrapPayload(raw);
   const graphData = asRecord(payload.graph_data ?? payload.graph);
@@ -625,7 +630,7 @@ export function normalizeGraphDiff(
 
 export function normalizeMemory(
   raw: unknown,
-  fallbackSessionId = "local-session",
+  fallbackSessionId = "",
 ): MemoryView {
   const payload = unwrapPayload(raw);
   const insights = payload.insights ?? payload.insight_summaries;
@@ -739,7 +744,7 @@ export function normalizeTurnArtifacts(raw: unknown): TurnArtifact[] {
 
 export function normalizeDebugBundle(
   raw: unknown,
-  fallbackSessionId = "local-session",
+  fallbackSessionId = "",
 ): DebugBundleView {
   const payload = unwrapPayload(raw);
   const summary = asRecord(payload.snapshot_summary ?? payload.snapshotSummary);
@@ -801,7 +806,7 @@ export function normalizeDemoKeyframes(raw: unknown): DemoKeyframe[] {
 
 export function normalizeDemoRunResult(
   raw: unknown,
-  fallbackSessionId = "local-session",
+  fallbackSessionId = "",
 ): DemoRunResult {
   const payload = unwrapPayload(raw);
   const session = asRecord(payload.session);
@@ -831,7 +836,7 @@ export function normalizeDemoRunResult(
 
 export function normalizeReplayExport(
   raw: unknown,
-  fallbackSessionId = "local-session",
+  fallbackSessionId = "",
 ): ReplayExportView {
   const payload = unwrapPayload(raw);
   const session = asRecord(payload.session);
@@ -860,6 +865,100 @@ export function normalizeReplayExport(
     eventCount,
     artifactCount,
     snapshotCount,
+    raw,
+  };
+}
+
+export function normalizeFrontendSnapshotItem(
+  raw: unknown,
+): FrontendSnapshotListItem {
+  const payload = asRecord(raw);
+  const metadata = asRecord(payload.metadata);
+
+  return {
+    snapshotId: asString(payload.snapshot_id ?? payload.snapshotId),
+    label: asString(payload.label, "snapshot"),
+    sourceSessionId: asString(
+      payload.source_session_id ?? payload.sourceSessionId,
+      "unknown",
+    ),
+    createdAt: asString(
+      payload.created_at ?? payload.createdAt,
+      new Date(0).toISOString(),
+    ),
+    eventCount: asNumber(
+      payload.event_count ?? payload.eventCount ?? metadata.event_count,
+      0,
+    ),
+    artifactCount: asNumber(
+      payload.artifact_count ??
+        payload.artifactCount ??
+        metadata.artifact_count,
+      0,
+    ),
+    snapshotCount: asNumber(
+      payload.snapshot_count ??
+        payload.snapshotCount ??
+        metadata.snapshot_count,
+      0,
+    ),
+    raw,
+  };
+}
+
+export function normalizeFrontendSnapshotList(
+  raw: unknown,
+): FrontendSnapshotListItem[] {
+  const payload = unwrapPayload(raw);
+  const rows = payload.items ?? payload.snapshots ?? [];
+
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+
+  return rows.map((item) => normalizeFrontendSnapshotItem(item));
+}
+
+export function normalizeFrontendSnapshotLoadResult(
+  raw: unknown,
+): FrontendSnapshotLoadResult {
+  const payload = asRecord(raw);
+  const snapshot = normalizeFrontendSnapshotItem(payload.snapshot ?? {});
+  const frontendStateRaw = payload.frontend_state ?? payload.frontendState;
+
+  const frontendState =
+    frontendStateRaw !== null &&
+    typeof frontendStateRaw === "object" &&
+    !Array.isArray(frontendStateRaw)
+      ? (frontendStateRaw as Record<string, unknown>)
+      : {};
+
+  const session = asRecord(payload.session);
+  const snapshotPayloadRaw =
+    payload.snapshot_payload ?? payload.snapshotPayload;
+
+  const parsedSessionId = asString(session.session_id ?? session.sessionId, "");
+
+  const snapshotPayload =
+    snapshotPayloadRaw !== undefined
+      ? normalizeSnapshot(snapshotPayloadRaw, parsedSessionId)
+      : null;
+
+  const resolvedSessionId = parsedSessionId || snapshotPayload?.sessionId || "";
+
+  return {
+    snapshot,
+    frontendState,
+    session: {
+      sessionId: resolvedSessionId,
+      status: asString(session.status, "UNKNOWN"),
+      currentRound: asNumber(session.current_round ?? session.currentRound, 0),
+      updatedAt: asString(
+        session.updated_at ?? session.updatedAt,
+        new Date(0).toISOString(),
+      ),
+    },
+    snapshotPayload,
     raw,
   };
 }

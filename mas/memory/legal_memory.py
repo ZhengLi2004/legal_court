@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple
 
 import chromadb
+from chromadb.config import Settings as ChromaSettings
 from chromadb.utils import embedding_functions
 
 from tools.embedding import file_lock
@@ -54,7 +55,16 @@ class LegalGMemory(MASMemoryBase):
             self.persist_dir, self.config.path.storage_subdir_chroma
         )
         self.index_path = os.path.join(self.persist_dir, "legal_indices.json")
-        self.chroma_client = chromadb.PersistentClient(path=chroma_path)
+
+        try:
+            self.chroma_client = chromadb.PersistentClient(
+                path=chroma_path,
+                settings=ChromaSettings(anonymized_telemetry=False),
+            )
+
+        except TypeError:
+            os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+            self.chroma_client = chromadb.PersistentClient(path=chroma_path)
 
         self.chroma_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=self.embedding_model_path

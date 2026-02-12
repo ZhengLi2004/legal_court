@@ -26,6 +26,8 @@ export type {
   TaskLayerNode,
   TaskLayerEdge,
   ReplayExportView,
+  FrontendSnapshotListItem,
+  FrontendSnapshotLoadResult,
   SessionAdapter,
   SnapshotIndexItem,
   TimelineEvent,

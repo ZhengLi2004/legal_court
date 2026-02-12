@@ -9,6 +9,8 @@ import type {
   CreateSessionInput,
   DebateSnapshot,
   EngineAdapter,
+  FrontendSnapshotListItem,
+  FrontendSnapshotLoadResult,
   GraphAdapter,
   InsightAdapter,
   SessionAdapter,
@@ -61,6 +63,35 @@ export class CompatAdapterFacade implements EngineAdapter {
 
   getSnapshots(sessionId: string): Promise<SnapshotIndexItem[]> {
     return this.session.getSnapshots(sessionId);
+  }
+
+  saveFrontendSnapshot(input: {
+    sessionId: string;
+    label?: string;
+    frontendState?: Record<string, unknown>;
+  }): Promise<FrontendSnapshotListItem> {
+    return this.session.saveFrontendSnapshot(input);
+  }
+
+  importFrontendSnapshot(input: {
+    bundle: Record<string, unknown>;
+    label?: string;
+    frontendState?: Record<string, unknown>;
+  }): Promise<FrontendSnapshotListItem> {
+    return this.session.importFrontendSnapshot(input);
+  }
+
+  listFrontendSnapshots(
+    limit?: number,
+    offset?: number,
+  ): Promise<FrontendSnapshotListItem[]> {
+    return this.session.listFrontendSnapshots(limit, offset);
+  }
+
+  loadFrontendSnapshot(
+    snapshotId: string,
+  ): Promise<FrontendSnapshotLoadResult> {
+    return this.session.loadFrontendSnapshot(snapshotId);
   }
 }
 

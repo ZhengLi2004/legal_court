@@ -185,6 +185,21 @@
   width: min(220px, 100%);
 }
 
+.ux-file-input {
+  border-radius: 10px;
+  border: 1px solid rgb(59 130 246 / 0.4);
+  background: rgb(255 255 255 / 0.96);
+  color: #0f172a;
+  padding: 0.45rem 0.5rem;
+  width: min(380px, 100%);
+}
+
+.ux-note {
+  margin: 0.2rem 0 0.65rem;
+  color: #0f172a;
+  font-size: 0.84rem;
+}
+
 .ux-inline-field {
   margin-bottom: 0;
 }

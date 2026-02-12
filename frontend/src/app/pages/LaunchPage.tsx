@@ -1,3 +1,4 @@
+import { useState, type ChangeEvent } from "react";
 import { useDebate } from "../state/useDebate";
 import { phaseLabel } from "../utils/payload";
 
@@ -6,8 +7,22 @@ interface LaunchPageProps {
 }
 
 export function LaunchPage({ onGoLive }: LaunchPageProps) {
-  const { sessions, snapshot, createSession, selectSession, busyAction } =
-    useDebate();
+  const {
+    sessions,
+    sessionId,
+    snapshot,
+    frontendSnapshots,
+    createSession,
+    selectSession,
+    saveFrontendSnapshot,
+    importFrontendSnapshotBundle,
+    listFrontendSnapshots,
+    loadFrontendSnapshot,
+    busyAction,
+  } = useDebate();
+
+  const [snapshotLabel, setSnapshotLabel] = useState("");
+  const [snapshotMessage, setSnapshotMessage] = useState("");
 
   const handleCreate = async (): Promise<void> => {
     const ok = await createSession();
@@ -23,6 +38,69 @@ export function LaunchPage({ onGoLive }: LaunchPageProps) {
     if (ok) {
       onGoLive();
     }
+  };
+
+  const handleSaveSnapshot = async (): Promise<void> => {
+    if (!sessionId) {
+      setSnapshotMessage("请先创建或选择会话后再保存。");
+      return;
+    }
+
+    const ok = await saveFrontendSnapshot(snapshotLabel, {
+      route: "/app/live",
+    });
+
+    if (ok) {
+      setSnapshotMessage("会话已保存到服务器磁盘。");
+      setSnapshotLabel("");
+    }
+  };
+
+  const handleImportFile = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ): Promise<void> => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const content = await file.text();
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+
+      const label =
+        snapshotLabel.trim() || file.name.replace(/\.[^.]+$/, "") || "imported";
+
+      const ok = await importFrontendSnapshotBundle(parsed, label, {
+        route: "/app/live",
+      });
+
+      if (ok) {
+        setSnapshotMessage(`导入成功：${file.name}`);
+      } else {
+        setSnapshotMessage(`导入失败：${file.name}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSnapshotMessage(`解析失败：${message}`);
+    }
+  };
+
+  const handleLoadSnapshot = async (snapshotId: string): Promise<void> => {
+    const ok = await loadFrontendSnapshot(snapshotId);
+
+    if (ok) {
+      onGoLive();
+    } else {
+      setSnapshotMessage("恢复失败，请刷新存档列表后重试。");
+    }
+  };
+
+  const formatCreatedAt = (value: string): string => {
+    const ts = Date.parse(value);
+    return Number.isFinite(ts) ? new Date(ts).toLocaleString() : value;
   };
 
   return (
@@ -100,6 +178,87 @@ export function LaunchPage({ onGoLive }: LaunchPageProps) {
           </div>
         ) : (
           <p className="ux-empty">暂无历史会话。</p>
+        )}
+      </article>
+
+      <article className="ux-card ux-card-full">
+        <h2>会话存档与恢复</h2>
+
+        <p className="ux-muted">
+          当前会话可保存到服务器磁盘；也可手动导入本地 JSON 快照并恢复为新会话。
+        </p>
+
+        <label className="ux-field">
+          存档标签（可选）
+          <input
+            onChange={(event) => setSnapshotLabel(event.target.value)}
+            placeholder="例如：庭审-阶段A"
+            type="text"
+            value={snapshotLabel}
+          />
+        </label>
+
+        <div className="ux-row">
+          <button
+            disabled={!sessionId || Boolean(busyAction)}
+            onClick={() => {
+              void handleSaveSnapshot();
+            }}
+            type="button"
+          >
+            保存当前会话到磁盘
+          </button>
+
+          <button
+            disabled={Boolean(busyAction)}
+            onClick={() => {
+              void listFrontendSnapshots();
+            }}
+            type="button"
+          >
+            刷新存档列表
+          </button>
+        </div>
+
+        <label className="ux-field">
+          手动导入会话文件（JSON）
+          <input
+            accept=".json,application/json"
+            className="ux-file-input"
+            disabled={Boolean(busyAction)}
+            onChange={(event) => {
+              void handleImportFile(event);
+            }}
+            type="file"
+          />
+        </label>
+
+        {snapshotMessage ? <p className="ux-note">{snapshotMessage}</p> : null}
+
+        {frontendSnapshots.length > 0 ? (
+          <div className="ux-list">
+            {frontendSnapshots.map((item) => (
+              <button
+                className="ux-list-row"
+                disabled={Boolean(busyAction)}
+                key={item.snapshotId}
+                onClick={() => {
+                  void handleLoadSnapshot(item.snapshotId);
+                }}
+                type="button"
+              >
+                <span>{item.label || item.snapshotId}</span>
+                <span>{formatCreatedAt(item.createdAt)}</span>
+
+                <span>
+                  e{item.eventCount} / a{item.artifactCount} / s
+                  {item.snapshotCount}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="ux-empty">暂无会话存档。</p>
         )}
       </article>
     </section>

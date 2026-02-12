@@ -83,6 +83,10 @@ def _default_case_path() -> Path:
     )
 
 
+def _default_frontend_snapshots_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "tmp" / "frontend_snapshots"
+
+
 def _to_json_safe(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): _to_json_safe(v) for k, v in value.items()}
@@ -158,9 +162,14 @@ class SessionManager:
         self,
         engine_factory: Optional[Callable[[], Any]] = None,
         default_case_path: Optional[Path] = None,
+        frontend_snapshots_dir: Optional[Path] = None,
     ):
         self._engine_factory = engine_factory or _default_engine_factory
         self._default_case_path = default_case_path or _default_case_path()
+        self._frontend_snapshots_dir = (
+            frontend_snapshots_dir or _default_frontend_snapshots_dir()
+        )
+        self._recent_frontend_snapshot_loads: Dict[str, Dict[str, Any]] = {}
         self._sessions: Dict[str, DebateSession] = {}
 
     def list_sessions(self) -> List[DebateSession]:
@@ -621,6 +630,456 @@ class SessionManager:
                 "snapshot_count": len(snapshots),
             },
         }
+
+    @staticmethod
+    def _as_non_negative_int(value: Any, fallback: int = 0) -> int:
+        try:
+            parsed = int(value)
+            return parsed if parsed >= 0 else fallback
+
+        except (TypeError, ValueError):
+            return fallback
+
+    def _ensure_frontend_snapshots_dir(self) -> Path:
+        self._frontend_snapshots_dir.mkdir(parents=True, exist_ok=True)
+        return self._frontend_snapshots_dir
+
+    def _frontend_snapshot_path(self, snapshot_id: str) -> Path:
+        safe_id = "".join(
+            ch for ch in str(snapshot_id).strip() if ch.isalnum() or ch in {"-", "_"}
+        )
+
+        if not safe_id:
+            raise ValueError("Invalid frontend snapshot id")
+
+        return self._ensure_frontend_snapshots_dir() / f"{safe_id}.json"
+
+    def _extract_replay_metadata(self, bundle: Dict[str, Any]) -> Dict[str, int]:
+        metadata_raw = bundle.get("metadata", {})
+
+        if not isinstance(metadata_raw, dict):
+            metadata_raw = {}
+
+        events = bundle.get("events", [])
+        artifacts = bundle.get("turn_artifacts", [])
+        snapshots = bundle.get("snapshots", [])
+
+        event_count = (
+            len(events)
+            if isinstance(events, list)
+            else self._as_non_negative_int(metadata_raw.get("event_count"), 0)
+        )
+
+        artifact_count = (
+            len(artifacts)
+            if isinstance(artifacts, list)
+            else self._as_non_negative_int(metadata_raw.get("artifact_count"), 0)
+        )
+
+        snapshot_count = (
+            len(snapshots)
+            if isinstance(snapshots, list)
+            else self._as_non_negative_int(metadata_raw.get("snapshot_count"), 0)
+        )
+
+        return {
+            "event_count": event_count,
+            "artifact_count": artifact_count,
+            "snapshot_count": snapshot_count,
+        }
+
+    def _frontend_snapshot_item(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        metadata = record.get("metadata", {})
+
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        event_count = self._as_non_negative_int(metadata.get("event_count"), 0)
+        artifact_count = self._as_non_negative_int(metadata.get("artifact_count"), 0)
+        snapshot_count = self._as_non_negative_int(metadata.get("snapshot_count"), 0)
+
+        return {
+            "snapshot_id": str(record.get("snapshot_id", "")),
+            "label": str(record.get("label", "")),
+            "source_session_id": str(record.get("source_session_id", "")),
+            "created_at": str(record.get("created_at", "")),
+            "event_count": event_count,
+            "artifact_count": artifact_count,
+            "snapshot_count": snapshot_count,
+            "metadata": {
+                "event_count": event_count,
+                "artifact_count": artifact_count,
+                "snapshot_count": snapshot_count,
+            },
+        }
+
+    def _write_frontend_snapshot_record(self, record: Dict[str, Any]) -> None:
+        target = self._frontend_snapshot_path(str(record.get("snapshot_id", "")))
+
+        with target.open("w", encoding="utf-8") as file:
+            json.dump(record, file, ensure_ascii=False, indent=2)
+
+    def _read_frontend_snapshot_record(self, snapshot_id: str) -> Dict[str, Any]:
+        target = self._frontend_snapshot_path(snapshot_id)
+
+        if not target.exists():
+            raise FileNotFoundError(f"Frontend snapshot not found: {snapshot_id}")
+
+        try:
+            with target.open("r", encoding="utf-8") as file:
+                payload = json.load(file)
+
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Frontend snapshot payload is invalid JSON: {snapshot_id}"
+            ) from exc
+
+        if not isinstance(payload, dict):
+            raise ValueError(
+                f"Frontend snapshot payload must be an object: {snapshot_id}"
+            )
+
+        if not str(payload.get("snapshot_id", "")).strip():
+            payload["snapshot_id"] = str(snapshot_id).strip()
+
+        return payload
+
+    def _build_snapshot_payload(self, session: DebateSession) -> Dict[str, Any]:
+        base = session.engine.get_serializable_snapshot()
+        graph_stats = base.get("graph_stats", {})
+
+        if not isinstance(graph_stats, dict):
+            graph_stats = {}
+
+        payload = {
+            **base,
+            "session_id": session.session_id,
+            "status": session.status,
+            "created_at": session.created_at,
+            "updated_at": session.updated_at,
+            "metrics": {
+                "arguments": int(graph_stats.get("node_count", 0)),
+                "attacks": int(graph_stats.get("edge_attack_count", 0)),
+                "supports": int(graph_stats.get("edge_support_count", 0)),
+            },
+        }
+
+        if session.last_error:
+            payload["error"] = session.last_error
+
+        return _to_json_safe(payload)
+
+    def _frontend_snapshot_load_response(
+        self,
+        record: Dict[str, Any],
+        session: DebateSession,
+    ) -> Dict[str, Any]:
+        return {
+            "snapshot": self._frontend_snapshot_item(record),
+            "frontend_state": _to_json_safe(record.get("frontend_state", {})),
+            "session": {
+                "session_id": session.session_id,
+                "status": session.status,
+                "current_round": int(getattr(session.engine, "round_idx", 0)),
+                "updated_at": session.updated_at,
+            },
+            "snapshot_payload": self._build_snapshot_payload(session),
+        }
+
+    def _normalize_import_bundle(
+        self,
+        bundle: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        candidate: Any = bundle
+        replay_bundle = bundle.get("replay_bundle")
+
+        if isinstance(replay_bundle, dict):
+            candidate = replay_bundle
+
+        if not isinstance(candidate, dict):
+            raise ValueError("Imported bundle must be an object")
+
+        snapshots = candidate.get("snapshots")
+
+        if not isinstance(snapshots, list) or len(snapshots) == 0:
+            raise ValueError("Imported bundle missing non-empty snapshots")
+
+        return _to_json_safe(candidate)
+
+    def save_frontend_snapshot(
+        self,
+        session_id: str,
+        label: str = "",
+        frontend_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        self.get_session(session_id)
+        bundle = self.export_replay_bundle(session_id=session_id)
+        snapshot_id = f"fs_{uuid.uuid4().hex[:12]}"
+        normalized_label = str(label).strip() or f"{session_id}-snapshot"
+
+        record = {
+            "snapshot_id": snapshot_id,
+            "label": normalized_label,
+            "source_session_id": session_id,
+            "created_at": utc_now_iso(),
+            "frontend_state": _to_json_safe(frontend_state or {}),
+            "replay_bundle": _to_json_safe(bundle),
+            "metadata": self._extract_replay_metadata(bundle),
+        }
+
+        self._write_frontend_snapshot_record(record)
+        return self._frontend_snapshot_item(record)
+
+    def import_frontend_snapshot(
+        self,
+        bundle: Dict[str, Any],
+        label: str = "",
+        frontend_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        normalized_bundle = self._normalize_import_bundle(bundle)
+        session = normalized_bundle.get("session", {})
+
+        if not isinstance(session, dict):
+            session = {}
+
+        source_session_id = str(
+            session.get("session_id")
+            or normalized_bundle.get("session_id")
+            or "imported_session"
+        ).strip()
+
+        incoming_label = str(bundle.get("label", "")).strip()
+        normalized_label = str(label).strip() or incoming_label or "imported-snapshot"
+        incoming_frontend_state = bundle.get("frontend_state")
+        merged_frontend_state = frontend_state
+
+        if merged_frontend_state is None and isinstance(incoming_frontend_state, dict):
+            merged_frontend_state = incoming_frontend_state
+
+        snapshot_id = f"fs_{uuid.uuid4().hex[:12]}"
+
+        record = {
+            "snapshot_id": snapshot_id,
+            "label": normalized_label,
+            "source_session_id": source_session_id,
+            "created_at": utc_now_iso(),
+            "frontend_state": _to_json_safe(merged_frontend_state or {}),
+            "replay_bundle": normalized_bundle,
+            "metadata": self._extract_replay_metadata(normalized_bundle),
+        }
+
+        self._write_frontend_snapshot_record(record)
+        return self._frontend_snapshot_item(record)
+
+    def list_frontend_snapshots(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        limit_value = max(1, int(limit))
+        offset_value = max(0, int(offset))
+        snapshot_dir = self._ensure_frontend_snapshots_dir()
+        items: List[Dict[str, Any]] = []
+
+        files = sorted(
+            snapshot_dir.glob("*.json"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+
+        for path in files:
+            try:
+                with path.open("r", encoding="utf-8") as file:
+                    payload = json.load(file)
+
+                if not isinstance(payload, dict):
+                    continue
+
+                if not str(payload.get("snapshot_id", "")).strip():
+                    payload["snapshot_id"] = path.stem
+
+                items.append(self._frontend_snapshot_item(payload))
+
+            except Exception:
+                continue
+
+        total = len(items)
+        paged = items[offset_value : offset_value + limit_value]
+        return {"items": paged, "total": total}
+
+    def _normalize_restored_events(
+        self,
+        session_id: str,
+        events: Any,
+    ) -> List[Dict[str, Any]]:
+        if not isinstance(events, list):
+            return []
+
+        rows: List[Dict[str, Any]] = []
+
+        for idx, item in enumerate(events):
+            if not isinstance(item, dict):
+                continue
+
+            ts_ms = self._as_non_negative_int(
+                item.get("ts_ms"), int(time.time() * 1000)
+            )
+
+            round_raw = item.get("round_idx")
+            round_idx: Optional[int]
+
+            if round_raw is None:
+                round_idx = None
+
+            else:
+                try:
+                    round_idx = int(round_raw)
+
+                except (TypeError, ValueError):
+                    round_idx = None
+
+            event_name = str(item.get("event", "")).strip() or "replay_event"
+            source = str(item.get("source", "")).strip() or "replay"
+            turn_uid = str(item.get("turn_uid", "")).strip()
+            data = item.get("data", {})
+
+            if not isinstance(data, dict):
+                data = {"value": _to_json_safe(data)}
+
+            seq = idx + 1
+
+            rows.append(
+                {
+                    "event_id": f"{session_id}-{seq:06d}",
+                    "seq": seq,
+                    "ts_ms": ts_ms,
+                    "session_id": session_id,
+                    "turn_uid": turn_uid,
+                    "round_idx": round_idx,
+                    "event": event_name,
+                    "source": source,
+                    "data": _to_json_safe(data),
+                }
+            )
+
+        return rows
+
+    @staticmethod
+    def _restore_round_index(bundle: Dict[str, Any], snapshot_count: int) -> int:
+        if snapshot_count <= 0:
+            raise ValueError("No snapshot data available for restore")
+
+        snapshot = bundle.get("snapshot", {})
+        current_round = None
+
+        if isinstance(snapshot, dict):
+            current_round = snapshot.get("current_round")
+
+        try:
+            round_idx = (
+                int(current_round) if current_round is not None else snapshot_count - 1
+            )
+
+        except (TypeError, ValueError):
+            round_idx = snapshot_count - 1
+
+        if round_idx < 0:
+            return 0
+
+        if round_idx >= snapshot_count:
+            return snapshot_count - 1
+
+        return round_idx
+
+    async def load_frontend_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
+        record = self._read_frontend_snapshot_record(snapshot_id)
+        now_ts = time.time()
+        cache_entry = self._recent_frontend_snapshot_loads.get(snapshot_id, {})
+        recent_session_id = str(cache_entry.get("session_id", "")).strip()
+        recent_loaded_at = float(cache_entry.get("loaded_at", 0.0) or 0.0)
+
+        if recent_session_id and (now_ts - recent_loaded_at) <= 8.0:
+            recent_session = self._sessions.get(recent_session_id)
+
+            if recent_session is not None:
+                recent_session.updated_at = utc_now_iso()
+                return self._frontend_snapshot_load_response(record, recent_session)
+
+        replay_bundle = record.get("replay_bundle")
+
+        if not isinstance(replay_bundle, dict):
+            raise ValueError("Frontend snapshot has invalid replay bundle")
+
+        normalized_bundle = self._normalize_import_bundle(replay_bundle)
+        restored_session = await self.create_session(auto_setup=True)
+        engine = restored_session.engine
+        snapshots = normalized_bundle.get("snapshots", [])
+        turn_artifacts = normalized_bundle.get("turn_artifacts", [])
+        engine.round_snapshots = snapshots if isinstance(snapshots, list) else []
+
+        engine.turn_artifacts = (
+            _to_json_safe(turn_artifacts) if isinstance(turn_artifacts, list) else []
+        )
+
+        raw_snapshot = normalized_bundle.get("snapshot", {})
+
+        if isinstance(raw_snapshot, dict):
+            latest_turn_uid = str(raw_snapshot.get("latest_turn_uid", "")).strip()
+
+            if latest_turn_uid:
+                engine.latest_turn_uid = latest_turn_uid
+
+        restore_round_idx = self._restore_round_index(
+            normalized_bundle,
+            len(engine.round_snapshots),
+        )
+
+        restore_snapshot = getattr(engine, "restore_snapshot", None)
+
+        if not callable(restore_snapshot) or not restore_snapshot(restore_round_idx):
+            raise ValueError("Failed to restore engine state from frontend snapshot")
+
+        restored_events = self._normalize_restored_events(
+            restored_session.session_id,
+            normalized_bundle.get("events", []),
+        )
+
+        restored_session.events = restored_events
+        restored_session.next_seq = len(restored_events) + 1
+
+        if restored_events:
+            last_turn_uid = str(restored_events[-1].get("turn_uid", "")).strip()
+            restored_session.current_turn_uid = last_turn_uid
+            restored_session.last_turn_uid = last_turn_uid
+
+        else:
+            latest_turn_uid = str(getattr(engine, "latest_turn_uid", "")).strip()
+            restored_session.current_turn_uid = latest_turn_uid
+            restored_session.last_turn_uid = latest_turn_uid
+
+        session_meta = normalized_bundle.get("session", {})
+
+        if not isinstance(session_meta, dict):
+            session_meta = {}
+
+        failure_simulation = session_meta.get("failure_simulation", {})
+
+        if isinstance(failure_simulation, dict):
+            restored_session.failure_simulation = {
+                "es_unavailable": bool(failure_simulation.get("es_unavailable", False)),
+                "llm_timeout": bool(failure_simulation.get("llm_timeout", False)),
+            }
+
+        restored_session.status = self._derive_status(engine)
+        restored_session.last_error = ""
+        restored_session.updated_at = utc_now_iso()
+
+        self._recent_frontend_snapshot_loads[snapshot_id] = {
+            "session_id": restored_session.session_id,
+            "loaded_at": time.time(),
+        }
+
+        return self._frontend_snapshot_load_response(record, restored_session)
 
     def _make_keyframe(
         self,

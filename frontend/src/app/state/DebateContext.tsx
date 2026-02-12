@@ -12,6 +12,7 @@ import { createCompatAdapter } from "../../compat";
 import type {
   DebateSnapshot,
   DemoKeyframe,
+  FrontendSnapshotListItem,
   GraphDiffView,
   GraphView,
   MemoryView,
@@ -61,6 +62,10 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     null,
   );
 
+  const [frontendSnapshots, setFrontendSnapshots] = useState<
+    FrontendSnapshotListItem[]
+  >([]);
+
   const [streamStatus, setStreamStatus] = useState<StreamStatus>("idle");
   const [busyAction, setBusyAction] = useState<string>("");
   const [error, setError] = useState<string>("");
@@ -69,8 +74,13 @@ export function DebateProvider({ children }: { children: ReactNode }) {
   const snapshotRef = useRef<DebateSnapshot | null>(null);
   const sessionIdRef = useRef<string>("");
   const snapshotInFlightRef = useRef<Promise<boolean> | null>(null);
+  const snapshotInFlightSessionRef = useRef<string>("");
   const graphInFlightRef = useRef<Promise<boolean> | null>(null);
+  const graphInFlightSessionRef = useRef<string>("");
   const timelineInFlightRef = useRef<Promise<boolean> | null>(null);
+  const timelineInFlightSessionRef = useRef<string>("");
+  const frontendSnapshotsInFlightRef = useRef<Promise<boolean> | null>(null);
+  const restoringSnapshotIdRef = useRef<string>("");
   const sessionId = activeSessionId;
   const clearError = useCallback(() => setError(""), []);
 
@@ -178,7 +188,10 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    if (snapshotInFlightRef.current) {
+    if (
+      snapshotInFlightRef.current &&
+      snapshotInFlightSessionRef.current === targetSessionId
+    ) {
       return snapshotInFlightRef.current;
     }
 
@@ -204,11 +217,19 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       }
     })();
 
-    snapshotInFlightRef.current = task.finally(() => {
-      snapshotInFlightRef.current = null;
+    let inFlight: Promise<boolean>;
+
+    inFlight = task.finally(() => {
+      if (snapshotInFlightRef.current === inFlight) {
+        snapshotInFlightRef.current = null;
+        snapshotInFlightSessionRef.current = "";
+      }
     });
 
-    return snapshotInFlightRef.current;
+    snapshotInFlightSessionRef.current = targetSessionId;
+    snapshotInFlightRef.current = inFlight;
+
+    return inFlight;
   }, [adapter, sessionId, applySnapshot]);
 
   const step = useCallback(async (): Promise<boolean> => {
@@ -260,7 +281,10 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    if (graphInFlightRef.current) {
+    if (
+      graphInFlightRef.current &&
+      graphInFlightSessionRef.current === targetSessionId
+    ) {
       return graphInFlightRef.current;
     }
 
@@ -281,11 +305,19 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       }
     })();
 
-    graphInFlightRef.current = task.finally(() => {
-      graphInFlightRef.current = null;
+    let inFlight: Promise<boolean>;
+
+    inFlight = task.finally(() => {
+      if (graphInFlightRef.current === inFlight) {
+        graphInFlightRef.current = null;
+        graphInFlightSessionRef.current = "";
+      }
     });
 
-    return graphInFlightRef.current;
+    graphInFlightSessionRef.current = targetSessionId;
+    graphInFlightRef.current = inFlight;
+
+    return inFlight;
   }, [adapter, sessionId]);
 
   const loadGraphAtRound = useCallback(
@@ -355,7 +387,10 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
-      if (timelineInFlightRef.current) {
+      if (
+        timelineInFlightRef.current &&
+        timelineInFlightSessionRef.current === targetSessionId
+      ) {
         return timelineInFlightRef.current;
       }
 
@@ -379,11 +414,19 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         }
       })();
 
-      timelineInFlightRef.current = task.finally(() => {
-        timelineInFlightRef.current = null;
+      let inFlight: Promise<boolean>;
+
+      inFlight = task.finally(() => {
+        if (timelineInFlightRef.current === inFlight) {
+          timelineInFlightRef.current = null;
+          timelineInFlightSessionRef.current = "";
+        }
       });
 
-      return timelineInFlightRef.current;
+      timelineInFlightSessionRef.current = targetSessionId;
+      timelineInFlightRef.current = inFlight;
+
+      return inFlight;
     },
     [adapter, replaceTimeline, sessionId],
   );
@@ -534,6 +577,139 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     sessionId,
   ]);
 
+  const listFrontendSnapshots = useCallback(
+    async (limit = 20): Promise<boolean> => {
+      if (frontendSnapshotsInFlightRef.current) {
+        return frontendSnapshotsInFlightRef.current;
+      }
+
+      const task = (async (): Promise<boolean> => {
+        try {
+          const rows = await adapter.listFrontendSnapshots(limit, 0);
+          setFrontendSnapshots(rows);
+          return true;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          setError(message);
+          return false;
+        }
+      })();
+
+      frontendSnapshotsInFlightRef.current = task.finally(() => {
+        frontendSnapshotsInFlightRef.current = null;
+      });
+
+      return frontendSnapshotsInFlightRef.current;
+    },
+    [adapter],
+  );
+
+  const saveFrontendSnapshot = useCallback(
+    async (
+      label = "",
+      frontendState: Record<string, unknown> = {},
+    ): Promise<boolean> => {
+      if (!sessionId) {
+        return false;
+      }
+
+      setBusyAction("saveFrontendSnapshot");
+      setError("");
+
+      try {
+        await adapter.saveFrontendSnapshot({
+          sessionId,
+          label,
+          frontendState,
+        });
+
+        await listFrontendSnapshots();
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        return false;
+      } finally {
+        setBusyAction("");
+      }
+    },
+    [adapter, listFrontendSnapshots, sessionId],
+  );
+
+  const importFrontendSnapshotBundle = useCallback(
+    async (
+      bundle: Record<string, unknown>,
+      label = "",
+      frontendState: Record<string, unknown> = {},
+    ): Promise<boolean> => {
+      setBusyAction("importFrontendSnapshot");
+      setError("");
+
+      try {
+        await adapter.importFrontendSnapshot({
+          bundle,
+          label,
+          frontendState,
+        });
+
+        await listFrontendSnapshots();
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        return false;
+      } finally {
+        setBusyAction("");
+      }
+    },
+    [adapter, listFrontendSnapshots],
+  );
+
+  const loadFrontendSnapshot = useCallback(
+    async (snapshotId: string): Promise<boolean> => {
+      if (!snapshotId || restoringSnapshotIdRef.current === snapshotId) {
+        return false;
+      }
+
+      restoringSnapshotIdRef.current = snapshotId;
+      setBusyAction("loadFrontendSnapshot");
+      setError("");
+
+      try {
+        const loaded = await adapter.loadFrontendSnapshot(snapshotId);
+        const restoredSessionId = loaded.session.sessionId;
+
+        if (!restoredSessionId) {
+          setError("loadFrontendSnapshot: missing restored session_id");
+          return false;
+        }
+
+        setActiveSessionId(restoredSessionId);
+
+        if (
+          loaded.snapshotPayload &&
+          loaded.snapshotPayload.sessionId === restoredSessionId
+        ) {
+          applySnapshot(loaded.snapshotPayload);
+        } else {
+          const refreshed = await adapter.getSnapshot(restoredSessionId);
+          applySnapshot(refreshed);
+        }
+
+        await listSessions();
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        return false;
+      } finally {
+        restoringSnapshotIdRef.current = "";
+        setBusyAction("");
+      }
+    },
+    [adapter, applySnapshot, listSessions],
+  );
+
   const snapshotRound = snapshot?.round;
   const snapshotSession = snapshot?.sessionId;
   const graphRound = graphView?.round;
@@ -541,7 +717,8 @@ export function DebateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void listSessions();
-  }, [listSessions]);
+    void listFrontendSnapshots();
+  }, [listFrontendSnapshots, listSessions]);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -568,8 +745,11 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       snapshotRef.current = null;
       sessionIdRef.current = "";
       snapshotInFlightRef.current = null;
+      snapshotInFlightSessionRef.current = "";
       graphInFlightRef.current = null;
+      graphInFlightSessionRef.current = "";
       timelineInFlightRef.current = null;
+      timelineInFlightSessionRef.current = "";
       return;
     }
 
@@ -741,6 +921,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       memoryView,
       demoKeyframes,
       replayExport,
+      frontendSnapshots,
       busyAction,
       error,
       clearError,
@@ -761,6 +942,10 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       exportReplayJson,
       exportGraphGexf,
       loadReplayBundle,
+      saveFrontendSnapshot,
+      importFrontendSnapshotBundle,
+      listFrontendSnapshots,
+      loadFrontendSnapshot,
     }),
     [
       adapterMode,
@@ -773,10 +958,14 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       error,
       exportGraphGexf,
       exportReplayJson,
+      frontendSnapshots,
       graphDiff,
       graphView,
+      importFrontendSnapshotBundle,
+      listFrontendSnapshots,
       listSessions,
       loadDemoKeyframes,
+      loadFrontendSnapshot,
       loadGraph,
       loadGraphAtRound,
       loadGraphDiff,
@@ -789,6 +978,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       previousSnapshot,
       refreshSnapshot,
       replayExport,
+      saveFrontendSnapshot,
       selectSession,
       sessionId,
       sessions,

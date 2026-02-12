@@ -5,6 +5,7 @@ import type {
   DemoKeyframe,
   GraphDiffView,
   GraphView,
+  FrontendSnapshotListItem,
   MemoryView,
   ReplayExportView,
   SnapshotIndexItem,
@@ -30,6 +31,7 @@ export interface DebateContextValue {
   memoryView: MemoryView | null;
   demoKeyframes: DemoKeyframe[];
   replayExport: ReplayExportView | null;
+  frontendSnapshots: FrontendSnapshotListItem[];
   busyAction: string;
   error: string;
   clearError: () => void;
@@ -55,6 +57,20 @@ export interface DebateContextValue {
   exportReplayJson: () => Promise<boolean>;
   exportGraphGexf: (round?: number) => Promise<Blob | null>;
   loadReplayBundle: () => Promise<boolean>;
+
+  saveFrontendSnapshot: (
+    label?: string,
+    frontendState?: Record<string, unknown>,
+  ) => Promise<boolean>;
+
+  importFrontendSnapshotBundle: (
+    bundle: Record<string, unknown>,
+    label?: string,
+    frontendState?: Record<string, unknown>,
+  ) => Promise<boolean>;
+
+  listFrontendSnapshots: (limit?: number) => Promise<boolean>;
+  loadFrontendSnapshot: (snapshotId: string) => Promise<boolean>;
 }
 
 export const DebateContext = createContext<DebateContextValue | null>(null);

@@ -2,9 +2,9 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
-BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
+BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
-FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 HEALTH_TIMEOUT_SEC="${HEALTH_TIMEOUT_SEC:-30}"
 LOG_DIR="$ROOT_DIR/logs"
@@ -45,15 +45,17 @@ port_is_free() {
 	python - "$port" <<'PY'
 import socket
 import sys
-
 port = int(sys.argv[1])
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.settimeout(0.6)
+
 try:
-    code = sock.connect_ex(("127.0.0.1", port))
+    code = sock.connect_ex(("0.0.0.0", port))
     sys.exit(1 if code == 0 else 0)
+
 except Exception:
     sys.exit(0)
+
 finally:
     sock.close()
 PY
@@ -68,7 +70,6 @@ import json
 import sys
 import time
 import urllib.request
-
 url = sys.argv[1]
 timeout = int(sys.argv[2])
 start = time.time()
@@ -100,7 +101,6 @@ wait_port_open() {
 import socket
 import sys
 import time
-
 host = sys.argv[1]
 port = int(sys.argv[2])
 timeout = int(sys.argv[3])

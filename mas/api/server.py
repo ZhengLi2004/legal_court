@@ -50,6 +50,24 @@ class FailureSimulationRequest(BaseModel):
     enabled: bool = Field(default=True)
 
 
+class SaveFrontendSnapshotRequest(BaseModel):
+    """Request body for saving frontend snapshot payloads."""
+
+    model_config = ConfigDict(extra="forbid")
+    session_id: str
+    label: Optional[str] = Field(default="")
+    frontend_state: Optional[Dict[str, Any]] = Field(default=None)
+
+
+class ImportFrontendSnapshotRequest(BaseModel):
+    """Request body for importing a frontend snapshot payload."""
+
+    model_config = ConfigDict(extra="forbid")
+    bundle: Dict[str, Any]
+    label: Optional[str] = Field(default="")
+    frontend_state: Optional[Dict[str, Any]] = Field(default=None)
+
+
 def _default_case_file() -> Path:
     return (
         Path(__file__).resolve().parents[2]
@@ -124,6 +142,14 @@ def create_app(
     cases = case_rows if case_rows is not None else _load_cases()
     case_index = {str(row.get("uid", "")): row for row in cases if row.get("uid")}
 
+    @app.get("/")
+    async def root() -> Dict[str, str]:
+        return {"service": "Legal Court API", "version": "0.1.0"}
+
+    @app.get("/favicon.ico", status_code=204)
+    async def favicon() -> Response:
+        return Response(status_code=204)
+
     @app.get("/api/v1/health")
     async def health() -> Dict[str, str]:
         return {"status": "ok"}
@@ -166,6 +192,73 @@ def create_app(
         except Exception as exc:
             raise HTTPException(
                 status_code=500, detail=f"Create session failed: {exc}"
+            ) from exc
+
+    @app.post("/api/v1/frontend-snapshots")
+    async def save_frontend_snapshot(
+        body: SaveFrontendSnapshotRequest,
+    ) -> Dict[str, Any]:
+        try:
+            return manager.save_frontend_snapshot(
+                session_id=body.session_id,
+                label=body.label or "",
+                frontend_state=body.frontend_state,
+            )
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Save frontend snapshot failed: {exc}",
+            ) from exc
+
+    @app.post("/api/v1/frontend-snapshots/import")
+    async def import_frontend_snapshot(
+        body: ImportFrontendSnapshotRequest,
+    ) -> Dict[str, Any]:
+        try:
+            return manager.import_frontend_snapshot(
+                bundle=body.bundle,
+                label=body.label or "",
+                frontend_state=body.frontend_state,
+            )
+
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Import frontend snapshot failed: {exc}",
+            ) from exc
+
+    @app.get("/api/v1/frontend-snapshots")
+    async def list_frontend_snapshots(
+        limit: int = Query(20, ge=1, le=200),
+        offset: int = Query(0, ge=0),
+    ) -> Dict[str, Any]:
+        return manager.list_frontend_snapshots(limit=limit, offset=offset)
+
+    @app.post("/api/v1/frontend-snapshots/{snapshot_id}/load")
+    async def load_frontend_snapshot(snapshot_id: str) -> Dict[str, Any]:
+        try:
+            return await manager.load_frontend_snapshot(snapshot_id)
+
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Load frontend snapshot failed: {exc}",
             ) from exc
 
     @app.get("/api/v1/sessions")
