@@ -1,9 +1,7 @@
 import { HttpTransport, HttpTransportError } from "./httpTransport";
-import { MockTransport } from "./mockTransport";
 import type { CompatTransport, TransportRequest } from "./transport";
 
 export interface AdapterOptions {
-  mode?: "auto" | "http" | "mock";
   baseUrl?: string;
 }
 
@@ -21,23 +19,17 @@ function isNotFound(err: unknown): boolean {
 }
 
 export class CompatClient {
-  readonly mode: "auto" | "http" | "mock";
   readonly baseUrl: string;
   private readonly httpTransport: CompatTransport;
-  private readonly mockTransport: CompatTransport;
   private activeTransport: CompatTransport;
 
   constructor(options: AdapterOptions = {}) {
-    this.mode = options.mode ?? "auto";
     this.baseUrl = options.baseUrl ?? "/api";
     this.httpTransport = new HttpTransport(this.baseUrl);
-    this.mockTransport = new MockTransport();
-
-    this.activeTransport =
-      this.mode === "mock" ? this.mockTransport : this.httpTransport;
+    this.activeTransport = this.httpTransport;
   }
 
-  get transportKind(): "mock" | "http" {
+  get transportKind(): "http" {
     return this.activeTransport.kind;
   }
 
@@ -61,11 +53,6 @@ export class CompatClient {
         if (isNotFound(err)) {
           lastError = err;
           continue;
-        }
-
-        if (this.mode === "auto" && this.activeTransport.kind === "http") {
-          this.activeTransport = this.mockTransport;
-          return this.request(candidate);
         }
 
         lastError = err;

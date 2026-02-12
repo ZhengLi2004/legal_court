@@ -120,14 +120,6 @@ export function MainShell({ route, onNavigate, children }: MainShellProps) {
         </button>
 
         <button
-          className={route === "/app/graph" ? "ux-nav-active" : ""}
-          onClick={() => onNavigate("/app/graph")}
-          type="button"
-        >
-          论证图谱
-        </button>
-
-        <button
           className={route === "/app/team" ? "ux-nav-active" : ""}
           onClick={() => onNavigate("/app/team")}
           type="button"

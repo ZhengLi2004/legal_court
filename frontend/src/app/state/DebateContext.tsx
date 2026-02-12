@@ -23,7 +23,6 @@ import type {
 
 import type { AdapterMode, StreamStatus } from "../types";
 import { DebateContext, type DebateContextValue } from "./debateContextObject";
-const envMode = import.meta.env.VITE_COMPAT_MODE;
 const envBaseUrl = import.meta.env.VITE_API_BASE_URL;
 
 function sortedTimeline(rows: TimelineEvent[]): TimelineEvent[] {
@@ -31,13 +30,11 @@ function sortedTimeline(rows: TimelineEvent[]): TimelineEvent[] {
 }
 
 export function DebateProvider({ children }: { children: ReactNode }) {
-  const adapterMode: AdapterMode =
-    envMode === "http" || envMode === "mock" ? envMode : "auto";
+  const adapterMode: AdapterMode = "http";
 
   const adapter = useMemo(
-    () =>
-      createCompatAdapter({ mode: adapterMode, baseUrl: envBaseUrl || "/api" }),
-    [adapterMode],
+    () => createCompatAdapter({ baseUrl: envBaseUrl || "/api" }),
+    [],
   );
 
   const [activeSessionId, setActiveSessionId] = useState<string>("");
@@ -275,20 +272,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
           return false;
         }
 
-        setGraphView((prev) => {
-          if (
-            prev &&
-            prev.sessionId === result.sessionId &&
-            prev.round === result.round &&
-            prev.nodes.length === result.nodes.length &&
-            prev.edges.length === result.edges.length
-          ) {
-            return prev;
-          }
-
-          return result;
-        });
-
+        setGraphView(result);
         return true;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -715,6 +699,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         document.visibilityState === "visible"
       ) {
         void pullTimeline();
+        void loadGraph();
       }
     };
 
@@ -737,7 +722,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         );
       }
     };
-  }, [adapter, loadTimeline, mergeTimeline, sessionId]);
+  }, [adapter, loadGraph, loadTimeline, mergeTimeline, sessionId]);
 
   const contextValue = useMemo<DebateContextValue>(
     () => ({

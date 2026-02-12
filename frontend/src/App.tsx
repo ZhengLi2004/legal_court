@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import AdminDebugPage from "./AdminDebugPage";
 import { MainShell } from "./app/components/MainShell";
-import { GraphPage } from "./app/pages/GraphPage";
 import { JudgmentPage } from "./app/pages/JudgmentPage";
 import { LaunchPage } from "./app/pages/LaunchPage";
 import { LivePage } from "./app/pages/LivePage";
@@ -22,7 +21,7 @@ function normalizeRoute(pathname: string): AppRoute {
   }
 
   if (pathname === "/app/graph") {
-    return "/app/graph";
+    return "/app/live";
   }
 
   if (pathname === "/app/team") {
@@ -112,7 +111,6 @@ function App() {
         ) : null}
 
         {route === "/app/live" ? <LivePage /> : null}
-        {route === "/app/graph" ? <GraphPage /> : null}
         {route === "/app/team" ? <TeamFlowPage /> : null}
         {route === "/app/memory" ? <MemoryPage /> : null}
         {route === "/app/judgment" ? <JudgmentPage /> : null}

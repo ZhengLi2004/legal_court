@@ -213,6 +213,52 @@
   color: #0f172a;
 }
 
+.ux-convergence-wrap {
+  margin-top: 0.55rem;
+}
+
+.ux-convergence-chart {
+  border: 1px solid rgb(148 163 184 / 0.38);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.92);
+  padding: 0.48rem 0.55rem 0.4rem;
+}
+
+.ux-convergence-svg {
+  display: block;
+  width: 100%;
+  height: 128px;
+}
+
+.ux-convergence-axis {
+  stroke: rgb(148 163 184 / 0.55);
+  stroke-width: 1;
+}
+
+.ux-convergence-epsilon {
+  stroke: rgb(220 38 38 / 0.8);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.ux-convergence-line {
+  stroke: #2563eb;
+  stroke-width: 2.2;
+}
+
+.ux-convergence-point {
+  fill: #1d4ed8;
+}
+
+.ux-convergence-meta {
+  margin-top: 0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+  font-size: 0.76rem;
+  color: #334155;
+}
+
 .ux-list {
   max-height: 320px;
   overflow: auto;
@@ -259,23 +305,29 @@
 }
 
 .ux-node-tooltip {
-  width: min(520px, calc(100vw - 68px));
+  width: min(620px, calc(100vw - 48px));
+  max-height: min(62vh, 420px);
+  white-space: normal !important;
+  overflow: auto;
+  padding-right: 0.12rem;
 }
 
 .ux-node-tooltip-title {
+  display: block;
   font-weight: 700;
   line-height: 1.4;
+  white-space: pre-wrap !important;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .ux-node-tooltip-body {
+  display: block;
   margin-top: 0.35rem;
-  max-height: min(44vh, 300px);
-  overflow: auto;
   line-height: 1.45;
-  white-space: pre-wrap;
+  white-space: pre-wrap !important;
   word-break: break-word;
   overflow-wrap: anywhere;
-  padding-right: 0.2rem;
 }
 
 .ux-graph-layout {
@@ -467,7 +519,7 @@
 .ux-dialogue-board {
   display: grid;
   gap: 0.62rem;
-  max-height: 460px;
+  max-height: 620px;
   overflow: auto;
   border: 1px solid rgb(148 163 184 / 0.42);
   border-radius: 14px;
@@ -485,6 +537,7 @@
 
 .ux-dialogue-row {
   display: flex;
+  cursor: pointer;
 }
 
 .ux-dialogue-main {

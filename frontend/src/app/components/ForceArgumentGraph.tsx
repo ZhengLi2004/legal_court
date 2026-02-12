@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as echarts from "echarts";
 import type { EChartsOption, EChartsType } from "echarts";
 import type { GraphEdge, GraphNode, GraphView } from "../../compat";
@@ -25,6 +25,8 @@ type NodeLegendCategory =
   | "法条"
   | "被告观点";
 
+type EdgeLegendCategory = "support" | "attack";
+
 interface GraphNodeView {
   id: string;
   label: string;
@@ -39,7 +41,7 @@ interface GraphEdgeView {
   id: string;
   source: string;
   target: string;
-  relation: "support" | "attack";
+  relation: EdgeLegendCategory;
 }
 
 interface GraphModel {
@@ -55,6 +57,13 @@ const LEGEND_ORDER: NodeLegendCategory[] = [
   "法条",
   "被告观点",
 ];
+
+const EDGE_LEGEND_ORDER: EdgeLegendCategory[] = ["support", "attack"];
+
+const EDGE_LEGEND_LABEL: Record<EdgeLegendCategory, string> = {
+  support: "支持边",
+  attack: "冲突边",
+};
 
 const CATEGORY_COLOR: Record<NodeLegendCategory, string> = {
   事实: "#14b8a6",
@@ -78,6 +87,7 @@ function resolveLegendCategory(node: {
   label: string;
   content: string;
   agentId: string;
+  metadata?: Record<string, unknown>;
 }): NodeLegendCategory {
   if (node.family === "FACT") {
     return "事实";
@@ -87,33 +97,56 @@ function resolveLegendCategory(node: {
     return "法条";
   }
 
-  const context =
-    `${node.id} ${node.label} ${node.content} ${node.agentId}`.toLowerCase();
+  const agent = node.agentId.toLowerCase();
+  const idAndLabel = `${node.id} ${node.label}`.toLowerCase();
+  const contentHead = node.content.trim().slice(0, 24).toLowerCase();
+  const isRootClaim = node.metadata?.is_root_claim === true;
+
+  if (isRootClaim) {
+    return "核心诉求";
+  }
+
+  if (agent.includes("plaintiff") || agent.includes("原告")) {
+    return "原告观点";
+  }
+
+  if (agent.includes("defendant") || agent.includes("被告")) {
+    return "被告观点";
+  }
 
   if (
-    context.includes("system_init") ||
-    context.includes("claim_root") ||
-    context.includes("root_claim") ||
-    context.includes("核心诉求") ||
-    context.includes("核心") ||
-    context.includes("root")
+    idAndLabel.includes("system_init") ||
+    idAndLabel.includes("claim_root") ||
+    idAndLabel.includes("root_claim") ||
+    idAndLabel.includes("核心诉求") ||
+    idAndLabel.includes("核心") ||
+    idAndLabel.includes("root") ||
+    agent.includes("system")
   ) {
     return "核心诉求";
   }
 
+  if (idAndLabel.includes("plaintiff") || idAndLabel.includes("原告")) {
+    return "原告观点";
+  }
+
   if (
-    context.includes("defendant") ||
-    context.includes("defense") ||
-    context.includes("被告")
+    idAndLabel.includes("defendant") ||
+    idAndLabel.includes("defense") ||
+    idAndLabel.includes("被告")
   ) {
     return "被告观点";
   }
 
-  if (context.includes("plaintiff") || context.includes("原告")) {
+  if (contentHead.startsWith("原告") || contentHead.startsWith("plaintiff")) {
     return "原告观点";
   }
 
-  return "原告观点";
+  if (contentHead.startsWith("被告") || contentHead.startsWith("defendant")) {
+    return "被告观点";
+  }
+
+  return "核心诉求";
 }
 
 function mapGraphToModel(graph: GraphView): GraphModel {
@@ -137,6 +170,7 @@ function mapGraphToModel(graph: GraphView): GraphModel {
           label,
           content,
           agentId,
+          metadata: node.metadata,
         }),
       };
     })
@@ -189,6 +223,56 @@ export function ForceArgumentGraph({
   const chartRef = useRef<EChartsType | null>(null);
   const model = useMemo(() => (graph ? mapGraphToModel(graph) : null), [graph]);
 
+  const [activeCategories, setActiveCategories] = useState<
+    Set<NodeLegendCategory>
+  >(() => new Set<NodeLegendCategory>(LEGEND_ORDER));
+
+  const [activeRelations, setActiveRelations] = useState<
+    Set<EdgeLegendCategory>
+  >(() => new Set<EdgeLegendCategory>(EDGE_LEGEND_ORDER));
+
+  const [focusOnlyEnabled, setFocusOnlyEnabled] = useState<boolean>(false);
+
+  const focusNodeIds = useMemo(
+    () => new Set((graph?.focusNodeIds ?? []).map((item) => String(item))),
+    [graph],
+  );
+
+  const focusNodeCount = useMemo(() => {
+    if (!model) {
+      return 0;
+    }
+
+    return model.nodes.filter((node) => focusNodeIds.has(node.id)).length;
+  }, [focusNodeIds, model]);
+
+  const effectiveFocusOnly = focusOnlyEnabled && focusNodeCount > 0;
+
+  const visibleStats = useMemo(() => {
+    if (!model) {
+      return { nodes: 0, edges: 0 };
+    }
+
+    if (!effectiveFocusOnly) {
+      return { nodes: model.nodes.length, edges: model.edges.length };
+    }
+
+    const nodeIds = new Set(
+      model.nodes
+        .filter((node) => focusNodeIds.has(node.id))
+        .map((node) => node.id),
+    );
+
+    const edges = model.edges.filter(
+      (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
+    );
+
+    return {
+      nodes: nodeIds.size,
+      edges: edges.length,
+    };
+  }, [effectiveFocusOnly, focusNodeIds, model]);
+
   useEffect(() => {
     const container = containerRef.current;
 
@@ -219,36 +303,82 @@ export function ForceArgumentGraph({
       LEGEND_ORDER.map((category, idx) => [category, idx]),
     );
 
-    const nodes = model.nodes.map((node) => ({
-      id: node.id,
-      name: shortText(node.label, 16),
-      tooltipTitle: node.label,
-      value: node.content,
-      category: categoryIndex.get(node.category) ?? 0,
-      symbol: "circle",
-      symbolSize: CATEGORY_SIZE[node.category],
-      itemStyle: {
-        color: CATEGORY_COLOR[node.category],
-        borderColor: "#ffffff",
-        borderWidth: 1.5,
-      },
-      label: {
-        show: false,
-      },
-    }));
+    const focusVisibleNodeIds = effectiveFocusOnly
+      ? new Set(
+          model.nodes
+            .filter((node) => focusNodeIds.has(node.id))
+            .map((node) => node.id),
+        )
+      : null;
 
-    const links = model.edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      lineStyle: {
-        color: edge.relation === "support" ? "#86d694" : "#f39b76",
-        type: edge.relation === "support" ? "solid" : "dashed",
-        width: 2.6,
-        opacity: 0.92,
-        curveness: edge.relation === "attack" ? 0.15 : 0.06,
-      },
-    }));
+    const renderedNodes = focusVisibleNodeIds
+      ? model.nodes.filter((node) => focusVisibleNodeIds.has(node.id))
+      : model.nodes;
+
+    const renderedNodeIds = new Set(renderedNodes.map((node) => node.id));
+    const nodeOpacityMap = new Map<string, number>();
+
+    const nodes = renderedNodes.map((node) => {
+      let fadeFactor = 1;
+
+      if (!activeCategories.has(node.category)) {
+        fadeFactor *= 0.22;
+      }
+
+      const opacity = Math.max(fadeFactor, 0.08);
+      nodeOpacityMap.set(node.id, opacity);
+      const isFocusNode = focusNodeIds.has(node.id);
+
+      return {
+        id: node.id,
+        name: shortText(node.label, 16),
+        tooltipTitle: node.label,
+        value: node.content,
+        category: categoryIndex.get(node.category) ?? 0,
+        symbol: "circle",
+        symbolSize: CATEGORY_SIZE[node.category],
+        itemStyle: {
+          color: CATEGORY_COLOR[node.category],
+          borderColor: isFocusNode ? "#0f172a" : "#ffffff",
+          borderWidth: isFocusNode ? 2.2 : 1.5,
+          opacity,
+        },
+        label: {
+          show: false,
+        },
+      };
+    });
+
+    const links = model.edges
+      .filter(
+        (edge) =>
+          renderedNodeIds.has(edge.source) && renderedNodeIds.has(edge.target),
+      )
+      .map((edge) => {
+        let fadeFactor = 1;
+
+        if (!activeRelations.has(edge.relation)) {
+          fadeFactor *= 0.2;
+        }
+
+        fadeFactor *= Math.min(
+          nodeOpacityMap.get(edge.source) ?? 1,
+          nodeOpacityMap.get(edge.target) ?? 1,
+        );
+
+        return {
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          lineStyle: {
+            color: edge.relation === "support" ? "#86d694" : "#f39b76",
+            type: edge.relation === "support" ? "solid" : "dashed",
+            width: 2.6,
+            opacity: Math.max(0.06, 0.92 * fadeFactor),
+            curveness: edge.relation === "attack" ? 0.15 : 0.06,
+          },
+        };
+      });
 
     const option = {
       backgroundColor: "#ffffff",
@@ -290,20 +420,6 @@ export function ForceArgumentGraph({
           return "";
         },
       },
-      legend: {
-        top: 8,
-        left: "center",
-        icon: "circle",
-        itemWidth: 14,
-        itemHeight: 10,
-        itemGap: 18,
-        data: LEGEND_ORDER,
-        textStyle: {
-          color: "#334155",
-          fontSize: 12,
-          fontWeight: 500,
-        },
-      },
       series: [
         {
           type: "graph",
@@ -325,7 +441,8 @@ export function ForceArgumentGraph({
             friction: 0.08,
             layoutAnimation: true,
           },
-          edgeSymbol: ["none", "none"],
+          edgeSymbol: ["none", "arrow"],
+          edgeSymbolSize: 8,
           emphasis: {
             focus: "adjacency",
             lineStyle: {
@@ -337,24 +454,94 @@ export function ForceArgumentGraph({
     } as EChartsOption;
 
     chart.setOption(option, true);
-  }, [model]);
+  }, [
+    activeCategories,
+    activeRelations,
+    effectiveFocusOnly,
+    focusNodeIds,
+    model,
+  ]);
 
   return (
     <article className="ux-card">
       <h2>{title}</h2>
 
       <p className="ux-muted">
-        悬停即可查看节点全文；图中按角色语义着色并通过力导布局自然形成聚类。
+        悬停查看全文；可切换仅显示后端 focus 节点，图例未选中元素变浅。
       </p>
 
+      <div className="ux-row">
+        <button
+          disabled={focusNodeCount === 0}
+          onClick={() => setFocusOnlyEnabled((prev) => !prev)}
+          type="button"
+        >
+          {effectiveFocusOnly ? "显示全部节点" : "仅显示 Focus 节点"}
+        </button>
+
+        <span className="ux-chip">
+          Focus：{focusNodeCount}/{model?.nodes.length ?? 0}
+        </span>
+      </div>
+
       <div className="ux-graph-legend">
-        <span>节点图例：事实 / 原告观点 / 核心诉求 / 法条 / 被告观点</span>
-        <span>边关系：support 绿色实线，attack 橙色虚线</span>
+        <span>节点图例（点击筛选）</span>
+        <span>边图例（点击筛选）</span>
 
         <span>
-          当前可见：{model?.nodes.length ?? 0} 节点 / {model?.edges.length ?? 0}{" "}
-          条边 /{` ${model?.clusterCount ?? 0} 个聚类`}
+          当前可见：{visibleStats.nodes} 节点 / {visibleStats.edges} 条边 /
+          {` ${model?.clusterCount ?? 0} 个聚类`}
         </span>
+      </div>
+
+      <div className="ux-chip-row">
+        {LEGEND_ORDER.map((category) => (
+          <button
+            className={`ux-chip ${activeCategories.has(category) ? "ux-chip-active" : ""}`}
+            key={category}
+            onClick={() => {
+              setActiveCategories((prev) => {
+                const next = new Set(prev);
+
+                if (next.has(category)) {
+                  next.delete(category);
+                } else {
+                  next.add(category);
+                }
+
+                return next;
+              });
+            }}
+            type="button"
+          >
+            {category}
+          </button>
+        ))}
+      </div>
+
+      <div className="ux-chip-row">
+        {EDGE_LEGEND_ORDER.map((relation) => (
+          <button
+            className={`ux-chip ${activeRelations.has(relation) ? "ux-chip-active" : ""}`}
+            key={relation}
+            onClick={() => {
+              setActiveRelations((prev) => {
+                const next = new Set(prev);
+
+                if (next.has(relation)) {
+                  next.delete(relation);
+                } else {
+                  next.add(relation);
+                }
+
+                return next;
+              });
+            }}
+            type="button"
+          >
+            {EDGE_LEGEND_LABEL[relation]}
+          </button>
+        ))}
       </div>
 
       {model ? (

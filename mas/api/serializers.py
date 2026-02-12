@@ -22,6 +22,23 @@ def _safe_graph_from_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     return {"nodes": [], "edges": []}
 
 
+def _safe_focus_node_ids(snapshot: Dict[str, Any]) -> List[str]:
+    rows = snapshot.get("focus_node_ids")
+
+    if not isinstance(rows, list):
+        return []
+
+    result: List[str] = []
+
+    for item in rows:
+        node_id = str(item).strip()
+
+        if node_id:
+            result.append(node_id)
+
+    return result
+
+
 def _edge_identifier(edge: Dict[str, Any], idx: int) -> str:
     edge_id = edge.get("id")
 
@@ -71,6 +88,7 @@ def graph_response(
             "session_id": session.session_id,
             "round_idx": current_round,
             "graph_data": graph_data,
+            "focus_node_ids": _safe_focus_node_ids(snap),
         }
 
     snapshots = _as_list(getattr(session.engine, "round_snapshots", []))
@@ -83,6 +101,7 @@ def graph_response(
             "session_id": session.session_id,
             "round_idx": int(row.get("round_idx", round_idx)),
             "graph_data": graph_data,
+            "focus_node_ids": _safe_focus_node_ids(row),
         }
 
     latest = snapshot_response(session)
@@ -91,6 +110,7 @@ def graph_response(
         "session_id": session.session_id,
         "round_idx": int(latest.get("current_round", 0)),
         "graph_data": _safe_graph_from_snapshot(latest),
+        "focus_node_ids": _safe_focus_node_ids(latest),
     }
 
 

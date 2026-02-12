@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ForceArgumentGraph } from "../components/ForceArgumentGraph";
+import { ConvergenceSparkline } from "../components/ConvergenceSparkline";
 import { useDebate } from "../state/useDebate";
 import { asRecord, phaseLabel, unwrapPayload } from "../utils/payload";
 import type { TimelineEvent } from "../../compat";
@@ -15,14 +16,6 @@ interface DialogueRow {
 
 function canAdjudicate(phase: string): boolean {
   return phase === "ready_for_adjudication" || phase === "finished";
-}
-
-function terminationReasonLabel(reason: string): string {
-  if (reason === "convergence") {
-    return "收敛阈值达成";
-  }
-
-  return "待确认";
 }
 
 function normalizeSpeaker(speakerRaw: string): {
@@ -47,7 +40,51 @@ function normalizeSpeaker(speakerRaw: string): {
     return { side: "system", label: "系统" };
   }
 
+  if (speaker.includes("record") || speaker.includes("记录")) {
+    return { side: "other", label: "记录" };
+  }
+
   return { side: "other", label: speakerRaw || "记录" };
+}
+
+function inferSpeakerFromText(textRaw: string): {
+  side: DialogueSide;
+  label: string;
+} | null {
+  const text = textRaw.trim();
+  const lower = text.toLowerCase();
+
+  if (
+    text.startsWith("【系统") ||
+    text.includes("系统初始化") ||
+    lower.startsWith("[system]") ||
+    lower.includes("ready for adjudication")
+  ) {
+    return { side: "system", label: "系统" };
+  }
+
+  if (
+    /^(原告|原告方|原告诉称|原告认为|原告主张|原告请求)/.test(text) ||
+    lower.startsWith("plaintiff")
+  ) {
+    return { side: "plaintiff", label: "原告" };
+  }
+
+  if (
+    /^(被告|被告方|被告辩称|被告答辩|答辩意见)/.test(text) ||
+    lower.startsWith("defendant")
+  ) {
+    return { side: "defendant", label: "被告" };
+  }
+
+  if (
+    /^(法官|审判长|合议庭|法院认为)/.test(text) ||
+    lower.startsWith("judge")
+  ) {
+    return { side: "judge", label: "法官" };
+  }
+
+  return null;
 }
 
 function toDialogueRows(
@@ -56,9 +93,11 @@ function toDialogueRows(
 ): DialogueRow[] {
   return transcript.map((line, idx) => {
     const match = line.match(/^\[(.+?)\]\s*(.*)$/);
-    const speakerRaw = match ? match[1] : "record";
+    const speakerRaw = match ? match[1] : "";
     const text = (match ? match[2] : line).trim() || line.trim();
-    const normalized = normalizeSpeaker(speakerRaw);
+    const normalized = speakerRaw
+      ? normalizeSpeaker(speakerRaw)
+      : (inferSpeakerFromText(text) ?? { side: "other", label: "记录" });
 
     return {
       idx,
@@ -73,6 +112,27 @@ function toDialogueRows(
 function timelineReason(row: TimelineEvent): string {
   const data = asRecord(row.data);
   const rawReason = String(data.reason ?? data.message ?? "");
+  const turnRaw = String(data.turn ?? "").toLowerCase();
+  const pipelineStep = String(data.pipeline_step ?? "").toUpperCase();
+
+  if (pipelineStep) {
+    const stepLabel =
+      pipelineStep === "ASSESS_NEEDS"
+        ? "需求评估"
+        : pipelineStep === "WAIT_FOR_WORKERS"
+          ? "等待工作者"
+          : pipelineStep === "DECIDE"
+            ? "综合决策"
+            : pipelineStep === "DONE"
+              ? "回合结束"
+              : pipelineStep;
+
+    return `流程阶段：${stepLabel}`;
+  }
+
+  if (turnRaw) {
+    return `当前方：${turnRaw.includes("plaintiff") ? "原告" : "被告"}`;
+  }
 
   if (!rawReason) {
     return "";
@@ -85,6 +145,77 @@ function timelineReason(row: TimelineEvent): string {
   }
 
   return rawReason;
+}
+
+function timelineEventLabel(eventRaw: string): string {
+  const event = eventRaw.toLowerCase();
+  const TEAM_PREFIX = "team_";
+
+  if (event.startsWith(TEAM_PREFIX)) {
+    const teamSide = event.includes("team_plaintiff_")
+      ? "原告团队"
+      : "被告团队";
+
+    const suffix = event
+      .replace("team_plaintiff_", "")
+      .replace("team_defendant_", "");
+
+    if (suffix === "turn_start") {
+      return `${teamSide}开始执行`;
+    }
+
+    if (suffix === "internal_step") {
+      return `${teamSide}内部推进`;
+    }
+
+    if (suffix === "turn_complete") {
+      return `${teamSide}执行完成`;
+    }
+
+    if (suffix === "retry") {
+      return `${teamSide}触发重试`;
+    }
+
+    return `${teamSide}状态更新`;
+  }
+
+  if (event === "setup_start") {
+    return "系统初始化开始";
+  }
+
+  if (event === "setup_complete") {
+    return "系统初始化完成";
+  }
+
+  if (event === "turn_start") {
+    return "庭审回合开始";
+  }
+
+  if (event === "transcript_update") {
+    return "庭审记录更新";
+  }
+
+  if (event === "turn_complete") {
+    return "庭审回合完成";
+  }
+
+  if (event === "adjudication_ready") {
+    return "满足裁决条件";
+  }
+
+  if (event === "adjudication_start") {
+    return "裁决流程开始";
+  }
+
+  if (event === "snapshot_saved") {
+    return "回合快照已保存";
+  }
+
+  if (event === "session_warning") {
+    return "系统运行告警";
+  }
+
+  return eventRaw;
 }
 
 export function LivePage() {
@@ -163,32 +294,6 @@ export function LivePage() {
     return null;
   }, [dialogueRows]);
 
-  const convergenceHistoryText = useMemo(() => {
-    const recent = snapshot?.convergence.history.slice(-6) ?? [];
-
-    if (recent.length === 0) {
-      return "暂无收敛历史。";
-    }
-
-    return recent.map((item) => item.toFixed(2)).join(" -> ");
-  }, [snapshot?.convergence.history]);
-
-  const convergenceStateText = useMemo(() => {
-    if (!snapshot) {
-      return "未知";
-    }
-
-    if (snapshot.phase === "finished") {
-      return `已进入裁决（${terminationReasonLabel(snapshot.termination.reason)}）`;
-    }
-
-    if (snapshot.termination.ready) {
-      return `可裁决（${terminationReasonLabel(snapshot.termination.reason)}）`;
-    }
-
-    return "收敛推进中";
-  }, [snapshot]);
-
   const onTimelineClick = async (row: TimelineEvent): Promise<void> => {
     setSelectedSeq(row.seq);
 
@@ -234,6 +339,29 @@ export function LivePage() {
     target.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
+  useEffect(() => {
+    if (currentDialogueIdx === null) {
+      return;
+    }
+
+    const onDocumentPointerDown = (event: PointerEvent): void => {
+      const board = dialogueBoardRef.current;
+      const target = event.target as Node | null;
+
+      if (!board || (target && board.contains(target))) {
+        return;
+      }
+
+      setCurrentDialogueIdx(null);
+    };
+
+    document.addEventListener("pointerdown", onDocumentPointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", onDocumentPointerDown);
+    };
+  }, [currentDialogueIdx]);
+
   if (!sessionId || !snapshot) {
     return (
       <article className="ux-card">
@@ -255,47 +383,8 @@ export function LivePage() {
           </p>
 
           <p>
-            <span>收敛状态</span>
-            <strong>{convergenceStateText}</strong>
-          </p>
-
-          <p>
-            <span>ΔΦ</span>
-            <strong>{snapshot.convergence.deltaPhi.toFixed(3)}</strong>
-          </p>
-
-          <p>
-            <span>SMA</span>
-            <strong>{snapshot.convergence.sma.toFixed(3)}</strong>
-          </p>
-
-          <p>
-            <span>收敛阈值</span>
-
-            <strong>
-              SMA &lt; {snapshot.convergence.epsilon.toFixed(2)} 且回合 &gt;={" "}
-              {snapshot.convergence.minRounds}
-            </strong>
-          </p>
-
-          <p>
             <span>当前回合</span>
             <strong>{snapshot.round}</strong>
-          </p>
-
-          <p>
-            <span>论点数</span>
-            <strong>{snapshot.metrics.arguments}</strong>
-          </p>
-
-          <p>
-            <span>冲突边</span>
-            <strong>{snapshot.metrics.attacks}</strong>
-          </p>
-
-          <p>
-            <span>支持边</span>
-            <strong>{snapshot.metrics.supports}</strong>
           </p>
 
           {snapshot.phase === "finished" ? (
@@ -308,7 +397,17 @@ export function LivePage() {
             </p>
           ) : null}
         </div>
-        <p className="ux-muted">收敛轨迹：{convergenceHistoryText}</p>
+
+        <div className="ux-convergence-wrap">
+          <p className="ux-muted">收敛轨迹</p>
+
+          <ConvergenceSparkline
+            deltaPhi={snapshot.convergence.deltaPhi}
+            epsilon={snapshot.convergence.epsilon}
+            history={snapshot.convergence.history}
+            sma={snapshot.convergence.sma}
+          />
+        </div>
 
         <div className="ux-row">
           <button
@@ -368,7 +467,7 @@ export function LivePage() {
               >
                 <span>#{row.seq}</span>
                 <span>
-                  {row.event}
+                  {timelineEventLabel(row.event)}
                   {timelineReason(row) ? ` · ${timelineReason(row)}` : ""}
                 </span>
                 <span>r{row.roundIdx ?? "-"}</span>
@@ -398,7 +497,17 @@ export function LivePage() {
         </div>
 
         {dialogueRows.length > 0 ? (
-          <div className="ux-dialogue-board" ref={dialogueBoardRef}>
+          <div
+            className="ux-dialogue-board"
+            onClick={(event) => {
+              const target = event.target as HTMLElement;
+
+              if (!target.closest("[data-dialogue-idx]")) {
+                setCurrentDialogueIdx(null);
+              }
+            }}
+            ref={dialogueBoardRef}
+          >
             {dialogueRows.map((row) => (
               <div
                 className={`ux-dialogue-row ux-dialogue-${row.side} ${row.isNew ? "ux-dialogue-new" : ""} ${
@@ -408,6 +517,7 @@ export function LivePage() {
                 }`}
                 data-dialogue-idx={row.idx}
                 key={`${row.idx}-${row.speakerLabel}-${row.text}`}
+                onClick={() => setCurrentDialogueIdx(row.idx)}
               >
                 <div className="ux-dialogue-main">
                   <span className="ux-dialogue-avatar" aria-hidden="true">

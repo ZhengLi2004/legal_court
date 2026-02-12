@@ -24,9 +24,8 @@ import type {
   TurnArtifact,
 } from "./compat";
 
-const envMode = import.meta.env.VITE_COMPAT_MODE;
 const envBaseUrl = import.meta.env.VITE_API_BASE_URL;
-type AdapterMode = "auto" | "http" | "mock";
+type AdapterMode = "http";
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString();
@@ -123,13 +122,11 @@ function inferAxiom(text: string): string {
 }
 
 function App() {
-  const adapterMode: AdapterMode =
-    envMode === "http" || envMode === "mock" ? envMode : "auto";
+  const adapterMode: AdapterMode = "http";
 
   const adapter = useMemo(
-    () =>
-      createCompatAdapter({ mode: adapterMode, baseUrl: envBaseUrl || "/api" }),
-    [adapterMode],
+    () => createCompatAdapter({ baseUrl: envBaseUrl || "/api" }),
+    [],
   );
 
   const [snapshot, setSnapshot] = useState<DebateSnapshot | null>(null);

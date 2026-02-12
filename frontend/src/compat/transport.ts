@@ -5,6 +5,6 @@ export interface TransportRequest {
 }
 
 export interface CompatTransport {
-  readonly kind: "mock" | "http";
+  readonly kind: "http";
   request<T = unknown>(req: TransportRequest): Promise<T>;
 }

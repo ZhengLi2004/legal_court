@@ -80,6 +80,7 @@ export interface GraphView {
   round: number;
   nodes: GraphNode[];
   edges: GraphEdge[];
+  focusNodeIds: string[];
   raw?: unknown;
 }
 
@@ -227,7 +228,7 @@ export interface ReplayExportView {
 export interface AdapterCapabilities {
   supportsStreaming: boolean;
   supportsDiff: boolean;
-  transport: "mock" | "http";
+  transport: "http";
 }
 
 export interface SessionAdapter {

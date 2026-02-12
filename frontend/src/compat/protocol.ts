@@ -94,6 +94,30 @@ function asStringList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function asIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (typeof item === "string") {
+        return item.trim();
+      }
+
+      if (
+        typeof item === "number" ||
+        typeof item === "boolean" ||
+        typeof item === "bigint"
+      ) {
+        return String(item);
+      }
+
+      return "";
+    })
+    .filter(Boolean);
+}
+
 function asNumberList(value: unknown): number[] {
   if (!Array.isArray(value)) {
     return [];
@@ -526,6 +550,11 @@ export function normalizeGraph(
     nodes: parseNodes(graphData.nodes ?? payload.nodes),
     edges: parseEdges(
       graphData.edges ?? graphData.links ?? payload.edges ?? payload.links,
+    ),
+    focusNodeIds: asIdList(
+      payload.focus_node_ids ??
+        payload.focusNodeIds ??
+        graphData.focus_node_ids,
     ),
     raw,
   };

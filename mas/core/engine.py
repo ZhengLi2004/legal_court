@@ -375,6 +375,7 @@ class DebateEngine:
             "timestamp": self.legal_sys.step_counter if self.legal_sys else 0,
             "ts_ms": int(time.time() * 1000),
             "graph_data": graph_data,
+            "focus_node_ids": self._build_focus_node_ids(),
             "convergence": {
                 "delta_phi": self.last_step_log.get("convergence", {}).get(
                     "delta_phi", 0.0
@@ -531,6 +532,43 @@ class DebateEngine:
                 for src, dst, data in self.graph.graph.edges(data=True)
             ],
         }
+
+    def _build_focus_node_ids(self) -> List[str]:
+        """Return current focus-node ids used by tactical linearization."""
+        if not self.graph:
+            return []
+
+        current_step = 0
+
+        if self.legal_sys is not None:
+            try:
+                current_step = int(getattr(self.legal_sys, "step_counter", 0) or 0)
+
+            except Exception:
+                current_step = 0
+
+        if current_step <= 0:
+            current_step = max(0, int(self.round_idx))
+
+        try:
+            focus_nodes = self.graph._calculate_focus_nodes(current_step)
+
+        except Exception:
+            return []
+
+        ordered: List[str] = []
+        seen: Set[str] = set()
+
+        for node_id in focus_nodes:
+            node_text = str(node_id).strip()
+
+            if not node_text or node_text in seen:
+                continue
+
+            seen.add(node_text)
+            ordered.append(node_text)
+
+        return ordered
 
     def _count_support_edges_from_graph_data(self, graph_data: Dict[str, Any]) -> int:
         """Count SUPPORT edges from serialized graph data."""
@@ -1059,6 +1097,7 @@ class DebateEngine:
             "latest_turn_uid": self.latest_turn_uid,
             "turn_artifact_count": len(self.turn_artifacts),
             "graph_data": graph_data,
+            "focus_node_ids": self._build_focus_node_ids(),
             "graph_stats": {
                 "node_count": graph_stats["node_count"],
                 "edge_count": graph_stats["edge_count"],

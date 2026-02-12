@@ -637,7 +637,8 @@ export function GraphDiffPanel({
           emphasis: {
             focus: "adjacency",
           },
-          edgeSymbol: ["none", "none"],
+          edgeSymbol: ["none", "arrow"],
+          edgeSymbolSize: 8,
         },
       ],
     } as EChartsOption;

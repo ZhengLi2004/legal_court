@@ -338,13 +338,6 @@ export class InsightDomainAdapter implements InsightAdapter {
   }
 
   async exportGraphGexf(sessionId: string, round?: number): Promise<Blob> {
-    if (this.client.transportKind === "mock") {
-      const mockPayload =
-        '<?xml version="1.0" encoding="UTF-8"?>\n<gexf version="1.2"><graph mode="static" defaultedgetype="directed"></graph></gexf>';
-
-      return new Blob([mockPayload], { type: "application/gexf+xml" });
-    }
-
     const query =
       typeof round === "number" && Number.isFinite(round)
         ? `?round_idx=${Math.max(0, Math.floor(round))}`
