@@ -184,10 +184,6 @@ export function SimpleBafGraph({
     <article className="ux-card">
       <h2>BAF 关系图</h2>
 
-      <p className="ux-muted">
-        绿色粗边节点为选中扩展；蓝线为支持，红色虚线为冲突。
-      </p>
-
       {model ? (
         <>
           <div className="ux-graph-canvas ux-graph-canvas-compact">

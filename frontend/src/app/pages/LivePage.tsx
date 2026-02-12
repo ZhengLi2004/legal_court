@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { ForceArgumentGraph } from "../components/ForceArgumentGraph";
 import { ConvergenceSparkline } from "../components/ConvergenceSparkline";
 import { useDebate } from "../state/useDebate";
 import { asRecord, phaseLabel, unwrapPayload } from "../utils/payload";
-import type { TimelineEvent } from "../../compat";
 type DialogueSide = "plaintiff" | "defendant" | "judge" | "system" | "other";
 
 interface DialogueRow {
@@ -109,113 +108,8 @@ function toDialogueRows(
   });
 }
 
-function timelineReason(row: TimelineEvent): string {
-  const data = asRecord(row.data);
-  const rawReason = String(data.reason ?? data.message ?? "");
-  const turnRaw = String(data.turn ?? "").toLowerCase();
-  const pipelineStep = String(data.pipeline_step ?? "").toUpperCase();
-
-  if (pipelineStep) {
-    const stepLabel =
-      pipelineStep === "ASSESS_NEEDS"
-        ? "需求评估"
-        : pipelineStep === "WAIT_FOR_WORKERS"
-          ? "等待工作者"
-          : pipelineStep === "DECIDE"
-            ? "综合决策"
-            : pipelineStep === "DONE"
-              ? "回合结束"
-              : pipelineStep;
-
-    return `流程阶段：${stepLabel}`;
-  }
-
-  if (turnRaw) {
-    return `当前方：${turnRaw.includes("plaintiff") ? "原告" : "被告"}`;
-  }
-
-  if (!rawReason) {
-    return "";
-  }
-
-  const lower = rawReason.toLowerCase();
-
-  if (lower.includes("convergence")) {
-    return "收敛阈值达成";
-  }
-
-  return rawReason;
-}
-
-function timelineEventLabel(eventRaw: string): string {
-  const event = eventRaw.toLowerCase();
-  const TEAM_PREFIX = "team_";
-
-  if (event.startsWith(TEAM_PREFIX)) {
-    const teamSide = event.includes("team_plaintiff_")
-      ? "原告团队"
-      : "被告团队";
-
-    const suffix = event
-      .replace("team_plaintiff_", "")
-      .replace("team_defendant_", "");
-
-    if (suffix === "turn_start") {
-      return `${teamSide}开始执行`;
-    }
-
-    if (suffix === "internal_step") {
-      return `${teamSide}内部推进`;
-    }
-
-    if (suffix === "turn_complete") {
-      return `${teamSide}执行完成`;
-    }
-
-    if (suffix === "retry") {
-      return `${teamSide}触发重试`;
-    }
-
-    return `${teamSide}状态更新`;
-  }
-
-  if (event === "setup_start") {
-    return "系统初始化开始";
-  }
-
-  if (event === "setup_complete") {
-    return "系统初始化完成";
-  }
-
-  if (event === "turn_start") {
-    return "庭审回合开始";
-  }
-
-  if (event === "transcript_update") {
-    return "庭审记录更新";
-  }
-
-  if (event === "turn_complete") {
-    return "庭审回合完成";
-  }
-
-  if (event === "adjudication_ready") {
-    return "满足裁决条件";
-  }
-
-  if (event === "adjudication_start") {
-    return "裁决流程开始";
-  }
-
-  if (event === "snapshot_saved") {
-    return "回合快照已保存";
-  }
-
-  if (event === "session_warning") {
-    return "系统运行告警";
-  }
-
-  return eventRaw;
+function metricText(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(3) : "-";
 }
 
 export function LivePage() {
@@ -224,21 +118,12 @@ export function LivePage() {
     snapshot,
     previousSnapshot,
     graphView,
-    timeline,
     busyAction,
     step,
     adjudicate,
     refreshSnapshot,
     loadGraph,
-    loadTimeline,
-    loadGraphAtRound,
   } = useDebate();
-
-  const [selectedSeq, setSelectedSeq] = useState<number>(0);
-
-  const [currentDialogueIdx, setCurrentDialogueIdx] = useState<number | null>(
-    null,
-  );
 
   const dialogueBoardRef = useRef<HTMLDivElement | null>(null);
 
@@ -257,11 +142,6 @@ export function LivePage() {
         String(status).toUpperCase().includes("VALID"),
       ).length,
     [rootClaimEntries],
-  );
-
-  const visibleTimeline = useMemo(
-    () => [...timeline].slice(-30).reverse(),
-    [timeline],
   );
 
   const newStart = useMemo(() => {
@@ -294,14 +174,6 @@ export function LivePage() {
     return null;
   }, [dialogueRows]);
 
-  const onTimelineClick = async (row: TimelineEvent): Promise<void> => {
-    setSelectedSeq(row.seq);
-
-    if (typeof row.roundIdx === "number") {
-      await loadGraphAtRound(row.roundIdx);
-    }
-  };
-
   useEffect(() => {
     if (!sessionId) {
       return;
@@ -309,15 +181,6 @@ export function LivePage() {
 
     void loadGraph();
   }, [loadGraph, sessionId]);
-
-  const effectiveCurrentDialogueIdx = useMemo(() => {
-    if (!dialogueRows.length || currentDialogueIdx === null) {
-      return null;
-    }
-
-    const maxIdx = dialogueRows[dialogueRows.length - 1].idx;
-    return currentDialogueIdx <= maxIdx ? currentDialogueIdx : null;
-  }, [currentDialogueIdx, dialogueRows]);
 
   const jumpToCurrentDialogue = (): void => {
     if (!dialogueRows.length) {
@@ -335,32 +198,8 @@ export function LivePage() {
       return;
     }
 
-    setCurrentDialogueIdx(targetIdx);
     target.scrollIntoView({ behavior: "smooth", block: "center" });
   };
-
-  useEffect(() => {
-    if (currentDialogueIdx === null) {
-      return;
-    }
-
-    const onDocumentPointerDown = (event: PointerEvent): void => {
-      const board = dialogueBoardRef.current;
-      const target = event.target as Node | null;
-
-      if (!board || (target && board.contains(target))) {
-        return;
-      }
-
-      setCurrentDialogueIdx(null);
-    };
-
-    document.addEventListener("pointerdown", onDocumentPointerDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", onDocumentPointerDown);
-    };
-  }, [currentDialogueIdx]);
 
   if (!sessionId || !snapshot) {
     return (
@@ -398,17 +237,6 @@ export function LivePage() {
           ) : null}
         </div>
 
-        <div className="ux-convergence-wrap">
-          <p className="ux-muted">收敛轨迹</p>
-
-          <ConvergenceSparkline
-            deltaPhi={snapshot.convergence.deltaPhi}
-            epsilon={snapshot.convergence.epsilon}
-            history={snapshot.convergence.history}
-            sma={snapshot.convergence.sma}
-          />
-        </div>
-
         <div className="ux-row">
           <button
             disabled={Boolean(busyAction)}
@@ -441,50 +269,43 @@ export function LivePage() {
       </article>
 
       <article className="ux-card">
-        <h2>事件流</h2>
-        <div className="ux-row">
-          <button
-            disabled={Boolean(busyAction)}
-            onClick={() => {
-              void loadTimeline();
-            }}
-            type="button"
-          >
-            刷新事件
-          </button>
-        </div>
+        <h2>收敛轨迹</h2>
 
-        {visibleTimeline.length > 0 ? (
-          <div className="ux-list">
-            {visibleTimeline.map((row) => (
-              <button
-                className={`ux-list-row ${row.seq === selectedSeq ? "ux-list-row-selected" : ""}`}
-                key={`${row.seq}-${row.event}`}
-                onClick={() => {
-                  void onTimelineClick(row);
-                }}
-                type="button"
-              >
-                <span>#{row.seq}</span>
-                <span>
-                  {timelineEventLabel(row.event)}
-                  {timelineReason(row) ? ` · ${timelineReason(row)}` : ""}
-                </span>
-                <span>r{row.roundIdx ?? "-"}</span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="ux-empty">暂无事件。</p>
-        )}
+        <ConvergenceSparkline
+          deltaPhi={snapshot.convergence.deltaPhi}
+          epsilon={snapshot.convergence.epsilon}
+          history={snapshot.convergence.history}
+          sma={snapshot.convergence.sma}
+        />
+
+        <div className="ux-kv" style={{ marginTop: "0.65rem" }}>
+          <p>
+            <span>最新 ΔΦ</span>
+            <strong>{metricText(snapshot.convergence.deltaPhi)}</strong>
+          </p>
+
+          <p>
+            <span>SMA</span>
+            <strong>{metricText(snapshot.convergence.sma)}</strong>
+          </p>
+
+          <p>
+            <span>阈值 ε</span>
+            <strong>{metricText(snapshot.convergence.epsilon)}</strong>
+          </p>
+
+          <p>
+            <span>收敛状态</span>
+
+            <strong>
+              {snapshot.convergence.isConverged ? "已收敛" : "未收敛"}
+            </strong>
+          </p>
+        </div>
       </article>
 
       <article className="ux-card ux-card-full">
         <h2>庭审对话</h2>
-
-        <p className="ux-muted">
-          以下为完整庭审自然语言陈述，按真实发生顺序展示；高亮项为本次刷新后新增内容。
-        </p>
 
         <div className="ux-row">
           <button
@@ -497,27 +318,12 @@ export function LivePage() {
         </div>
 
         {dialogueRows.length > 0 ? (
-          <div
-            className="ux-dialogue-board"
-            onClick={(event) => {
-              const target = event.target as HTMLElement;
-
-              if (!target.closest("[data-dialogue-idx]")) {
-                setCurrentDialogueIdx(null);
-              }
-            }}
-            ref={dialogueBoardRef}
-          >
+          <div className="ux-dialogue-board" ref={dialogueBoardRef}>
             {dialogueRows.map((row) => (
               <div
-                className={`ux-dialogue-row ux-dialogue-${row.side} ${row.isNew ? "ux-dialogue-new" : ""} ${
-                  effectiveCurrentDialogueIdx === row.idx
-                    ? "ux-dialogue-current"
-                    : ""
-                }`}
+                className={`ux-dialogue-row ux-dialogue-${row.side} ${row.isNew ? "ux-dialogue-new" : ""}`}
                 data-dialogue-idx={row.idx}
                 key={`${row.idx}-${row.speakerLabel}-${row.text}`}
-                onClick={() => setCurrentDialogueIdx(row.idx)}
               >
                 <div className="ux-dialogue-main">
                   <span className="ux-dialogue-avatar" aria-hidden="true">

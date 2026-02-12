@@ -242,10 +242,6 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
     <article className="ux-card">
       <h2>TaskLayer 案例关系图</h2>
 
-      <p className="ux-muted">
-        节点表示案例，边表示引用或相似关系。悬停预览，点击节点固定详情。
-      </p>
-
       {memoryView ? (
         <div className="ux-graph-layout">
           <div className="ux-graph-canvas">

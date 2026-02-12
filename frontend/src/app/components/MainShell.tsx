@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { useDebate } from "../state/useDebate";
-import { phaseLabel } from "../utils/payload";
 import type { AppRoute } from "../types";
 
 interface MainShellProps {
@@ -46,7 +45,7 @@ function terminationLabel(reason: string): string {
 }
 
 export function MainShell({ route, onNavigate, children }: MainShellProps) {
-  const { snapshot, sessionId, adapterMode, streamStatus, busyAction, error } =
+  const { snapshot, adapterMode, streamStatus, busyAction, error } =
     useDebate();
 
   const currentPhase = snapshot?.phase ?? "idle";
@@ -58,11 +57,6 @@ export function MainShell({ route, onNavigate, children }: MainShellProps) {
         <div>
           <p className="ux-eyebrow">Legal Debate Assistant</p>
           <h1>可解释法律辩论</h1>
-
-          <p className="ux-muted">
-            当前状态：{phaseLabel(currentPhase)} · 会话{" "}
-            {sessionId ? sessionId : "未创建"}
-          </p>
         </div>
 
         <div className="ux-meta">
@@ -133,18 +127,6 @@ export function MainShell({ route, onNavigate, children }: MainShellProps) {
           type="button"
         >
           记忆类比
-        </button>
-
-        <button
-          className={route === "/app/replay" ? "ux-nav-active" : ""}
-          onClick={() => onNavigate("/app/replay")}
-          type="button"
-        >
-          回放导出
-        </button>
-
-        <button onClick={() => onNavigate("/admin/debug")} type="button">
-          进入后台调试
         </button>
       </nav>
 

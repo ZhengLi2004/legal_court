@@ -1,21 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import AdminDebugPage from "./AdminDebugPage";
 import { MainShell } from "./app/components/MainShell";
 import { JudgmentPage } from "./app/pages/JudgmentPage";
 import { LaunchPage } from "./app/pages/LaunchPage";
 import { LivePage } from "./app/pages/LivePage";
 import { MemoryPage } from "./app/pages/MemoryPage";
-import { ReplayExportPage } from "./app/pages/ReplayExportPage";
 import { TeamFlowPage } from "./app/pages/TeamFlowPage";
 import { DebateProvider } from "./app/state/DebateContext";
 import type { AppRoute } from "./app/types";
 import "./app/app.css";
 
 function normalizeRoute(pathname: string): AppRoute {
-  if (pathname === "/admin/debug") {
-    return "/admin/debug";
-  }
-
   if (pathname === "/app/live") {
     return "/app/live";
   }
@@ -34,10 +28,6 @@ function normalizeRoute(pathname: string): AppRoute {
 
   if (pathname === "/app/judgment") {
     return "/app/judgment";
-  }
-
-  if (pathname === "/app/replay") {
-    return "/app/replay";
   }
 
   return "/app/launch";
@@ -75,30 +65,6 @@ function App() {
     setRoute(normalized);
   }, []);
 
-  if (route === "/admin/debug") {
-    return (
-      <main className="ux-admin-shell">
-        <section className="ux-admin-bar">
-          <div>
-            <strong>后台调试模式</strong>
-            <p className="ux-muted">这里保留完整流程调试能力。</p>
-          </div>
-
-          <button
-            onClick={() => {
-              navigate("/app/launch");
-            }}
-            type="button"
-          >
-            返回用户主站
-          </button>
-        </section>
-
-        <AdminDebugPage />
-      </main>
-    );
-  }
-
   return (
     <DebateProvider>
       <MainShell onNavigate={navigate} route={route}>
@@ -114,7 +80,6 @@ function App() {
         {route === "/app/team" ? <TeamFlowPage /> : null}
         {route === "/app/memory" ? <MemoryPage /> : null}
         {route === "/app/judgment" ? <JudgmentPage /> : null}
-        {route === "/app/replay" ? <ReplayExportPage /> : null}
       </MainShell>
     </DebateProvider>
   );

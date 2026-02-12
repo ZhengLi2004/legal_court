@@ -10,14 +10,6 @@ import {
   unwrapPayload,
 } from "../utils/payload";
 
-function terminationReasonLabel(reason: string): string {
-  if (reason === "convergence") {
-    return "收敛阈值达成";
-  }
-
-  return "信息不足";
-}
-
 export function JudgmentPage() {
   const { sessionId, snapshot, graphView, loadGraph } = useDebate();
 
@@ -86,11 +78,6 @@ export function JudgmentPage() {
             </strong>
           </p>
 
-          <p>
-            <span>胜方</span>
-            <strong>{snapshot.winner ?? "待裁决"}</strong>
-          </p>
-
           {snapshot.phase === "finished" ? (
             <p>
               <span>根主张采纳</span>
@@ -114,24 +101,6 @@ export function JudgmentPage() {
           <p>
             <span>一致率</span>
             <strong>{(alignmentRate * 100).toFixed(1)}%</strong>
-          </p>
-
-          <p>
-            <span>终止依据</span>
-
-            <strong>
-              {terminationReasonLabel(snapshot.termination.reason)}
-            </strong>
-          </p>
-
-          <p>
-            <span>终止解释</span>
-
-            <strong>
-              {snapshot.termination.reason === "convergence"
-                ? `SMA ${snapshot.convergence.sma.toFixed(3)} 小于阈值 ${snapshot.convergence.epsilon.toFixed(2)}`
-                : "收敛信息不足，建议继续辩论或人工裁决"}
-            </strong>
           </p>
         </div>
       </article>

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { InspectorPanel, TeamFlowPanel } from "../../components/debug";
-import { ControllerPipelineGraph } from "../components/ControllerPipelineGraph";
 import { useDebate } from "../state/useDebate";
 import type { TurnArtifact } from "../../compat";
 
@@ -90,17 +89,6 @@ export function TeamFlowPage() {
             刷新协作工件
           </button>
         </div>
-      </article>
-
-      <article className="ux-card">
-        <h2>流程图（状态机）</h2>
-
-        <p className="ux-muted">
-          节点：ASSESS / DELEGATE / WAIT / DECIDE / RETRY /
-          DONE。红色链路表示重试或回滚路径。
-        </p>
-
-        <ControllerPipelineGraph artifact={selectedArtifact} />
       </article>
 
       <TeamFlowPanel

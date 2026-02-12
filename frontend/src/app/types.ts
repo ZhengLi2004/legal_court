@@ -3,9 +3,7 @@ export type AppRoute =
   | "/app/live"
   | "/app/team"
   | "/app/memory"
-  | "/app/judgment"
-  | "/app/replay"
-  | "/admin/debug";
+  | "/app/judgment";
 
 export type AdapterMode = "http";
 export type StreamStatus = "idle" | "ws" | "poll";

@@ -466,10 +466,6 @@ export function ForceArgumentGraph({
     <article className="ux-card">
       <h2>{title}</h2>
 
-      <p className="ux-muted">
-        悬停查看全文；可切换仅显示后端 focus 节点，图例未选中元素变浅。
-      </p>
-
       <div className="ux-row">
         <button
           disabled={focusNodeCount === 0}

@@ -108,10 +108,6 @@ export function LaunchPage({ onGoLive }: LaunchPageProps) {
       <article className="ux-card">
         <h2>开始一次新庭审</h2>
 
-        <p className="ux-muted">
-          系统将依据动态收敛自动进入裁决，无固定回合上限。
-        </p>
-
         <button
           disabled={Boolean(busyAction)}
           onClick={() => {
@@ -183,10 +179,6 @@ export function LaunchPage({ onGoLive }: LaunchPageProps) {
 
       <article className="ux-card ux-card-full">
         <h2>会话存档与恢复</h2>
-
-        <p className="ux-muted">
-          当前会话可保存到服务器磁盘；也可手动导入本地 JSON 快照并恢复为新会话。
-        </p>
 
         <label className="ux-field">
           存档标签（可选）

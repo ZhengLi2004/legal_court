@@ -112,7 +112,6 @@ export function MemoryPage() {
 
       <article className="ux-card">
         <h2>洞察分组</h2>
-        <p className="ux-muted">新洞察优先展示最近回合新增的可迁移策略。</p>
 
         <details open>
           <summary>新洞察（{newInsights.length}）</summary>
