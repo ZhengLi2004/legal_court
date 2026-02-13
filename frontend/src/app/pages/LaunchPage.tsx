@@ -137,15 +137,6 @@ export function LaunchPage({ onGoLive }: LaunchPageProps) {
               <span>当前回合</span>
               <strong>{snapshot.round}</strong>
             </p>
-
-            <p>
-              <span>图谱</span>
-
-              <strong>
-                N{snapshot.metrics.arguments} / E
-                {snapshot.metrics.attacks + snapshot.metrics.supports}
-              </strong>
-            </p>
           </div>
         ) : (
           <p className="ux-empty">尚未创建会话。</p>

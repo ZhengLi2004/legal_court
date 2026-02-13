@@ -176,6 +176,45 @@ export interface TurnArtifact {
   raw?: unknown;
 }
 
+export type TeamFlowMessageRole =
+  | "controller"
+  | "worker"
+  | "system"
+  | "narrator";
+
+export type TeamFlowMessagePhase =
+  | "ASSESS"
+  | "INSTRUCT"
+  | "WORKER"
+  | "DECIDE"
+  | "RETRY"
+  | "NARRATE"
+  | "SYSTEM";
+
+export interface TeamFlowMessage {
+  id: string;
+  phase: TeamFlowMessagePhase;
+  actor: string;
+  role: TeamFlowMessageRole;
+  title: string;
+  content: string;
+  ts?: number;
+  meta?: Record<string, unknown>;
+  raw?: unknown;
+}
+
+export interface TeamFlowTurn {
+  turnUid: string;
+  round: number;
+  side: string;
+  status: "done" | "retry" | "partial";
+  retryCount: number;
+  workerCount: number;
+  messageCount: number;
+  messages: TeamFlowMessage[];
+  raw?: unknown;
+}
+
 export interface DebugBundleView {
   sessionId: string;
   round: number;
@@ -299,6 +338,7 @@ export interface GraphAdapter {
 export interface InsightAdapter {
   getMemory(sessionId: string): Promise<MemoryView>;
   getTimeline(sessionId: string, limit?: number): Promise<TimelineEvent[]>;
+  getTeamflowStream(sessionId: string, limit?: number): Promise<TeamFlowTurn[]>;
 
   subscribeTimeline(
     sessionId: string,

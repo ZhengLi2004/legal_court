@@ -17,6 +17,8 @@ import type {
   FrontendSnapshotListItem,
   FrontendSnapshotLoadResult,
   SnapshotIndexItem,
+  TeamFlowMessage,
+  TeamFlowTurn,
   TimelineEvent,
   TurnArtifact,
 } from "./types";
@@ -128,6 +130,39 @@ function asNumberList(value: unknown): number[] {
   return value
     .map((item) => asNumber(item, Number.NaN))
     .filter((item) => Number.isFinite(item));
+}
+
+function asTeamflowPhase(value: unknown): TeamFlowMessage["phase"] {
+  const candidate = asString(value, "SYSTEM").toUpperCase();
+
+  if (
+    candidate === "ASSESS" ||
+    candidate === "INSTRUCT" ||
+    candidate === "WORKER" ||
+    candidate === "DECIDE" ||
+    candidate === "RETRY" ||
+    candidate === "NARRATE" ||
+    candidate === "SYSTEM"
+  ) {
+    return candidate;
+  }
+
+  return "SYSTEM";
+}
+
+function asTeamflowRole(value: unknown): TeamFlowMessage["role"] {
+  const candidate = asString(value, "system").toLowerCase();
+
+  if (
+    candidate === "controller" ||
+    candidate === "worker" ||
+    candidate === "system" ||
+    candidate === "narrator"
+  ) {
+    return candidate;
+  }
+
+  return "system";
 }
 
 function normalizeEdgeType(type: string): string {
@@ -737,6 +772,63 @@ export function normalizeTurnArtifacts(raw: unknown): TurnArtifact[] {
       narrativePolished: asString(
         row.narrative_polished ?? row.narrativePolished,
       ),
+      raw: item,
+    };
+  });
+}
+
+export function normalizeTeamflowStream(raw: unknown): TeamFlowTurn[] {
+  const payload = unwrapPayload(raw);
+  const list = payload.items ?? payload.turns ?? raw;
+
+  if (!Array.isArray(list)) {
+    return [];
+  }
+
+  return list.map((item, index) => {
+    const row = asRecord(item);
+    const messagesRaw = row.messages;
+
+    const messages = Array.isArray(messagesRaw)
+      ? messagesRaw.map((messageItem, messageIndex) => {
+          const messageRow = asRecord(messageItem);
+          const meta = asMaybeRecord(messageRow.meta);
+          const tsValue = asNumber(
+            messageRow.ts_ms ?? messageRow.ts,
+            Number.NaN,
+          );
+
+          return {
+            id: asString(messageRow.id, `msg-${index + 1}-${messageIndex + 1}`),
+            phase: asTeamflowPhase(messageRow.phase),
+            actor: asString(messageRow.actor, "System"),
+            role: asTeamflowRole(messageRow.role),
+            title: asString(messageRow.title, "消息"),
+            content: asString(messageRow.content),
+            ts: Number.isFinite(tsValue) ? tsValue : undefined,
+            meta,
+            raw: messageItem,
+          };
+        })
+      : [];
+
+    const statusRaw = asString(row.status, "partial").toLowerCase();
+
+    const status =
+      statusRaw === "done" || statusRaw === "retry" ? statusRaw : "partial";
+
+    return {
+      turnUid: asString(row.turn_uid ?? row.turnUid, `turn-${index + 1}`),
+      round: asNumber(row.round_idx ?? row.round, index),
+      side: asString(row.side, "unknown"),
+      status,
+      retryCount: asNumber(row.retry_count ?? row.retryCount, 0),
+      workerCount: asNumber(row.worker_count ?? row.workerCount, 0),
+      messageCount: asNumber(
+        row.message_count ?? row.messageCount,
+        messages.length,
+      ),
+      messages,
       raw: item,
     };
   });

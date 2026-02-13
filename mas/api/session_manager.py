@@ -457,6 +457,378 @@ class SessionManager:
 
         return []
 
+    @staticmethod
+    def _stringify_compact(value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+
+        if value is None:
+            return ""
+
+        if isinstance(value, dict):
+            lines: List[str] = []
+
+            for key, item in value.items():
+                item_text = SessionManager._stringify_compact(item)
+
+                if item_text:
+                    lines.append(f"{key}: {item_text}")
+
+            return "\n".join(lines)
+
+        if isinstance(value, list):
+            lines = [SessionManager._stringify_compact(item) for item in value]
+            return "\n".join([line for line in lines if line])
+
+        return str(value)
+
+    @staticmethod
+    def _build_teamflow_message(
+        message_id: str,
+        phase: str,
+        actor: str,
+        role: str,
+        title: str,
+        content: str,
+        ts_ms: Optional[int] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "id": message_id,
+            "phase": phase,
+            "actor": actor,
+            "role": role,
+            "title": title,
+            "content": content.strip() or "(empty)",
+        }
+
+        if isinstance(ts_ms, int) and ts_ms > 0:
+            payload["ts_ms"] = ts_ms
+
+        if isinstance(meta, dict) and len(meta) > 0:
+            payload["meta"] = _to_json_safe(meta)
+
+        return payload
+
+    def get_teamflow_stream(
+        self,
+        session_id: str,
+        limit: int = 80,
+    ) -> List[Dict[str, Any]]:
+        self.get_session(session_id)
+        safe_limit = max(1, int(limit))
+
+        artifacts = self.get_turn_artifacts(
+            session_id=session_id,
+            turn_uid=None,
+            limit=safe_limit,
+        )
+
+        if not isinstance(artifacts, list) or len(artifacts) == 0:
+            return []
+
+        events = self.get_event_history(
+            session_id=session_id,
+            limit=max(240, safe_limit * 12),
+        )
+
+        events_by_turn: Dict[str, List[Dict[str, Any]]] = {}
+
+        for item in events:
+            if not isinstance(item, dict):
+                continue
+
+            turn_uid = str(item.get("turn_uid", "")).strip()
+
+            if not turn_uid:
+                continue
+
+            events_by_turn.setdefault(turn_uid, []).append(item)
+
+        turns: List[Dict[str, Any]] = []
+
+        for artifact_index, item in enumerate(artifacts):
+            if not isinstance(item, dict):
+                continue
+
+            turn_uid = str(item.get("turn_uid", "")).strip()
+
+            if not turn_uid:
+                turn_uid = f"turn_{artifact_index + 1}"
+
+            round_idx = self._as_non_negative_int(
+                item.get("round_idx", item.get("round")),
+                artifact_index,
+            )
+
+            side = str(item.get("side", "unknown")).strip() or "unknown"
+            related_events = events_by_turn.get(turn_uid, [])
+            artifact_ts = self._as_non_negative_int(item.get("ts_ms"), 0)
+            message_seq = 0
+            messages: List[Dict[str, Any]] = []
+
+            def push_message(
+                phase: str,
+                actor: str,
+                role: str,
+                title: str,
+                content: str,
+                *,
+                ts_override: Optional[int] = None,
+                meta: Optional[Dict[str, Any]] = None,
+            ) -> None:
+                nonlocal message_seq
+                message_seq += 1
+
+                payload = self._build_teamflow_message(
+                    message_id=f"{turn_uid}-{message_seq}",
+                    phase=phase,
+                    actor=actor,
+                    role=role,
+                    title=title,
+                    content=content,
+                    ts_ms=ts_override if ts_override is not None else artifact_ts,
+                    meta=meta,
+                )
+
+                messages.append(payload)
+
+            assessment = item.get("controller_assessment", {})
+            assessment_text = self._stringify_compact(assessment)
+
+            if assessment_text:
+                meta = None
+
+                if isinstance(assessment, dict):
+                    meta = {"keys": len(assessment)}
+
+                push_message(
+                    "ASSESS",
+                    "Controller",
+                    "controller",
+                    "需求评估",
+                    assessment_text,
+                    meta=meta,
+                )
+
+            instructions = item.get("batch_instructions", [])
+
+            if isinstance(instructions, list):
+                for idx, instruction_item in enumerate(instructions, start=1):
+                    row = instruction_item if isinstance(instruction_item, dict) else {}
+                    target = str(row.get("target", "")).strip() or "Worker"
+
+                    content = self._stringify_compact(
+                        row.get("instruction", instruction_item)
+                    )
+
+                    if not content:
+                        continue
+
+                    push_message(
+                        "INSTRUCT",
+                        "Controller",
+                        "controller",
+                        f"任务下发 #{idx}",
+                        content,
+                        meta={"target": target},
+                    )
+
+            else:
+                instruction_text = self._stringify_compact(instructions)
+
+                if instruction_text:
+                    push_message(
+                        "INSTRUCT",
+                        "Controller",
+                        "controller",
+                        "任务下发",
+                        instruction_text,
+                    )
+
+            worker_reports = item.get("worker_reports", [])
+
+            if isinstance(worker_reports, list):
+                for idx, report_item in enumerate(worker_reports, start=1):
+                    report = report_item if isinstance(report_item, dict) else {}
+
+                    worker = (
+                        str(
+                            report.get("worker", report.get("target", "Worker"))
+                        ).strip()
+                        or "Worker"
+                    )
+
+                    content = (
+                        self._stringify_compact(report.get("content", report_item))
+                        or "（无内容）"
+                    )
+
+                    meta: Dict[str, Any] = {}
+                    status = str(report.get("status", "")).strip()
+
+                    if status:
+                        meta["status"] = status
+
+                    max_score = report.get("max_score")
+
+                    if isinstance(max_score, (int, float)):
+                        meta["max_score"] = max_score
+
+                    duration_ms = self._as_non_negative_int(
+                        report.get("duration_ms"),
+                        -1,
+                    )
+
+                    if duration_ms >= 0:
+                        meta["duration_ms"] = duration_ms
+
+                    push_message(
+                        "WORKER",
+                        worker,
+                        "worker",
+                        f"Worker反馈 #{idx}",
+                        content,
+                        meta=meta or None,
+                    )
+
+            retry_history = item.get("retry_history", [])
+            retry_count = len(retry_history) if isinstance(retry_history, list) else 0
+
+            if isinstance(retry_history, list):
+                for idx, retry_item in enumerate(retry_history, start=1):
+                    content = (
+                        self._stringify_compact(retry_item) or "执行失败，触发重试"
+                    )
+
+                    push_message(
+                        "RETRY",
+                        "System",
+                        "system",
+                        f"重试 #{idx}",
+                        content,
+                    )
+
+            decision_raw = str(item.get("decision_raw", "")).strip()
+
+            parsed_actions = (
+                item.get("parsed_actions", [])
+                if isinstance(item.get("parsed_actions"), list)
+                else []
+            )
+
+            execution_logs = str(item.get("execution_logs", "")).strip()
+            decision_lines: List[str] = []
+
+            if decision_raw:
+                decision_lines.append(f"决策输出：{decision_raw}")
+
+            if parsed_actions:
+                action_lines = [
+                    self._stringify_compact(action) for action in parsed_actions[:5]
+                ]
+
+                decision_lines.append("解析动作：")
+
+                for action_text in action_lines:
+                    if action_text:
+                        decision_lines.append(f"- {action_text}")
+
+                if len(parsed_actions) > 5:
+                    decision_lines.append(f"... 共 {len(parsed_actions)} 项")
+
+            if execution_logs:
+                log_preview = "\n".join(execution_logs.splitlines()[:3]).strip()
+
+                if log_preview:
+                    decision_lines.append(f"执行日志：{log_preview}")
+
+            has_decision = len(decision_lines) > 0
+
+            if has_decision:
+                push_message(
+                    "DECIDE",
+                    "Controller",
+                    "controller",
+                    "决策执行",
+                    "\n".join(decision_lines),
+                    meta={"actions": len(parsed_actions)},
+                )
+
+            narrative_text = str(item.get("narrative_polished", "")).strip()
+
+            if narrative_text:
+                push_message(
+                    "NARRATE",
+                    "Narrator",
+                    "narrator",
+                    "叙事总结",
+                    narrative_text,
+                )
+
+            for event_item in related_events:
+                if not isinstance(event_item, dict):
+                    continue
+
+                event_name = str(event_item.get("event", "")).strip()
+
+                if event_name not in {"session_warning", "session_error"}:
+                    continue
+
+                event_data = event_item.get("data", {})
+                event_text = self._stringify_compact(event_data) or event_name
+                event_ts = self._as_non_negative_int(event_item.get("ts_ms"), 0)
+
+                push_message(
+                    "SYSTEM",
+                    "System",
+                    "system",
+                    event_name,
+                    event_text,
+                    ts_override=event_ts if event_ts > 0 else None,
+                )
+
+            if not messages:
+                push_message(
+                    "SYSTEM",
+                    "System",
+                    "system",
+                    "无可视化数据",
+                    "本回合暂无可结构化协作消息。",
+                )
+
+            status = "partial"
+
+            if has_decision:
+                status = "retry" if retry_count > 0 else "done"
+
+            turns.append(
+                {
+                    "turn_uid": turn_uid,
+                    "round_idx": round_idx,
+                    "side": side,
+                    "status": status,
+                    "retry_count": retry_count,
+                    "worker_count": len(worker_reports)
+                    if isinstance(worker_reports, list)
+                    else 0,
+                    "message_count": len(messages),
+                    "messages": messages,
+                }
+            )
+
+        turns.sort(
+            key=lambda row: (
+                self._as_non_negative_int(row.get("round_idx"), 0),
+                str(row.get("turn_uid", "")),
+            )
+        )
+
+        return _to_json_safe(turns)
+
     def set_failure_simulation(
         self, session_id: str, kind: str, enabled: bool
     ) -> Dict[str, Any]:

@@ -9,6 +9,7 @@ import type {
   MemoryView,
   ReplayExportView,
   SnapshotIndexItem,
+  TeamFlowTurn,
   TimelineEvent,
   TurnArtifact,
 } from "../../compat";
@@ -26,6 +27,7 @@ export interface DebateContextValue {
   baselineGraphView: GraphView | null;
   graphDiff: GraphDiffView | null;
   timeline: TimelineEvent[];
+  teamflowStream: TeamFlowTurn[];
   snapshotIndex: SnapshotIndexItem[];
   turnArtifacts: TurnArtifact[];
   memoryView: MemoryView | null;
@@ -45,6 +47,7 @@ export interface DebateContextValue {
   loadGraphAtRound: (round: number) => Promise<boolean>;
   loadGraphDiff: (fromRound: number, toRound: number) => Promise<boolean>;
   loadTimeline: (limit?: number) => Promise<boolean>;
+  loadTeamflowStream: (limit?: number) => Promise<boolean>;
   loadSnapshots: () => Promise<boolean>;
 
   loadTurnArtifacts: (options?: {

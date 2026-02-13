@@ -484,6 +484,22 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/api/v1/sessions/{session_id}/teamflow/stream")
+    async def get_teamflow_stream(
+        session_id: str,
+        limit: int = Query(80, ge=1, le=5000),
+    ) -> Dict[str, Any]:
+        try:
+            items = manager.get_teamflow_stream(
+                session_id=session_id,
+                limit=limit,
+            )
+
+            return {"items": items, "total": len(items)}
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.get("/api/v1/sessions/{session_id}/turns/{turn_uid}/artifacts")
     async def get_single_turn_artifact(
         session_id: str,

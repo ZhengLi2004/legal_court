@@ -36,18 +36,8 @@ function phaseIndex(phase: string): number {
   return 0;
 }
 
-function terminationLabel(reason: string): string {
-  if (reason === "convergence") {
-    return "收敛";
-  }
-
-  return "未触发";
-}
-
 export function MainShell({ route, onNavigate, children }: MainShellProps) {
-  const { snapshot, adapterMode, streamStatus, busyAction, error } =
-    useDebate();
-
+  const { snapshot, busyAction, error } = useDebate();
   const currentPhase = snapshot?.phase ?? "idle";
   const currentStep = phaseIndex(currentPhase);
 
@@ -57,22 +47,6 @@ export function MainShell({ route, onNavigate, children }: MainShellProps) {
         <div>
           <p className="ux-eyebrow">Legal Debate Assistant</p>
           <h1>可解释法律辩论</h1>
-        </div>
-
-        <div className="ux-meta">
-          <span>模式：{adapterMode}</span>
-          <span>实时：{streamStatus}</span>
-
-          <span>回合：{snapshot ? `r${snapshot.round}` : "-"}</span>
-
-          <span>
-            终止：
-            {snapshot
-              ? snapshot.termination.ready
-                ? terminationLabel(snapshot.termination.reason)
-                : "未触发"
-              : "-"}
-          </span>
         </div>
       </header>
 

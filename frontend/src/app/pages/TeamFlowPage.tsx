@@ -1,17 +1,42 @@
 import { useEffect, useMemo, useState } from "react";
-import { InspectorPanel, TeamFlowPanel } from "../../components/debug";
+import { TeamFlowConversation } from "../components/TeamFlowConversation";
+import { TeamFlowPipelineViz } from "../components/TeamFlowPipelineViz";
 import { useDebate } from "../state/useDebate";
-import type { TurnArtifact } from "../../compat";
 
-function hasRetry(artifact: TurnArtifact): boolean {
-  return (
-    Array.isArray(artifact.retryHistory) && artifact.retryHistory.length > 0
-  );
+function sideLabel(side: string): string {
+  const value = side.toLowerCase();
+
+  if (value.includes("plaintiff")) {
+    return "原告";
+  }
+
+  if (value.includes("defendant")) {
+    return "被告";
+  }
+
+  return "未知";
+}
+
+function statusLabel(status: string): string {
+  if (status === "done") {
+    return "完成";
+  }
+
+  if (status === "retry") {
+    return "重试";
+  }
+
+  return "部分";
 }
 
 export function TeamFlowPage() {
-  const { sessionId, snapshot, turnArtifacts, busyAction, loadTurnArtifacts } =
-    useDebate();
+  const {
+    sessionId,
+    snapshot,
+    teamflowStream,
+    busyAction,
+    loadTeamflowStream,
+  } = useDebate();
 
   const [selectedTurnUid, setSelectedTurnUid] = useState<string>("");
 
@@ -20,26 +45,31 @@ export function TeamFlowPage() {
       return;
     }
 
-    void loadTurnArtifacts({ limit: 80 });
-  }, [loadTurnArtifacts, sessionId]);
+    void loadTeamflowStream(80);
+  }, [loadTeamflowStream, sessionId]);
+
+  const orderedTurns = useMemo(
+    () => [...teamflowStream].reverse(),
+    [teamflowStream],
+  );
 
   const effectiveTurnUid =
     selectedTurnUid &&
-    turnArtifacts.some((item) => item.turnUid === selectedTurnUid)
+    orderedTurns.some((item) => item.turnUid === selectedTurnUid)
       ? selectedTurnUid
-      : (turnArtifacts[turnArtifacts.length - 1]?.turnUid ?? "");
+      : (orderedTurns[0]?.turnUid ?? "");
 
-  const selectedArtifact = useMemo(
+  const selectedTurn = useMemo(
     () =>
-      turnArtifacts.find((item) => item.turnUid === effectiveTurnUid) ??
-      turnArtifacts[turnArtifacts.length - 1] ??
+      orderedTurns.find((item) => item.turnUid === effectiveTurnUid) ??
+      orderedTurns[0] ??
       null,
-    [effectiveTurnUid, turnArtifacts],
+    [effectiveTurnUid, orderedTurns],
   );
 
-  const retryCount = useMemo(
-    () => turnArtifacts.filter((item) => hasRetry(item)).length,
-    [turnArtifacts],
+  const retryTurns = useMemo(
+    () => teamflowStream.filter((item) => item.retryCount > 0).length,
+    [teamflowStream],
   );
 
   if (!sessionId || !snapshot) {
@@ -63,18 +93,18 @@ export function TeamFlowPage() {
           </p>
 
           <p>
-            <span>工件条数</span>
-            <strong>{turnArtifacts.length}</strong>
+            <span>协作线程</span>
+            <strong>{teamflowStream.length}</strong>
           </p>
 
           <p>
-            <span>含重试回合</span>
-            <strong>{retryCount}</strong>
+            <span>含重试线程</span>
+            <strong>{retryTurns}</strong>
           </p>
 
           <p>
             <span>当前查看</span>
-            <strong>{selectedArtifact?.turnUid ?? "-"}</strong>
+            <strong>{selectedTurn?.turnUid ?? "-"}</strong>
           </p>
         </div>
 
@@ -82,22 +112,48 @@ export function TeamFlowPage() {
           <button
             disabled={Boolean(busyAction)}
             onClick={() => {
-              void loadTurnArtifacts({ limit: 80 });
+              void loadTeamflowStream(80);
             }}
             type="button"
           >
-            刷新协作工件
+            刷新协作流
           </button>
         </div>
       </article>
 
-      <TeamFlowPanel
-        artifacts={turnArtifacts}
-        onSelectTurn={setSelectedTurnUid}
-        selectedTurnUid={effectiveTurnUid}
-      />
+      <article className="ux-card">
+        <h2>回合线程</h2>
 
-      <InspectorPanel artifact={selectedArtifact} snapshot={snapshot} />
+        {orderedTurns.length > 0 ? (
+          <div className="ux-teamflow-turn-list">
+            {orderedTurns.map((item) => (
+              <button
+                className={`ux-teamflow-turn-row ${item.turnUid === effectiveTurnUid ? "ux-teamflow-turn-row-active" : ""}`}
+                key={item.turnUid}
+                onClick={() => setSelectedTurnUid(item.turnUid)}
+                type="button"
+              >
+                <span>r{item.round}</span>
+                <span>{sideLabel(item.side)}</span>
+                <span>{statusLabel(item.status)}</span>
+                <span>msg {item.messageCount}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="ux-empty">暂无协作线程。</p>
+        )}
+      </article>
+
+      <article className="ux-card ux-card-full">
+        <h2>协作对话流</h2>
+        <TeamFlowConversation turn={selectedTurn} />
+      </article>
+
+      <article className="ux-card ux-card-full">
+        <h2>协作可视化</h2>
+        <TeamFlowPipelineViz turn={selectedTurn} />
+      </article>
     </section>
   );
 }

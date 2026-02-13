@@ -6,9 +6,9 @@
 
 .ux-topbar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 1rem;
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
 .ux-eyebrow {
@@ -22,14 +22,6 @@
 .ux-topbar h1 {
   margin: 0.3rem 0;
   font-size: clamp(1.45rem, 2vw, 1.95rem);
-}
-
-.ux-meta {
-  display: grid;
-  gap: 0.35rem;
-  font-size: 0.86rem;
-  color: #164e63;
-  text-align: right;
 }
 
 .ux-stepper {
@@ -726,6 +718,214 @@
   white-space: pre-wrap;
 }
 
+.ux-teamflow-turn-list {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.ux-teamflow-turn-row {
+  width: 100%;
+  margin-bottom: 0.45rem;
+  border-radius: 10px;
+  border: 1px solid rgb(148 163 184 / 0.34);
+  background: rgb(255 255 255 / 0.9);
+  color: #0f172a;
+  display: grid;
+  grid-template-columns: 0.7fr 0.9fr 0.9fr 0.9fr;
+  gap: 0.35rem;
+  text-align: left;
+  padding: 0.48rem 0.58rem;
+  font-size: 0.8rem;
+}
+
+.ux-teamflow-turn-row-active {
+  border-color: rgb(2 132 199 / 0.6);
+  background: rgb(224 242 254 / 0.7);
+}
+
+.ux-teamflow-conversation {
+  display: grid;
+  gap: 0.52rem;
+  max-height: 520px;
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid rgb(148 163 184 / 0.36);
+  background: rgb(248 250 252 / 0.86);
+  padding: 0.6rem;
+}
+
+.ux-teamflow-message {
+  border-radius: 12px;
+  border: 1px solid rgb(148 163 184 / 0.34);
+  background: rgb(255 255 255 / 0.96);
+  padding: 0.5rem 0.6rem;
+}
+
+.ux-teamflow-message-controller {
+  border-color: rgb(2 132 199 / 0.44);
+  background: rgb(224 242 254 / 0.72);
+}
+
+.ux-teamflow-message-worker {
+  border-color: rgb(16 185 129 / 0.42);
+  background: rgb(236 253 245 / 0.78);
+}
+
+.ux-teamflow-message-system {
+  border-color: rgb(251 146 60 / 0.5);
+  background: rgb(255 247 237 / 0.86);
+}
+
+.ux-teamflow-message-narrator {
+  border-color: rgb(148 163 184 / 0.52);
+  background: rgb(241 245 249 / 0.88);
+}
+
+.ux-teamflow-message-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  font-size: 0.74rem;
+  color: #334155;
+}
+
+.ux-teamflow-phase {
+  border-radius: 999px;
+  border: 1px solid rgb(59 130 246 / 0.4);
+  background: rgb(219 234 254 / 0.9);
+  color: #1d4ed8;
+  font-weight: 700;
+  padding: 0.1rem 0.42rem;
+  letter-spacing: 0.03em;
+}
+
+.ux-teamflow-message-body {
+  margin: 0.38rem 0 0;
+  color: #0f172a;
+  white-space: pre-wrap;
+  line-height: 1.48;
+}
+
+.ux-teamflow-message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.38rem;
+  font-size: 0.74rem;
+  color: #475569;
+}
+
+.ux-teamflow-message-meta span {
+  border-radius: 999px;
+  border: 1px solid rgb(148 163 184 / 0.4);
+  background: rgb(248 250 252 / 0.92);
+  padding: 0.08rem 0.36rem;
+}
+
+.ux-teamflow-viz {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.ux-teamflow-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: #1e293b;
+}
+
+.ux-teamflow-kpis span {
+  border-radius: 999px;
+  border: 1px solid rgb(148 163 184 / 0.44);
+  background: rgb(241 245 249 / 0.9);
+  padding: 0.16rem 0.42rem;
+}
+
+.ux-teamflow-pipeline {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.ux-teamflow-phase-step {
+  border-radius: 10px;
+  border: 1px solid rgb(148 163 184 / 0.4);
+  background: rgb(248 250 252 / 0.86);
+  color: #475569;
+  padding: 0.38rem 0.42rem;
+  font-size: 0.78rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.ux-teamflow-phase-step-active {
+  border-color: rgb(14 116 144 / 0.65);
+  background: rgb(224 242 254 / 0.85);
+  color: #0f172a;
+}
+
+.ux-teamflow-phase-index {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgb(148 163 184 / 0.35);
+}
+
+.ux-teamflow-phase-step-active .ux-teamflow-phase-index {
+  background: rgb(14 116 144 / 0.85);
+  color: #f8fafc;
+}
+
+.ux-teamflow-retry-note {
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid rgb(251 146 60 / 0.45);
+  background: rgb(255 237 213 / 0.8);
+  color: #9a3412;
+  padding: 0.42rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.ux-teamflow-actor-chart {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.ux-teamflow-actor-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 180px) minmax(0, 1fr) 36px;
+  gap: 0.45rem;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.ux-teamflow-actor-name {
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ux-teamflow-actor-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgb(226 232 240 / 0.9);
+  overflow: hidden;
+}
+
+.ux-teamflow-actor-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0ea5e9, #2563eb);
+}
+
 .ux-admin-shell {
   width: min(1240px, 98vw);
   margin: 0 auto;
@@ -750,10 +950,6 @@
     align-items: flex-start;
   }
 
-  .ux-meta {
-    text-align: left;
-  }
-
   .ux-stepper {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -773,5 +969,9 @@
 
   .ux-node-inspector {
     max-height: none;
+  }
+
+  .ux-teamflow-pipeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

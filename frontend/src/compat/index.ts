@@ -30,6 +30,10 @@ export type {
   FrontendSnapshotLoadResult,
   SessionAdapter,
   SnapshotIndexItem,
+  TeamFlowMessage,
+  TeamFlowMessagePhase,
+  TeamFlowMessageRole,
+  TeamFlowTurn,
   TimelineEvent,
   TurnArtifact,
 } from "./types";

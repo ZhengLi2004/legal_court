@@ -14,6 +14,10 @@ export function MemoryPage() {
 
   const [selectedInsight, setSelectedInsight] = useState<string>("");
 
+  const formatSnapshotTs = (ts: number): string => {
+    return Number.isFinite(ts) && ts > 0 ? new Date(ts).toLocaleString() : "-";
+  };
+
   useEffect(() => {
     if (!sessionId) {
       return;
@@ -74,16 +78,6 @@ export function MemoryPage() {
           <p>
             <span>动态法理案例</span>
             <strong>{memoryView?.dynamicLawCaseCount ?? 0}</strong>
-          </p>
-
-          <p>
-            <span>TaskLayer 节点</span>
-            <strong>{memoryView?.taskLayerNodeCount ?? 0}</strong>
-          </p>
-
-          <p>
-            <span>TaskLayer 边</span>
-            <strong>{memoryView?.taskLayerEdgeCount ?? 0}</strong>
           </p>
 
           <p>
@@ -219,9 +213,7 @@ export function MemoryPage() {
               >
                 <span>r{item.round}</span>
                 <span>{item.turn || "unknown"}</span>
-                <span>
-                  N{item.nodeCount} / E{item.edgeCount}
-                </span>
+                <span>{formatSnapshotTs(item.ts)}</span>
               </button>
             ))}
           </div>

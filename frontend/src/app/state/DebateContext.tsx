@@ -18,6 +18,7 @@ import type {
   MemoryView,
   ReplayExportView,
   SnapshotIndexItem,
+  TeamFlowTurn,
   TimelineEvent,
   TurnArtifact,
 } from "../../compat";
@@ -53,6 +54,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
 
   const [graphDiff, setGraphDiff] = useState<GraphDiffView | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [teamflowStream, setTeamflowStream] = useState<TeamFlowTurn[]>([]);
   const [snapshotIndex, setSnapshotIndex] = useState<SnapshotIndexItem[]>([]);
   const [turnArtifacts, setTurnArtifacts] = useState<TurnArtifact[]>([]);
   const [memoryView, setMemoryView] = useState<MemoryView | null>(null);
@@ -431,6 +433,25 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     [adapter, replaceTimeline, sessionId],
   );
 
+  const loadTeamflowStream = useCallback(
+    async (limit = 80): Promise<boolean> => {
+      if (!sessionId) {
+        return false;
+      }
+
+      try {
+        const rows = await adapter.insight.getTeamflowStream(sessionId, limit);
+        setTeamflowStream(rows);
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        return false;
+      }
+    },
+    [adapter, sessionId],
+  );
+
   const loadSnapshots = useCallback(async (): Promise<boolean> => {
     if (!sessionId) {
       return false;
@@ -562,6 +583,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     const results = await Promise.all([
       loadSnapshots(),
       loadTurnArtifacts({ limit: 80 }),
+      loadTeamflowStream(80),
       loadDemoKeyframes(),
       loadTimeline(120),
       loadMemory(),
@@ -572,6 +594,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     loadDemoKeyframes,
     loadMemory,
     loadSnapshots,
+    loadTeamflowStream,
     loadTimeline,
     loadTurnArtifacts,
     sessionId,
@@ -734,6 +757,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       setBaselineGraphView(null);
       setGraphDiff(null);
       setTimeline([]);
+      setTeamflowStream([]);
       setSnapshotIndex([]);
       setTurnArtifacts([]);
       setMemoryView(null);
@@ -766,6 +790,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     void Promise.all([
       loadSnapshots(),
       loadTurnArtifacts({ limit: 80 }),
+      loadTeamflowStream(80),
       loadMemory(),
       loadDemoKeyframes(),
     ]);
@@ -773,6 +798,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     loadDemoKeyframes,
     loadMemory,
     loadSnapshots,
+    loadTeamflowStream,
     loadTurnArtifacts,
     sessionId,
   ]);
@@ -916,6 +942,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       baselineGraphView,
       graphDiff,
       timeline,
+      teamflowStream,
       snapshotIndex,
       turnArtifacts,
       memoryView,
@@ -935,6 +962,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       loadGraphAtRound,
       loadGraphDiff,
       loadTimeline,
+      loadTeamflowStream,
       loadSnapshots,
       loadTurnArtifacts,
       loadMemory,
@@ -973,6 +1001,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       loadReplayBundle,
       loadSnapshots,
       loadTimeline,
+      loadTeamflowStream,
       loadTurnArtifacts,
       memoryView,
       previousSnapshot,
@@ -986,6 +1015,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       snapshotIndex,
       step,
       streamStatus,
+      teamflowStream,
       timeline,
       turnArtifacts,
     ],

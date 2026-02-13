@@ -4,6 +4,7 @@ import {
   normalizeDemoRunResult,
   normalizeMemory,
   normalizeReplayExport,
+  normalizeTeamflowStream,
   normalizeTimeline,
   normalizeTurnArtifacts,
 } from "../protocol";
@@ -19,6 +20,7 @@ import type {
   MemoryView,
   ReplayExportView,
   SessionAdapter,
+  TeamFlowTurn,
   TimelineEvent,
   TurnArtifact,
 } from "../types";
@@ -95,6 +97,18 @@ export class InsightDomainAdapter implements InsightAdapter {
     ]);
 
     return normalizeTimeline(raw);
+  }
+
+  async getTeamflowStream(
+    sessionId: string,
+    limit = 80,
+  ): Promise<TeamFlowTurn[]> {
+    const path = withQuery(`/api/v1/sessions/${sessionId}/teamflow/stream`, {
+      limit,
+    });
+
+    const raw = await this.client.callWithCandidates([{ method: "GET", path }]);
+    return normalizeTeamflowStream(raw);
   }
 
   subscribeTimeline(
