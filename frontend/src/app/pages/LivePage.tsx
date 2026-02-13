@@ -13,8 +13,16 @@ interface DialogueRow {
   isNew: boolean;
 }
 
+function canStepDebate(phase: string, isConverged: boolean): boolean {
+  if (isConverged) {
+    return false;
+  }
+
+  return phase === "idle" || phase === "running";
+}
+
 function canAdjudicate(phase: string): boolean {
-  return phase === "ready_for_adjudication" || phase === "finished";
+  return phase === "ready_for_adjudication";
 }
 
 function normalizeSpeaker(speakerRaw: string): {
@@ -174,6 +182,12 @@ export function LivePage() {
     return null;
   }, [dialogueRows]);
 
+  const stepBlockedByConvergence = snapshot
+    ? snapshot.convergence.isConverged ||
+      snapshot.phase === "ready_for_adjudication" ||
+      snapshot.phase === "finished"
+    : false;
+
   useEffect(() => {
     if (!sessionId) {
       return;
@@ -239,7 +253,10 @@ export function LivePage() {
 
         <div className="ux-row">
           <button
-            disabled={Boolean(busyAction)}
+            disabled={
+              Boolean(busyAction) ||
+              !canStepDebate(snapshot.phase, snapshot.convergence.isConverged)
+            }
             onClick={() => {
               void step();
             }}
@@ -266,6 +283,10 @@ export function LivePage() {
             刷新
           </button>
         </div>
+
+        {stepBlockedByConvergence ? (
+          <p className="ux-note">会话已收敛，请直接发起裁决。</p>
+        ) : null}
       </article>
 
       <article className="ux-card">

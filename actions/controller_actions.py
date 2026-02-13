@@ -167,4 +167,4 @@ class VerifyAndDecide(Action):
             id_inventory=id_inventory,
         )
 
-        return await self.llm.aask(prompt, max_tokens=8192, temperature=0.5)
+        return await self.llm.aask(prompt, temperature=0.5)

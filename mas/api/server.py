@@ -309,6 +309,9 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Step failed: {exc}") from exc
 

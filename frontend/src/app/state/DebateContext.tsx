@@ -239,6 +239,19 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
+    const currentSnapshot = snapshotRef.current;
+
+    if (currentSnapshot && currentSnapshot.sessionId === sessionId) {
+      const blockedByPhase =
+        currentSnapshot.phase === "ready_for_adjudication" ||
+        currentSnapshot.phase === "finished";
+
+      if (blockedByPhase || currentSnapshot.convergence.isConverged) {
+        setError("当前会话已收敛，请直接发起裁决，无法继续下一步辩论。");
+        return false;
+      }
+    }
+
     setBusyAction("step");
     setError("");
 

@@ -68,7 +68,7 @@ class LLMConfig:
     """Configuration for the primary language model used by agents."""
 
     temperature: float = 0.1
-    max_tokens: int = 1024
+    max_tokens: int = 8192
     model_name: str = "Kimi-K2.5-Instruct"
     api_key: str = get_env_strict("LEGAL_LLM_KEY")
     base_url: str = get_env_strict("LEGAL_LLM_URL")
@@ -90,7 +90,7 @@ class ConvergenceConfig:
 
     alpha: float = 0.3
     epsilon: float = 3
-    window_size: int = 4
+    window_size: int = 3
     min_rounds: int = 2
 
 

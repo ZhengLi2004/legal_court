@@ -265,9 +265,43 @@ class SessionManager:
             await self.setup_session(session_id)
 
         async with session.lock:
+            if getattr(session.engine, "is_ready_for_adjudication", False):
+                session.status = self._derive_status(session.engine)
+                session.updated_at = utc_now_iso()
+
+                self._record_event(
+                    session_id,
+                    event="step_blocked",
+                    source="api",
+                    data={
+                        "stage": "step",
+                        "reason": "ready_for_adjudication",
+                        "message": (
+                            "Session already converged and is ready for adjudication."
+                        ),
+                    },
+                )
+
+                raise ValueError(
+                    "Session already converged; step is disabled. Please adjudicate."
+                )
+
             if getattr(session.engine, "is_finished", False):
                 session.status = "FINISHED"
-                return session
+                session.updated_at = utc_now_iso()
+
+                self._record_event(
+                    session_id,
+                    event="step_blocked",
+                    source="api",
+                    data={
+                        "stage": "step",
+                        "reason": "finished",
+                        "message": "Session already finished.",
+                    },
+                )
+
+                raise ValueError("Session already finished; step is disabled.")
 
             try:
                 if session.failure_simulation.get("es_unavailable", False):
@@ -1360,31 +1394,74 @@ class SessionManager:
         return rows
 
     @staticmethod
-    def _restore_round_index(bundle: Dict[str, Any], snapshot_count: int) -> int:
+    def _restore_round_index(bundle: Dict[str, Any], snapshots: Any) -> int:
+        rows = snapshots if isinstance(snapshots, list) else []
+        snapshot_count = len(rows)
+
         if snapshot_count <= 0:
             raise ValueError("No snapshot data available for restore")
 
         snapshot = bundle.get("snapshot", {})
-        current_round = None
+        target_round: Optional[int] = None
+        target_turn_uid = ""
 
         if isinstance(snapshot, dict):
-            current_round = snapshot.get("current_round")
+            current_round = snapshot.get("current_round", snapshot.get("round_idx"))
 
-        try:
-            round_idx = (
-                int(current_round) if current_round is not None else snapshot_count - 1
-            )
+            try:
+                if current_round is not None:
+                    target_round = int(current_round)
 
-        except (TypeError, ValueError):
-            round_idx = snapshot_count - 1
+            except (TypeError, ValueError):
+                target_round = None
 
-        if round_idx < 0:
-            return 0
+            target_turn_uid = str(snapshot.get("latest_turn_uid", "")).strip()
 
-        if round_idx >= snapshot_count:
-            return snapshot_count - 1
+        if target_turn_uid:
+            for idx in range(snapshot_count - 1, -1, -1):
+                row = rows[idx]
 
-        return round_idx
+                if not isinstance(row, dict):
+                    continue
+
+                row_turn_uid = str(
+                    row.get("latest_turn_uid", row.get("turn_uid", ""))
+                ).strip()
+
+                if row_turn_uid == target_turn_uid:
+                    return idx
+
+        if target_round is not None:
+            matched_idx = None
+
+            for idx, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+
+                row_round_raw = row.get("round_idx", row.get("current_round"))
+
+                try:
+                    if row_round_raw is None:
+                        continue
+
+                    if int(row_round_raw) == target_round:
+                        matched_idx = idx
+
+                except (TypeError, ValueError):
+                    continue
+
+            if matched_idx is not None:
+                return matched_idx
+
+            if target_round < 0:
+                return 0
+
+            if target_round >= snapshot_count:
+                return snapshot_count - 1
+
+            return target_round
+
+        return snapshot_count - 1
 
     async def load_frontend_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
         record = self._read_frontend_snapshot_record(snapshot_id)
@@ -1426,13 +1503,32 @@ class SessionManager:
 
         restore_round_idx = self._restore_round_index(
             normalized_bundle,
-            len(engine.round_snapshots),
+            engine.round_snapshots,
         )
 
         restore_snapshot = getattr(engine, "restore_snapshot", None)
 
         if not callable(restore_snapshot) or not restore_snapshot(restore_round_idx):
             raise ValueError("Failed to restore engine state from frontend snapshot")
+
+        if isinstance(raw_snapshot, dict):
+            ready_raw = raw_snapshot.get("is_ready_for_adjudication")
+
+            if ready_raw is not None:
+                is_ready = bool(ready_raw) and not bool(
+                    getattr(engine, "is_finished", False)
+                )
+
+                engine.is_ready_for_adjudication = is_ready
+
+                if isinstance(getattr(engine, "last_step_log", None), dict):
+                    convergence = engine.last_step_log.get("convergence")
+
+                    if not isinstance(convergence, dict):
+                        convergence = {}
+
+                    convergence["is_converged"] = is_ready
+                    engine.last_step_log["convergence"] = convergence
 
         restored_events = self._normalize_restored_events(
             restored_session.session_id,

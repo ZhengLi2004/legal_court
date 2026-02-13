@@ -122,11 +122,7 @@ class LLMJudge(BaseJudge):
         )
 
         logger.info(">>> [Judge] Generating Judgment Document...")
-
-        response = self.judge_llm(
-            [Message(role="user", content=prompt)], max_tokens=4096
-        )
-
+        response = self.judge_llm([Message(role="user", content=prompt)])
         return response
 
     async def extract_verdict(
@@ -166,9 +162,7 @@ class LLMJudge(BaseJudge):
                 claim_content=claim_content,
             )
 
-            extraction_tasks.append(
-                self.extraction_llm.aask(extraction_prompt, max_tokens=1024)
-            )
+            extraction_tasks.append(self.extraction_llm.aask(extraction_prompt))
 
         extraction_responses = await asyncio.gather(*extraction_tasks)
 

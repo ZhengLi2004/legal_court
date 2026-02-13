@@ -372,15 +372,20 @@ class DebateEngine:
         snapshot = {
             "round_idx": round_idx,
             "turn": turn,
+            "current_turn": self.current_turn.value,
             "timestamp": self.legal_sys.step_counter if self.legal_sys else 0,
             "ts_ms": int(time.time() * 1000),
             "graph_data": graph_data,
             "focus_node_ids": self._build_focus_node_ids(),
+            "latest_turn_uid": self.latest_turn_uid,
             "convergence": {
                 "delta_phi": self.last_step_log.get("convergence", {}).get(
                     "delta_phi", 0.0
                 ),
                 "sma": self.last_step_log.get("convergence", {}).get("sma", 0.0),
+                "is_converged": self.last_step_log.get("convergence", {}).get(
+                    "is_converged", False
+                ),
                 "history": list(self.convergence_history),
             },
             "transcript": list(self.transcript),
@@ -392,6 +397,7 @@ class DebateEngine:
                 "conflict_edges": graph_stats["conflict_edges"],
             },
             "action_summary": self.last_step_log.get("action", ""),
+            "is_ready_for_adjudication": self.is_ready_for_adjudication,
             "is_finished": self.is_finished,
         }
 
@@ -722,7 +728,10 @@ class DebateEngine:
         self.round_idx = int(snapshot.get("round_idx", round_idx))
         self.transcript = list(snapshot.get("transcript", []))
         self.is_finished = bool(snapshot.get("is_finished", False))
-        self.is_ready_for_adjudication = False
+
+        self.latest_turn_uid = str(
+            snapshot.get("latest_turn_uid", self.latest_turn_uid)
+        )
 
         convergence = snapshot.get("convergence", {})
         history = convergence.get("history", [])
@@ -750,16 +759,39 @@ class DebateEngine:
         self.last_step_log["turn"] = snapshot.get("turn", "")
 
         if isinstance(convergence, dict):
+            raw_is_converged = convergence.get("is_converged")
+
+            if raw_is_converged is None:
+                raw_is_converged = snapshot.get("is_ready_for_adjudication")
+
+            if raw_is_converged is None:
+                sma_value = convergence.get("sma", 0.0)
+
+                try:
+                    parsed_sma = float(sma_value)
+
+                except (TypeError, ValueError):
+                    parsed_sma = 0.0
+
+                raw_is_converged = (
+                    self.round_idx >= self.cfg.convergence.min_rounds
+                    and parsed_sma < self.cfg.convergence.epsilon
+                )
+
+            is_converged = bool(raw_is_converged)
+            self.is_ready_for_adjudication = is_converged and not self.is_finished
+
             self.last_step_log["convergence"] = {
                 "delta_phi": convergence.get("delta_phi", 0.0),
                 "sma": convergence.get("sma", 0.0),
-                "is_converged": self.last_step_log.get("convergence", {}).get(
-                    "is_converged", False
-                ),
+                "is_converged": is_converged,
                 "gc_removed": self.last_step_log.get("convergence", {}).get(
                     "gc_removed", 0
                 ),
             }
+
+        else:
+            self.is_ready_for_adjudication = False
 
         turn_name = str(snapshot.get("turn", "")).lower()
 
@@ -771,6 +803,36 @@ class DebateEngine:
 
         else:
             self.current_turn = Turn.PLAINTIFF
+
+        if self.legal_sys is not None:
+            restored_step = None
+
+            for candidate in (
+                snapshot.get("timestamp"),
+                snapshot.get("step_counter"),
+                snapshot.get("round_idx"),
+            ):
+                try:
+                    if candidate is None:
+                        continue
+
+                    parsed = int(candidate)
+
+                    if parsed < 0:
+                        continue
+
+                    restored_step = parsed
+                    break
+
+                except (TypeError, ValueError):
+                    continue
+
+            if restored_step is not None:
+                try:
+                    self.legal_sys.step_counter = restored_step
+
+                except Exception:
+                    pass
 
         self.prev_stats = {
             "claim_nodes": self._count_claim_nodes(),
