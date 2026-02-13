@@ -11,7 +11,7 @@ logical verification of judgments.
 
 import asyncio
 from abc import ABC
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 from metagpt.logs import logger
 
@@ -25,13 +25,20 @@ from ..core.graph import NodeStatus, ShadowGraph
 class BaseJudge(ABC):
     """Abstract base class for a Judge."""
 
-    def evaluate(self, context: str, graph: ShadowGraph, transcript: List[str]) -> str:
+    def evaluate(
+        self,
+        context: str,
+        graph: ShadowGraph,
+        baf_calculator: Optional[BAFCalculator] = None,
+        baf_config: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """Generate a final judgment document.
 
         Args:
             context: The initial facts of the case.
             graph: The final state of the debate graph.
-            transcript: The narrated transcript of the debate.
+            baf_calculator: Optional BAF calculator shared with adjudication.
+            baf_config: Optional BAF config dict for context-budget controls.
 
         Returns:
             A string containing the full text of the judgment document.
@@ -77,53 +84,127 @@ class LLMJudge(BaseJudge):
         self.judge_llm = judge_llm
         self.extraction_llm = extraction_llm
 
-    def evaluate(self, context: str, graph: ShadowGraph, transcript: List[str]) -> str:
-        """Generate a judgment document by prompting an LLM.
+    def evaluate(
+        self,
+        context: str,
+        graph: ShadowGraph,
+        baf_calculator: Optional[BAFCalculator] = None,
+        baf_config: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Generate a judgment document by prompting an LLM."""
+        del context
 
-        It constructs a prompt containing the list of root claims and the full
-        debate transcript and asks the `judge_llm` to write a judgment.
-
-        Args:
-            context: (Not directly used, but part of the base signature) The case facts.
-            graph: The final debate graph.
-            transcript: The narrated debate transcript.
-
-        Returns:
-            The generated judgment document as a string.
-        """
-        root_claims = []
-
-        for _, data in graph.graph.nodes(data=True):
-            if data.get("metadata", {}).get("is_root_claim"):
-                root_claims.append(data.get("content", "未知诉求"))
-
-        if not root_claims:
-            issue_list_str = "（未检测到明确的根诉求，请根据庭审笔录自行归纳争议焦点）"
-            logger.warning("[Judge] No root claims found in graph metadata.")
-
-        else:
-            issue_list_str = "\n".join(
-                [f"{i + 1}. {content}" for i, content in enumerate(root_claims)]
-            )
-
-        if not transcript:
-            transcript_str = "（本案无庭审辩论记录）"
-
-            logger.warning(
-                "[Judge] Transcript is empty! Judgment might be hallucinated."
-            )
-
-        else:
-            transcript_str = "\n\n".join(transcript)
-            logger.info(f"[Judge] compiled transcript with {len(transcript)} segments.")
+        payload = self._build_adjudication_input(
+            graph=graph,
+            baf_calculator=baf_calculator,
+            baf_config=baf_config,
+        )
 
         prompt = JUDGE_EVALUATE_PROMPT.format(
-            issue_list=issue_list_str, transcript=transcript_str
+            issue_list=payload["issue_list"],
+            graph_context=payload["graph_context"],
+        )
+
+        logger.info(
+            "[Judge] Prompt assembled. graph_chars={} roots={}",
+            payload["graph_chars"],
+            payload["root_count"],
         )
 
         logger.info(">>> [Judge] Generating Judgment Document...")
         response = self.judge_llm([Message(role="user", content=prompt)])
         return response
+
+    def _cfg_value(
+        self,
+        baf_config: Optional[Dict[str, Any]],
+        key: str,
+        default: Any,
+    ) -> Any:
+        if isinstance(baf_config, dict) and key in baf_config:
+            return baf_config[key]
+
+        return default
+
+    def _build_adjudication_input(
+        self,
+        graph: ShadowGraph,
+        baf_calculator: Optional[BAFCalculator] = None,
+        baf_config: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        root_claims: Dict[str, str] = {}
+
+        for node_id, data in graph.graph.nodes(data=True):
+            metadata = data.get("metadata", {})
+
+            if metadata.get("is_root_claim"):
+                root_claims[str(node_id)] = str(data.get("content", "未知诉求"))
+
+        if not root_claims:
+            issue_list_str = "（未检测到明确的根诉求，请根据证据上下文归纳争议焦点）"
+            logger.warning("[Judge] No root claims found in graph metadata.")
+
+        else:
+            issue_list_str = "\n".join(
+                [
+                    f"{idx + 1}. [{claim_id}] {content}"
+                    for idx, (claim_id, content) in enumerate(
+                        sorted(root_claims.items(), key=lambda row: row[0])
+                    )
+                ]
+            )
+
+        mode = str(
+            self._cfg_value(
+                baf_config,
+                "judge_context_mode",
+                "root_evidence_cone",
+            )
+        ).strip()
+
+        k_hop = max(
+            1,
+            int(self._cfg_value(baf_config, "judge_context_k_hop", 3)),
+        )
+
+        max_nodes = max(
+            8,
+            int(self._cfg_value(baf_config, "judge_context_max_nodes", 120)),
+        )
+
+        graph_char_limit = max(
+            2000,
+            int(self._cfg_value(baf_config, "judge_context_max_chars", 18000)),
+        )
+
+        selected_nodes: Optional[Set[str]] = None
+
+        if mode == "root_evidence_cone" and baf_calculator is not None and root_claims:
+            selected_nodes = baf_calculator.build_root_anchored_context(
+                root_ids=set(root_claims.keys()),
+                k_hop=k_hop,
+                max_nodes=max_nodes,
+            )
+
+        if selected_nodes:
+            graph_context = graph.to_recursive_text_for_nodes(selected_nodes)
+
+        else:
+            graph_context = graph.to_recursive_text()
+
+        if len(graph_context) > graph_char_limit:
+            graph_context = graph_context[:graph_char_limit]
+
+            logger.warning(
+                "[Judge] graph_context trimmed to char limit=%s", graph_char_limit
+            )
+
+        return {
+            "issue_list": issue_list_str,
+            "graph_context": graph_context,
+            "graph_chars": len(graph_context),
+            "root_count": len(root_claims),
+        }
 
     async def extract_verdict(
         self, judgment_document: str, graph: ShadowGraph
@@ -193,6 +274,7 @@ class LLMJudge(BaseJudge):
         graph: ShadowGraph,
         use_baf: bool = True,
         baf_config: Optional[Dict] = None,
+        baf_calculator: Optional[BAFCalculator] = None,
     ) -> Tuple[Dict[str, NodeStatus], Optional[Dict]]:
         """Extract verdicts with BAF semantic verification.
 
@@ -232,9 +314,18 @@ class LLMJudge(BaseJudge):
             f"{len(llm_defeated)} DEFEATED"
         )
 
-        baf_calculator = BAFCalculator(graph)
+        search_timeout_ms = int((baf_config or {}).get("search_timeout_ms", 8000))
+        max_search_states = int((baf_config or {}).get("max_search_states", 500000))
+        max_extensions = int((baf_config or {}).get("max_extensions", 256))
 
-        consistency_report = baf_calculator.validate_consistency(
+        calculator = baf_calculator or BAFCalculator(
+            graph=graph,
+            search_timeout_ms=search_timeout_ms,
+            max_search_states=max_search_states,
+            max_extensions=max_extensions,
+        )
+
+        consistency_report = calculator.validate_consistency(
             llm_validated, llm_defeated
         )
 
@@ -247,18 +338,28 @@ class LLMJudge(BaseJudge):
             for issue in consistency_report["issues"]:
                 logger.warning(f"[Judge] - {issue['type']}: {issue['message']}")
 
-        preferred_extensions = baf_calculator.find_preferred_extensions()
+        preferred_extensions = calculator.find_preferred_extensions()
+        search_stats = calculator.get_search_stats()
 
         if not preferred_extensions:
             logger.warning("[Judge] No preferred extensions found, using LLM verdict")
+            empty_stats = calculator.get_search_stats()
 
             return llm_verdict, {
                 "baf_used": True,
                 "error": "No preferred extensions",
                 "consistency_report": consistency_report,
+                "search_stats": empty_stats,
+                "algorithm_version": empty_stats.get("algorithm_version", "unknown"),
+                "search_time_ms": int(empty_stats.get("search_time_ms", 0) or 0),
+                "searched_states": int(empty_stats.get("searched_states", 0) or 0),
+                "pruned_states": int(empty_stats.get("pruned_states", 0) or 0),
+                "termination_reason": str(
+                    empty_stats.get("termination_reason", "completed")
+                ),
             }
 
-        best_extension, match_details = baf_calculator.match_with_llm_judgment(
+        best_extension, match_details = calculator.match_with_llm_judgment(
             preferred_extensions, llm_validated, llm_defeated
         )
 
@@ -281,6 +382,14 @@ class LLMJudge(BaseJudge):
             "match_score": match_details.get("score", 0),
             "alignment_rate": match_details.get("alignment_rate", 0),
             "fusion_corrections": self._count_corrections(llm_verdict, fusion_verdict),
+            "search_stats": search_stats,
+            "algorithm_version": search_stats.get("algorithm_version", "unknown"),
+            "search_time_ms": int(search_stats.get("search_time_ms", 0) or 0),
+            "searched_states": int(search_stats.get("searched_states", 0) or 0),
+            "pruned_states": int(search_stats.get("pruned_states", 0) or 0),
+            "termination_reason": str(
+                search_stats.get("termination_reason", "completed")
+            ),
         }
 
         return fusion_verdict, baf_details

@@ -11,7 +11,7 @@ import json
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum, auto
-from typing import Any, List, Optional, TypedDict, Union
+from typing import Any, List, Optional, Set, TypedDict, Union
 
 import networkx as nx
 from networkx.readwrite import json_graph
@@ -534,6 +534,21 @@ class ShadowGraph:
                         final_text_blocks.append(block)
 
         return "\n".join(final_text_blocks).strip()
+
+    def to_recursive_text_for_nodes(self, node_ids: Set[str]) -> str:
+        """Generate recursive text for a selected node subset.
+
+        If selection is empty, falls back to full-graph recursive text.
+        """
+        if not node_ids:
+            return self.to_recursive_text()
+
+        valid_nodes = [node for node in node_ids if self.graph.has_node(node)]
+
+        if not valid_nodes:
+            return self.to_recursive_text()
+
+        return self.get_subgraph(valid_nodes).to_recursive_text()
 
     def get_tactical_subgraph(
         self, focus_nodes: List[str], history_window: int = 1

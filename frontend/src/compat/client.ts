@@ -55,7 +55,7 @@ export class CompatClient {
           continue;
         }
 
-        lastError = err;
+        throw err;
       }
     }
 

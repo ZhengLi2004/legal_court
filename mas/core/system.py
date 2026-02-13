@@ -6,7 +6,7 @@ operations. It serves as the primary interface for the `DebateEngine` to
 interact with the system's underlying functional modules.
 """
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 from metagpt.logs import logger
 
@@ -17,6 +17,7 @@ from tools.matcher import SemanticMatcher
 
 from ..agents.judge import LLMJudge
 from ..analysis.backprop import BackPropagator
+from ..analysis.baf import BAFCalculator
 from ..analysis.executor import GraphExecutor
 from ..config import SystemConfig
 from ..memory.insights import InsightsManager
@@ -212,14 +213,16 @@ class LegalSystem:
             case_id: The unique ID of the case.
             transcript: The narrated transcript of the debate.
         """
-        validated_ids = [
+        preferred_extension = {
             nid
             for nid, status in root_claims_status.items()
             if status == NodeStatus.VALIDATED
-        ]
+        }
 
-        final_graph = self.backprop.propagate(
-            current_graph, explicit_validated_ids=validated_ids
+        final_graph = self.backprop.propagate_with_baf(
+            current_graph,
+            baf_extension=preferred_extension,
+            root_claims_status=root_claims_status,
         )
 
         msg = LegalMessage(
@@ -327,7 +330,7 @@ class LegalSystem:
 
     async def adjudicate(
         self, context: str, graph: ShadowGraph, transcript: List[str]
-    ) -> Tuple[str, Dict[str, NodeStatus]]:
+    ) -> Tuple[str, Dict[str, NodeStatus], Dict[str, Any], Set[str]]:
         """Run the final adjudication process.
 
         Args:
@@ -339,7 +342,115 @@ class LegalSystem:
             A tuple containing:
             - The full text of the judgment document.
             - A dictionary mapping root claim IDs to their final `NodeStatus`.
+            - BAF computation details.
+            - The chosen preferred extension.
         """
-        judgment_document = self.judge.evaluate(context, graph, transcript)
-        root_claims_status = await self.judge.extract_verdict(judgment_document, graph)
-        return judgment_document, root_claims_status
+        del transcript
+        baf_cfg = self.cfg.baf
+
+        baf_config = {
+            "enabled": bool(getattr(baf_cfg, "enabled", True)),
+            "search_timeout_ms": int(getattr(baf_cfg, "search_timeout_ms", 8000)),
+            "max_search_states": int(getattr(baf_cfg, "max_search_states", 500000)),
+            "max_extensions": int(getattr(baf_cfg, "max_extensions", 256)),
+            "judge_context_mode": str(
+                getattr(baf_cfg, "judge_context_mode", "root_evidence_cone")
+            ),
+            "judge_context_k_hop": int(getattr(baf_cfg, "judge_context_k_hop", 3)),
+            "judge_context_max_nodes": int(
+                getattr(baf_cfg, "judge_context_max_nodes", 120)
+            ),
+            "judge_context_max_chars": int(
+                getattr(baf_cfg, "judge_context_max_chars", 18000)
+            ),
+        }
+
+        if not baf_config["enabled"]:
+            raise RuntimeError(
+                "BAF propagation is mandatory, but cfg.baf.enabled is False."
+            )
+
+        baf_calculator = BAFCalculator(
+            graph=graph,
+            search_timeout_ms=baf_config["search_timeout_ms"],
+            max_search_states=baf_config["max_search_states"],
+            max_extensions=baf_config["max_extensions"],
+        )
+
+        judgment_document = self.judge.evaluate(
+            context=context,
+            graph=graph,
+            baf_calculator=baf_calculator,
+            baf_config=baf_config,
+        )
+
+        root_claims_status: Dict[str, NodeStatus]
+        baf_details: Dict[str, Any]
+
+        preferred_extension: Set[str] = set()
+        (
+            root_claims_status,
+            extracted_baf_details,
+        ) = await self.judge.extract_verdict_with_baf(
+            judgment_document=judgment_document,
+            graph=graph,
+            use_baf=True,
+            baf_config=baf_config,
+            baf_calculator=baf_calculator,
+        )
+
+        baf_details = extracted_baf_details or {"baf_used": True}
+
+        preferred_extension = {
+            str(node)
+            for node in (baf_details.get("chosen_extension", []) or [])
+            if str(node).strip()
+        }
+
+        if not preferred_extension:
+            preferred_extension = {
+                nid
+                for nid, status in root_claims_status.items()
+                if status == NodeStatus.VALIDATED
+            }
+
+            baf_details["chosen_extension"] = sorted(preferred_extension)
+            baf_details["fallback_seeded_from_root_status"] = True
+
+        self.backprop.propagate_with_baf(
+            graph=graph,
+            baf_extension=preferred_extension,
+            root_claims_status=root_claims_status,
+        )
+
+        refreshed_root_status: Dict[str, NodeStatus] = {}
+
+        for node_id, data in graph.graph.nodes(data=True):
+            metadata = data.get("metadata", {})
+
+            if not metadata.get("is_root_claim", False):
+                continue
+
+            status_raw = data.get("status", NodeStatus.HYPOTHETICAL)
+
+            if isinstance(status_raw, NodeStatus):
+                refreshed_root_status[str(node_id)] = status_raw
+
+            else:
+                try:
+                    status_text = str(status_raw).strip()
+
+                    if status_text.upper().startswith("NODESTATUS."):
+                        status_text = status_text.split(".", 1)[1]
+
+                    refreshed_root_status[str(node_id)] = NodeStatus(
+                        status_text.upper()
+                    )
+
+                except ValueError:
+                    refreshed_root_status[str(node_id)] = NodeStatus.HYPOTHETICAL
+
+        if refreshed_root_status:
+            root_claims_status = refreshed_root_status
+
+        return judgment_document, root_claims_status, baf_details, preferred_extension

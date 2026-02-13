@@ -133,12 +133,10 @@ class BAFConfig:
     """Configuration for Bipolar Argumentation Framework (BAF) semantics.
 
     This configuration controls whether BAF semantics are used for logical
-    verification of judgments and the parameters for BAF calculations.
+    verification of judgments, propagation, and the parameters for BAF calculations.
 
     Attributes:
-        enabled: Whether to enable BAF semantics for judgment verification
-        use_for_adjudication: Whether to use BAF during adjudication phase
-        use_for_propagation: Whether to use BAF-guided backpropagation
+        enabled: Global switch for BAF-based adjudication + propagation
         min_alignment_rate: Minimum alignment rate between LLM and BAF to accept BAF extension
         enable_correction: Whether to apply BAF corrections to LLM judgments
         log_attack_details: Whether to log detailed attack information
@@ -146,12 +144,17 @@ class BAFConfig:
     """
 
     enabled: bool = True
-    use_for_adjudication: bool = True
-    use_for_propagation: bool = True
     min_alignment_rate: float = 0.60
     enable_correction: bool = True
     log_attack_details: bool = False
     validate_llm_consistency: bool = True
+    search_timeout_ms: int = 200000
+    max_search_states: int = 500000
+    max_extensions: int = 256
+    judge_context_mode: str = "root_evidence_cone"
+    judge_context_k_hop: int = 3
+    judge_context_max_nodes: int = 120
+    judge_context_max_chars: int = 18000
 
 
 @dataclass

@@ -1042,6 +1042,8 @@ class DebateEngine:
         (
             self.judgment_document,
             self.root_claims_status,
+            baf_details,
+            preferred_extension,
         ) = await self.legal_sys.adjudicate(
             self.raw_facts,
             self.graph,
@@ -1049,6 +1051,11 @@ class DebateEngine:
         )
 
         logger.info(f">>> [Engine] root_claims_status: {self.root_claims_status}")
+        self.baf_details = baf_details if isinstance(baf_details, dict) else {}
+
+        self.preferred_extension = {
+            str(node) for node in (preferred_extension or set()) if str(node).strip()
+        }
 
         self.last_step_log["adjudication_result"] = {
             "document": self.judgment_document,
@@ -1056,44 +1063,18 @@ class DebateEngine:
                 k: v.value if hasattr(v, "value") else str(v)
                 for k, v in self.root_claims_status.items()
             },
-        }
-
-        logger.info(">>> [Engine] Running BAF calculation...")
-
-        from ..analysis.baf import BAFCalculator
-
-        baf_calc = BAFCalculator(self.graph)
-        preferred_extensions = baf_calc.find_preferred_extensions()
-
-        llm_validated = {
-            k for k, v in self.root_claims_status.items() if v == NodeStatus.VALIDATED
-        }
-
-        llm_defeated = {
-            k for k, v in self.root_claims_status.items() if v == NodeStatus.DEFEATED
-        }
-
-        best_extension, matching_details = baf_calc.match_with_llm_judgment(
-            preferred_extensions, llm_validated, llm_defeated
-        )
-
-        self.preferred_extension = best_extension
-
-        self.baf_details = {
-            "preferred_extensions_count": len(preferred_extensions),
-            "chosen_extension_size": len(best_extension),
-            "matching_score": matching_details.get("score", 0),
-            "alignment_rate": matching_details.get("alignment_rate", 0.0),
-            "matching_details": matching_details,
+            "baf_details": self.baf_details,
+            "preferred_extension_size": len(self.preferred_extension),
         }
 
         logger.info(
-            f">>> [BAF] Found {len(preferred_extensions)} preferred extensions, "
-            f"chose extension with {len(best_extension)} nodes, "
-            f"alignment rate: {self.baf_details['alignment_rate']:.2%}"
+            ">>> [BAF] chosen_extension_size={} alignment_rate={:.2f}%",
+            len(self.preferred_extension),
+            float(self.baf_details.get("alignment_rate", 0.0)) * 100.0,
         )
 
         self.is_finished = True
+        self.is_ready_for_adjudication = False
 
         self._notify_state_change(
             "adjudication_complete",
