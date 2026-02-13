@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from metagpt.logs import logger
 
-from ..core.graph import EdgeType, ShadowGraph
+from ..core.graph import EdgeType, NodeType, ShadowGraph
 
 
 class BAFComputationError(RuntimeError):
@@ -80,6 +80,29 @@ class BAFCalculator:
             text = text.split(".", 1)[1]
 
         return text
+
+    def _node_type_name(self, node_id: str) -> str:
+        data = self.graph.graph.nodes.get(node_id, {})
+        raw_type = data.get("type")
+
+        if isinstance(raw_type, NodeType):
+            return raw_type.value
+
+        text = str(raw_type).strip().upper()
+
+        if text.startswith("NODETYPE."):
+            text = text.split(".", 1)[1]
+
+        return text
+
+    def _is_fact_or_law_node(self, node_id: str) -> bool:
+        return self._node_type_name(node_id) in {
+            NodeType.FACT.value,
+            NodeType.LAW.value,
+        }
+
+    def _is_claim_node(self, node_id: str) -> bool:
+        return self._node_type_name(node_id) == NodeType.CLAIM.value
 
     def _build_edge_indexes(self) -> None:
         graph = self.graph.graph
@@ -246,6 +269,9 @@ class BAFCalculator:
 
     def defends(self, defender_set: Set[str], node: str) -> bool:
         """Check whether `defender_set` defends `node`."""
+        if not self._is_claim_node(node):
+            return True
+
         attackers = self.attack_matrix.get(node, set())
 
         for attacker in attackers:
@@ -1025,6 +1051,55 @@ class BAFCalculator:
             "support_cone_count": len(support_cone),
             "attacker_count": len(attackers),
             "defender_count": len(defenders),
+            "selected_count": len(selected),
+            "selected_nodes": sorted(selected),
+        }
+
+        return selected
+
+    def build_root_k_hop_context(
+        self,
+        root_ids: Set[str],
+        k_hop: int = 3,
+    ) -> Set[str]:
+        """Build an undirected k-hop neighborhood around root claims."""
+        roots = {str(node) for node in root_ids if str(node) in self._all_nodes_sorted}
+        k_value = max(0, int(k_hop))
+
+        if not roots:
+            fallback = set(self._all_nodes_sorted)
+
+            self._last_context_selection = {
+                "mode": "fallback",
+                "k_hop": k_value,
+                "selected_count": len(fallback),
+                "selected_nodes": sorted(fallback),
+            }
+
+            return fallback
+
+        selected: Set[str] = set(roots)
+        queue = deque((root, 0) for root in roots)
+        visited = set(roots)
+
+        while queue:
+            node, depth = queue.popleft()
+
+            if depth >= k_value:
+                continue
+
+            for nxt in self._undirected_neighbors.get(node, set()):
+                if nxt in visited:
+                    continue
+
+                visited.add(nxt)
+                selected.add(nxt)
+                queue.append((nxt, depth + 1))
+
+        self._last_context_selection = {
+            "mode": "root_k_hop",
+            "k_hop": k_value,
+            "root_count": len(roots),
             "selected_count": len(selected),
             "selected_nodes": sorted(selected),
         }

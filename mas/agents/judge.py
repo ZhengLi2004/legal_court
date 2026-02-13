@@ -154,14 +154,6 @@ class LLMJudge(BaseJudge):
                 ]
             )
 
-        mode = str(
-            self._cfg_value(
-                baf_config,
-                "judge_context_mode",
-                "root_evidence_cone",
-            )
-        ).strip()
-
         k_hop = max(
             1,
             int(self._cfg_value(baf_config, "judge_context_k_hop", 3)),
@@ -169,8 +161,8 @@ class LLMJudge(BaseJudge):
 
         selected_nodes: Optional[Set[str]] = None
 
-        if mode == "root_evidence_cone" and baf_calculator is not None and root_claims:
-            selected_nodes = baf_calculator.build_root_anchored_context(
+        if baf_calculator is not None and root_claims:
+            selected_nodes = baf_calculator.build_root_k_hop_context(
                 root_ids=set(root_claims.keys()),
                 k_hop=k_hop,
             )

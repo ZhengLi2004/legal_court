@@ -328,6 +328,99 @@ class LegalSystem:
         graph.refresh_context(current_step)
         return logs
 
+    def _coerce_status(self, value: Any) -> NodeStatus:
+        if isinstance(value, NodeStatus):
+            return value
+
+        text = str(value).strip().upper()
+
+        if text.startswith("NODESTATUS."):
+            text = text.split(".", 1)[1]
+
+        try:
+            return NodeStatus(text)
+
+        except ValueError:
+            return NodeStatus.HYPOTHETICAL
+
+    def _collect_root_status_from_graph(
+        self, graph: ShadowGraph
+    ) -> Dict[str, NodeStatus]:
+        status_map: Dict[str, NodeStatus] = {}
+
+        for node_id, data in graph.graph.nodes(data=True):
+            metadata = data.get("metadata", {})
+
+            if not metadata.get("is_root_claim", False):
+                continue
+
+            status_map[str(node_id)] = self._coerce_status(
+                data.get("status", NodeStatus.HYPOTHETICAL)
+            )
+
+        return status_map
+
+    def _collect_graph_status_sets(
+        self, graph: ShadowGraph
+    ) -> Tuple[Set[str], Set[str]]:
+        validated: Set[str] = set()
+        defeated: Set[str] = set()
+
+        for node_id, data in graph.graph.nodes(data=True):
+            status = self._coerce_status(data.get("status", NodeStatus.HYPOTHETICAL))
+            node_text = str(node_id)
+
+            if status == NodeStatus.VALIDATED:
+                validated.add(node_text)
+
+            elif status == NodeStatus.DEFEATED:
+                defeated.add(node_text)
+
+        return validated, defeated
+
+    def _demote_hypothetical_root_claims(
+        self,
+        graph: ShadowGraph,
+        root_claims_status: Dict[str, NodeStatus],
+    ) -> List[str]:
+        demoted: List[str] = []
+
+        for node_id, status in (root_claims_status or {}).items():
+            if status != NodeStatus.HYPOTHETICAL:
+                continue
+
+            if not graph.graph.has_node(node_id):
+                continue
+
+            metadata = graph.graph.nodes[node_id].get("metadata", {})
+
+            if not isinstance(metadata, dict):
+                metadata = {}
+                graph.graph.nodes[node_id]["metadata"] = metadata
+
+            if not metadata.get("is_root_claim", False):
+                continue
+
+            metadata["is_root_claim"] = False
+            demoted.append(str(node_id))
+
+        return sorted(set(demoted))
+
+    def _remove_hypothetical_nodes(self, graph: ShadowGraph) -> int:
+        removable: List[str] = []
+
+        for node_id, data in graph.graph.nodes(data=True):
+            status = self._coerce_status(data.get("status", NodeStatus.HYPOTHETICAL))
+
+            if status == NodeStatus.HYPOTHETICAL:
+                removable.append(str(node_id))
+
+        if removable:
+            graph.graph.remove_nodes_from(removable)
+            graph.refresh_context(current_step=self.step_counter)
+
+        return len(removable)
+
     async def adjudicate(
         self, context: str, graph: ShadowGraph, transcript: List[str]
     ) -> Tuple[str, Dict[str, NodeStatus], Dict[str, Any], Set[str]]:
@@ -370,81 +463,114 @@ class LegalSystem:
             baf_config=baf_config,
         )
 
-        root_claims_status: Dict[str, NodeStatus]
-        baf_details: Dict[str, Any]
-
-        preferred_extension: Set[str] = set()
-        (
-            root_claims_status,
-            extracted_baf_details,
-        ) = await self.judge.extract_verdict_with_baf(
-            judgment_document=judgment_document,
-            graph=graph,
-            use_baf=True,
-            baf_config=baf_config,
-            baf_calculator=baf_calculator,
+        extracted_root_status = await self.judge.extract_verdict(
+            judgment_document, graph
         )
 
-        baf_details = extracted_baf_details or {"baf_used": True}
-
-        preferred_extension = {
-            str(node)
-            for node in (baf_details.get("chosen_extension", []) or [])
-            if str(node).strip()
+        extracted_root_status = {
+            str(node_id): self._coerce_status(status)
+            for node_id, status in extracted_root_status.items()
         }
 
-        if not preferred_extension:
-            preferred_extension = {
-                nid
-                for nid, status in root_claims_status.items()
-                if status == NodeStatus.VALIDATED
-            }
-
-            baf_details["chosen_extension"] = sorted(preferred_extension)
-            baf_details["chosen_extension_size"] = len(preferred_extension)
-            baf_details["fallback_seeded_from_root_status"] = True
-
-        baf_details.setdefault(
-            "context_selection",
-            baf_calculator.explain_context_selection(),
+        demoted_roots = self._demote_hypothetical_root_claims(
+            graph=graph,
+            root_claims_status=extracted_root_status,
         )
 
-        baf_details["chosen_extension_size"] = len(preferred_extension)
+        gc_removed_after_demote = graph.garbage_collect()
+
+        active_root_status = {
+            node_id: status
+            for node_id, status in extracted_root_status.items()
+            if graph.graph.has_node(node_id)
+            and graph.graph.nodes[node_id]
+            .get("metadata", {})
+            .get("is_root_claim", False)
+        }
+
+        self.backprop.propagate_from_root_status(
+            graph=graph,
+            root_claims_status=active_root_status,
+            reset_first=True,
+            skip_defeat_for_fact_law=True,
+        )
+
+        pre_validated, pre_defeated = self._collect_graph_status_sets(graph)
+        baf_calculator = BAFCalculator(graph=graph)
+
+        consistency_report = baf_calculator.validate_consistency(
+            pre_validated,
+            pre_defeated,
+        )
+
+        preferred_extension, match_details = (
+            baf_calculator.find_best_preferred_extension(
+                llm_validated=pre_validated,
+                llm_defeated=pre_defeated,
+            )
+        )
+
+        search_stats = baf_calculator.get_search_stats()
+        context_selection = baf_calculator.explain_context_selection()
+
+        if match_details.get("error"):
+            preferred_extension = set(pre_validated)
+            match_details["fallback_seeded_from_preprop_validated"] = True
 
         self.backprop.propagate_with_baf(
             graph=graph,
             baf_extension=preferred_extension,
-            root_claims_status=root_claims_status,
+            root_claims_status=active_root_status,
+            reset_first=True,
+            skip_defeat_for_fact_law=True,
         )
 
-        refreshed_root_status: Dict[str, NodeStatus] = {}
-
-        for node_id, data in graph.graph.nodes(data=True):
-            metadata = data.get("metadata", {})
-
-            if not metadata.get("is_root_claim", False):
-                continue
-
-            status_raw = data.get("status", NodeStatus.HYPOTHETICAL)
-
-            if isinstance(status_raw, NodeStatus):
-                refreshed_root_status[str(node_id)] = status_raw
-
-            else:
-                try:
-                    status_text = str(status_raw).strip()
-
-                    if status_text.upper().startswith("NODESTATUS."):
-                        status_text = status_text.split(".", 1)[1]
-
-                    refreshed_root_status[str(node_id)] = NodeStatus(
-                        status_text.upper()
-                    )
-
-                except ValueError:
-                    refreshed_root_status[str(node_id)] = NodeStatus.HYPOTHETICAL
+        removed_hypothetical_nodes = self._remove_hypothetical_nodes(graph)
+        refreshed_root_status = self._collect_root_status_from_graph(graph)
 
         if refreshed_root_status:
-            root_claims_status = refreshed_root_status
+            active_root_status = refreshed_root_status
 
-        return judgment_document, root_claims_status, baf_details, preferred_extension
+        baf_details: Dict[str, Any] = {
+            "baf_used": True,
+            "llm_root_claims_status": {
+                claim_id: status.value
+                for claim_id, status in extracted_root_status.items()
+            },
+            "fused_root_claims_status": {
+                claim_id: status.value
+                for claim_id, status in active_root_status.items()
+            },
+            "demoted_root_claims": demoted_roots,
+            "gc_removed_after_root_demote": int(gc_removed_after_demote),
+            "pre_propagation_validated": sorted(pre_validated),
+            "pre_propagation_defeated": sorted(pre_defeated),
+            "pre_propagation_validated_count": len(pre_validated),
+            "pre_propagation_defeated_count": len(pre_defeated),
+            "consistency_report": consistency_report,
+            "chosen_extension": sorted(preferred_extension),
+            "chosen_extension_size": len(preferred_extension),
+            "match_score": int(match_details.get("score", 0) or 0),
+            "match_details": match_details,
+            "alignment_rate": float(match_details.get("alignment_rate", 0.0) or 0.0),
+            "preferred_extensions_count": int(
+                search_stats.get("preferred_extensions_count", 0) or 0
+            ),
+            "preferred_extensions_count_estimated": int(
+                search_stats.get("preferred_extensions_count_estimated", 0) or 0
+            ),
+            "context_selection": context_selection,
+            "search_stats": search_stats,
+            "algorithm_version": search_stats.get("algorithm_version", "unknown"),
+            "search_time_ms": int(search_stats.get("search_time_ms", 0) or 0),
+            "searched_states": int(search_stats.get("searched_states", 0) or 0),
+            "pruned_states": int(search_stats.get("pruned_states", 0) or 0),
+            "termination_reason": str(
+                search_stats.get("termination_reason", "completed")
+            ),
+            "removed_hypothetical_nodes_after_final_propagation": int(
+                removed_hypothetical_nodes
+            ),
+        }
+
+        return judgment_document, active_root_status, baf_details, preferred_extension

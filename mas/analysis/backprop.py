@@ -1,24 +1,170 @@
-"""Implements BAF-guided propagation for updating node statuses.
+"""Implements propagation strategies for updating node statuses.
 
 This module provides the `BackPropagator` class, which updates graph node
 statuses according to a chosen BAF preferred extension.
 """
 
-from typing import Optional, Set
+from typing import Dict, Optional, Set
 
 from metagpt.logs import logger
 
-from ..core.graph import EdgeType, NodeStatus, ShadowGraph
+from ..core.graph import EdgeType, NodeStatus, NodeType, ShadowGraph
 
 
 class BackPropagator:
     """Propagates final claim statuses through the argument graph via BAF."""
+
+    def _node_type_name(self, nx_graph, node_id: str) -> str:
+        raw_type = nx_graph.nodes[node_id].get("type")
+
+        if isinstance(raw_type, NodeType):
+            return raw_type.value
+
+        text = str(raw_type).strip().upper()
+
+        if text.startswith("NODETYPE."):
+            text = text.split(".", 1)[1]
+
+        return text
+
+    def _is_fact_or_law(self, nx_graph, node_id: str) -> bool:
+        return self._node_type_name(nx_graph, node_id) in {
+            NodeType.FACT.value,
+            NodeType.LAW.value,
+        }
+
+    def _coerce_status(self, value: object) -> NodeStatus:
+        if isinstance(value, NodeStatus):
+            return value
+
+        text = str(value).strip().upper()
+
+        if text.startswith("NODESTATUS."):
+            text = text.split(".", 1)[1]
+
+        try:
+            return NodeStatus(text)
+
+        except ValueError:
+            return NodeStatus.HYPOTHETICAL
+
+    def _propagate_defeated_from_validated(
+        self,
+        nx_graph,
+        validated_set: Set[str],
+        skip_defeat_for_fact_law: bool = True,
+    ) -> int:
+        defeated_nodes: Set[str] = set()
+
+        for val_id in validated_set:
+            for pred_id in nx_graph.predecessors(val_id):
+                edge_data = nx_graph.get_edge_data(pred_id, val_id)
+
+                if edge_data.get("type") != EdgeType.CONFLICT:
+                    continue
+
+                if pred_id in validated_set:
+                    continue
+
+                if skip_defeat_for_fact_law and self._is_fact_or_law(nx_graph, pred_id):
+                    continue
+
+                self._mark_defeated(nx_graph, pred_id)
+                defeated_nodes.add(str(pred_id))
+
+        for val_id in validated_set:
+            for succ_id in nx_graph.successors(val_id):
+                edge_data = nx_graph.get_edge_data(val_id, succ_id)
+
+                if edge_data.get("type") != EdgeType.CONFLICT:
+                    continue
+
+                if succ_id in validated_set:
+                    continue
+
+                if skip_defeat_for_fact_law and self._is_fact_or_law(nx_graph, succ_id):
+                    continue
+
+                self._mark_defeated(nx_graph, succ_id)
+                defeated_nodes.add(str(succ_id))
+
+        return len(defeated_nodes)
+
+    def propagate_from_root_status(
+        self,
+        graph: ShadowGraph,
+        root_claims_status: Dict[str, object],
+        reset_first: bool = True,
+        skip_defeat_for_fact_law: bool = True,
+    ) -> ShadowGraph:
+        """Propagate statuses from root-claim verdicts before preferred search."""
+        logger.info("[BackPropagator] Starting root-status pre-propagation...")
+        nx_graph = graph.graph
+
+        if reset_first:
+            for nid in nx_graph.nodes():
+                nx_graph.nodes[nid]["status"] = NodeStatus.HYPOTHETICAL
+
+        validated_set: Set[str] = set()
+        queue: list[str] = []
+
+        for root_id, raw_status in (root_claims_status or {}).items():
+            if not nx_graph.has_node(root_id):
+                continue
+
+            status = self._coerce_status(raw_status)
+
+            if status == NodeStatus.VALIDATED:
+                self._mark_validated(nx_graph, root_id)
+                validated_set.add(str(root_id))
+                queue.append(str(root_id))
+
+            elif status == NodeStatus.DEFEATED:
+                self._mark_defeated(nx_graph, root_id)
+
+        while queue:
+            curr_id = queue.pop()
+
+            for pred_id in nx_graph.predecessors(curr_id):
+                edge_data = nx_graph.get_edge_data(pred_id, curr_id)
+
+                if edge_data.get("type") != EdgeType.SUPPORT:
+                    continue
+
+                if pred_id in validated_set:
+                    continue
+
+                current_status = self._coerce_status(
+                    nx_graph.nodes[pred_id].get("status")
+                )
+
+                if current_status == NodeStatus.DEFEATED:
+                    continue
+
+                self._mark_validated(nx_graph, pred_id)
+                validated_set.add(str(pred_id))
+                queue.append(str(pred_id))
+
+        defeated_count = self._propagate_defeated_from_validated(
+            nx_graph=nx_graph,
+            validated_set=validated_set,
+            skip_defeat_for_fact_law=skip_defeat_for_fact_law,
+        )
+
+        logger.info(
+            f"[BackPropagator] Pre-propagation done: "
+            f"validated={len(validated_set)} defeated={defeated_count}"
+        )
+
+        return graph
 
     def propagate_with_baf(
         self,
         graph: ShadowGraph,
         baf_extension: Set[str],
         root_claims_status: Optional[dict] = None,
+        reset_first: bool = True,
+        skip_defeat_for_fact_law: bool = True,
     ) -> ShadowGraph:
         """Perform BAF-guided backpropagation on the graph.
 
@@ -43,8 +189,9 @@ class BackPropagator:
         logger.info("[BackPropagator] Starting BAF-guided propagation...")
         nx_graph = graph.graph
 
-        for nid in nx_graph.nodes():
-            nx_graph.nodes[nid]["status"] = NodeStatus.HYPOTHETICAL
+        if reset_first:
+            for nid in nx_graph.nodes():
+                nx_graph.nodes[nid]["status"] = NodeStatus.HYPOTHETICAL
 
         validated_set = set()
         queue = []
@@ -75,27 +222,12 @@ class BackPropagator:
         logger.info(
             f"[BackPropagator] After support propagation: {len(validated_set)} VALIDATED nodes"
         )
-        defeated_count = 0
 
-        for val_id in validated_set:
-            for pred_id in nx_graph.predecessors(val_id):
-                edge_data = nx_graph.get_edge_data(pred_id, val_id)
-                edge_type = edge_data.get("type")
-
-                if edge_type == EdgeType.CONFLICT:
-                    if pred_id not in validated_set:
-                        self._mark_defeated(nx_graph, pred_id)
-                        defeated_count += 1
-
-        for val_id in validated_set:
-            for succ_id in nx_graph.successors(val_id):
-                edge_data = nx_graph.get_edge_data(val_id, succ_id)
-                edge_type = edge_data.get("type")
-
-                if edge_type == EdgeType.CONFLICT:
-                    if succ_id not in validated_set:
-                        self._mark_defeated(nx_graph, succ_id)
-                        defeated_count += 1
+        defeated_count = self._propagate_defeated_from_validated(
+            nx_graph=nx_graph,
+            validated_set=validated_set,
+            skip_defeat_for_fact_law=skip_defeat_for_fact_law,
+        )
 
         logger.info(f"[BackPropagator] Marked {defeated_count} nodes as DEFEATED")
 
