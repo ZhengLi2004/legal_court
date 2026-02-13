@@ -808,6 +808,19 @@
   line-height: 1.48;
 }
 
+.ux-teamflow-message-body-structured {
+  margin: 0.38rem 0 0;
+  border-radius: 10px;
+  border: 1px solid rgb(148 163 184 / 0.38);
+  background: rgb(248 250 252 / 0.92);
+  color: #0f172a;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.42rem 0.5rem;
+  line-height: 1.44;
+  font-size: 0.78rem;
+}
+
 .ux-teamflow-message-meta {
   display: flex;
   flex-wrap: wrap;
@@ -822,108 +835,6 @@
   border: 1px solid rgb(148 163 184 / 0.4);
   background: rgb(248 250 252 / 0.92);
   padding: 0.08rem 0.36rem;
-}
-
-.ux-teamflow-viz {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.ux-teamflow-kpis {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  font-size: 0.8rem;
-  color: #1e293b;
-}
-
-.ux-teamflow-kpis span {
-  border-radius: 999px;
-  border: 1px solid rgb(148 163 184 / 0.44);
-  background: rgb(241 245 249 / 0.9);
-  padding: 0.16rem 0.42rem;
-}
-
-.ux-teamflow-pipeline {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.45rem;
-}
-
-.ux-teamflow-phase-step {
-  border-radius: 10px;
-  border: 1px solid rgb(148 163 184 / 0.4);
-  background: rgb(248 250 252 / 0.86);
-  color: #475569;
-  padding: 0.38rem 0.42rem;
-  font-size: 0.78rem;
-  display: grid;
-  gap: 0.2rem;
-}
-
-.ux-teamflow-phase-step-active {
-  border-color: rgb(14 116 144 / 0.65);
-  background: rgb(224 242 254 / 0.85);
-  color: #0f172a;
-}
-
-.ux-teamflow-phase-index {
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  display: inline-grid;
-  place-items: center;
-  font-size: 0.68rem;
-  font-weight: 700;
-  background: rgb(148 163 184 / 0.35);
-}
-
-.ux-teamflow-phase-step-active .ux-teamflow-phase-index {
-  background: rgb(14 116 144 / 0.85);
-  color: #f8fafc;
-}
-
-.ux-teamflow-retry-note {
-  margin: 0;
-  border-radius: 10px;
-  border: 1px solid rgb(251 146 60 / 0.45);
-  background: rgb(255 237 213 / 0.8);
-  color: #9a3412;
-  padding: 0.42rem 0.5rem;
-  font-size: 0.8rem;
-}
-
-.ux-teamflow-actor-chart {
-  display: grid;
-  gap: 0.42rem;
-}
-
-.ux-teamflow-actor-row {
-  display: grid;
-  grid-template-columns: minmax(100px, 180px) minmax(0, 1fr) 36px;
-  gap: 0.45rem;
-  align-items: center;
-  font-size: 0.8rem;
-}
-
-.ux-teamflow-actor-name {
-  color: #334155;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ux-teamflow-actor-track {
-  height: 10px;
-  border-radius: 999px;
-  background: rgb(226 232 240 / 0.9);
-  overflow: hidden;
-}
-
-.ux-teamflow-actor-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #0ea5e9, #2563eb);
 }
 
 .ux-admin-shell {
@@ -971,7 +882,4 @@
     max-height: none;
   }
 
-  .ux-teamflow-pipeline {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }

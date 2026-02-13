@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { TeamFlowConversation } from "../components/TeamFlowConversation";
-import { TeamFlowPipelineViz } from "../components/TeamFlowPipelineViz";
 import { useDebate } from "../state/useDebate";
 
 function sideLabel(side: string): string {
@@ -148,11 +147,6 @@ export function TeamFlowPage() {
       <article className="ux-card ux-card-full">
         <h2>协作对话流</h2>
         <TeamFlowConversation turn={selectedTurn} />
-      </article>
-
-      <article className="ux-card ux-card-full">
-        <h2>协作可视化</h2>
-        <TeamFlowPipelineViz turn={selectedTurn} />
       </article>
     </section>
   );

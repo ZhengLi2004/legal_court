@@ -474,14 +474,37 @@ class SessionManager:
             for key, item in value.items():
                 item_text = SessionManager._stringify_compact(item)
 
-                if item_text:
-                    lines.append(f"{key}: {item_text}")
+                if not item_text:
+                    continue
+
+                item_lines = item_text.splitlines()
+
+                if len(item_lines) == 1:
+                    lines.append(f"{key}: {item_lines[0]}")
+                else:
+                    lines.append(f"{key}:")
+                    lines.extend([f"  {line}" for line in item_lines])
 
             return "\n".join(lines)
 
         if isinstance(value, list):
-            lines = [SessionManager._stringify_compact(item) for item in value]
-            return "\n".join([line for line in lines if line])
+            lines: List[str] = []
+
+            for item in value:
+                item_text = SessionManager._stringify_compact(item)
+
+                if not item_text:
+                    continue
+
+                item_lines = item_text.splitlines()
+
+                if len(item_lines) == 1:
+                    lines.append(f"- {item_lines[0]}")
+                else:
+                    lines.append("-")
+                    lines.extend([f"  {line}" for line in item_lines])
+
+            return "\n".join(lines)
 
         return str(value)
 
