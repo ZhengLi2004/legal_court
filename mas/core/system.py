@@ -350,19 +350,10 @@ class LegalSystem:
 
         baf_config = {
             "enabled": bool(getattr(baf_cfg, "enabled", True)),
-            "search_timeout_ms": int(getattr(baf_cfg, "search_timeout_ms", 8000)),
-            "max_search_states": int(getattr(baf_cfg, "max_search_states", 500000)),
-            "max_extensions": int(getattr(baf_cfg, "max_extensions", 256)),
             "judge_context_mode": str(
                 getattr(baf_cfg, "judge_context_mode", "root_evidence_cone")
             ),
             "judge_context_k_hop": int(getattr(baf_cfg, "judge_context_k_hop", 3)),
-            "judge_context_max_nodes": int(
-                getattr(baf_cfg, "judge_context_max_nodes", 120)
-            ),
-            "judge_context_max_chars": int(
-                getattr(baf_cfg, "judge_context_max_chars", 18000)
-            ),
         }
 
         if not baf_config["enabled"]:
@@ -370,12 +361,7 @@ class LegalSystem:
                 "BAF propagation is mandatory, but cfg.baf.enabled is False."
             )
 
-        baf_calculator = BAFCalculator(
-            graph=graph,
-            search_timeout_ms=baf_config["search_timeout_ms"],
-            max_search_states=baf_config["max_search_states"],
-            max_extensions=baf_config["max_extensions"],
-        )
+        baf_calculator = BAFCalculator(graph=graph)
 
         judgment_document = self.judge.evaluate(
             context=context,
@@ -415,7 +401,15 @@ class LegalSystem:
             }
 
             baf_details["chosen_extension"] = sorted(preferred_extension)
+            baf_details["chosen_extension_size"] = len(preferred_extension)
             baf_details["fallback_seeded_from_root_status"] = True
+
+        baf_details.setdefault(
+            "context_selection",
+            baf_calculator.explain_context_selection(),
+        )
+
+        baf_details["chosen_extension_size"] = len(preferred_extension)
 
         self.backprop.propagate_with_baf(
             graph=graph,

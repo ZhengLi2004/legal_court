@@ -148,13 +148,8 @@ class BAFConfig:
     enable_correction: bool = True
     log_attack_details: bool = False
     validate_llm_consistency: bool = True
-    search_timeout_ms: int = 200000
-    max_search_states: int = 500000
-    max_extensions: int = 256
     judge_context_mode: str = "root_evidence_cone"
     judge_context_k_hop: int = 3
-    judge_context_max_nodes: int = 120
-    judge_context_max_chars: int = 18000
 
 
 @dataclass

@@ -167,23 +167,12 @@ class LLMJudge(BaseJudge):
             int(self._cfg_value(baf_config, "judge_context_k_hop", 3)),
         )
 
-        max_nodes = max(
-            8,
-            int(self._cfg_value(baf_config, "judge_context_max_nodes", 120)),
-        )
-
-        graph_char_limit = max(
-            2000,
-            int(self._cfg_value(baf_config, "judge_context_max_chars", 18000)),
-        )
-
         selected_nodes: Optional[Set[str]] = None
 
         if mode == "root_evidence_cone" and baf_calculator is not None and root_claims:
             selected_nodes = baf_calculator.build_root_anchored_context(
                 root_ids=set(root_claims.keys()),
                 k_hop=k_hop,
-                max_nodes=max_nodes,
             )
 
         if selected_nodes:
@@ -191,13 +180,6 @@ class LLMJudge(BaseJudge):
 
         else:
             graph_context = graph.to_recursive_text()
-
-        if len(graph_context) > graph_char_limit:
-            graph_context = graph_context[:graph_char_limit]
-
-            logger.warning(
-                "[Judge] graph_context trimmed to char limit=%s", graph_char_limit
-            )
 
         return {
             "issue_list": issue_list_str,
@@ -314,16 +296,7 @@ class LLMJudge(BaseJudge):
             f"{len(llm_defeated)} DEFEATED"
         )
 
-        search_timeout_ms = int((baf_config or {}).get("search_timeout_ms", 8000))
-        max_search_states = int((baf_config or {}).get("max_search_states", 500000))
-        max_extensions = int((baf_config or {}).get("max_extensions", 256))
-
-        calculator = baf_calculator or BAFCalculator(
-            graph=graph,
-            search_timeout_ms=search_timeout_ms,
-            max_search_states=max_search_states,
-            max_extensions=max_extensions,
-        )
+        calculator = baf_calculator or BAFCalculator(graph=graph)
 
         consistency_report = calculator.validate_consistency(
             llm_validated, llm_defeated
@@ -338,30 +311,57 @@ class LLMJudge(BaseJudge):
             for issue in consistency_report["issues"]:
                 logger.warning(f"[Judge] - {issue['type']}: {issue['message']}")
 
-        preferred_extensions = calculator.find_preferred_extensions()
-        search_stats = calculator.get_search_stats()
+        best_extension, match_details = calculator.find_best_preferred_extension(
+            llm_validated=llm_validated,
+            llm_defeated=llm_defeated,
+        )
 
-        if not preferred_extensions:
+        search_stats = calculator.get_search_stats()
+        context_selection = calculator.explain_context_selection()
+
+        preferred_extensions_count = int(
+            search_stats.get("preferred_extensions_count", 0) or 0
+        )
+
+        if match_details.get("error"):
             logger.warning("[Judge] No preferred extensions found, using LLM verdict")
             empty_stats = calculator.get_search_stats()
 
             return llm_verdict, {
                 "baf_used": True,
                 "error": "No preferred extensions",
+                "llm_root_claims_status": {
+                    claim_id: (
+                        status.value if hasattr(status, "value") else str(status)
+                    )
+                    for claim_id, status in llm_verdict.items()
+                },
+                "fused_root_claims_status": {
+                    claim_id: (
+                        status.value if hasattr(status, "value") else str(status)
+                    )
+                    for claim_id, status in llm_verdict.items()
+                },
                 "consistency_report": consistency_report,
+                "context_selection": context_selection,
                 "search_stats": empty_stats,
+                "match_details": match_details,
+                "chosen_extension": [],
+                "chosen_extension_size": 0,
                 "algorithm_version": empty_stats.get("algorithm_version", "unknown"),
                 "search_time_ms": int(empty_stats.get("search_time_ms", 0) or 0),
                 "searched_states": int(empty_stats.get("searched_states", 0) or 0),
                 "pruned_states": int(empty_stats.get("pruned_states", 0) or 0),
+                "preferred_extensions_count": int(
+                    empty_stats.get("preferred_extensions_count", 0) or 0
+                ),
+                "preferred_extensions_count_estimated": int(
+                    empty_stats.get("preferred_extensions_count_estimated", 0) or 0
+                ),
                 "termination_reason": str(
                     empty_stats.get("termination_reason", "completed")
                 ),
             }
-
-        best_extension, match_details = calculator.match_with_llm_judgment(
-            preferred_extensions, llm_validated, llm_defeated
-        )
 
         logger.info(
             f"[Judge] BAF selected extension with alignment rate: "
@@ -376,12 +376,26 @@ class LLMJudge(BaseJudge):
             "baf_used": True,
             "llm_validated": list(llm_validated),
             "llm_defeated": list(llm_defeated),
+            "llm_root_claims_status": {
+                claim_id: (status.value if hasattr(status, "value") else str(status))
+                for claim_id, status in llm_verdict.items()
+            },
+            "fused_root_claims_status": {
+                claim_id: (status.value if hasattr(status, "value") else str(status))
+                for claim_id, status in fusion_verdict.items()
+            },
             "consistency_report": consistency_report,
-            "preferred_extensions_count": len(preferred_extensions),
+            "preferred_extensions_count": preferred_extensions_count,
+            "preferred_extensions_count_estimated": int(
+                search_stats.get("preferred_extensions_count_estimated", 0) or 0
+            ),
             "chosen_extension": match_details.get("chosen_extension", []),
+            "chosen_extension_size": len(match_details.get("chosen_extension", [])),
             "match_score": match_details.get("score", 0),
+            "match_details": match_details,
             "alignment_rate": match_details.get("alignment_rate", 0),
             "fusion_corrections": self._count_corrections(llm_verdict, fusion_verdict),
+            "context_selection": context_selection,
             "search_stats": search_stats,
             "algorithm_version": search_stats.get("algorithm_version", "unknown"),
             "search_time_ms": int(search_stats.get("search_time_ms", 0) or 0),
