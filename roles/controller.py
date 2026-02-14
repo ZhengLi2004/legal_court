@@ -28,6 +28,8 @@ from mas.core.schemas import (
     AgentAction,
     ResourceRequirement,
     WorkerInstruction,
+    WorkerReport,
+    WorkerReportStatus,
 )
 from tools.action_parser import parse_agent_action_output
 from tools.graph_tool import GraphTool
@@ -145,16 +147,27 @@ class ArgumentController(Role):
                 worker_name = item.get("worker", "")
                 raw_content = item.get("content", "")
                 clean_content = raw_content
+                status = "UNKNOWN"
 
-                if "{" in raw_content:
-                    json_part = extract_json_from_text(raw_content)
+                try:
+                    parsed_report = WorkerReport.model_validate_json(raw_content)
+                    clean_content = parsed_report.content
+                    status = parsed_report.status.value
 
-                    if json_part and "content" in json_part:
-                        clean_content = json_part["content"]
-                        status = json_part.get("status", "UNKNOWN")
+                except Exception:
+                    try:
+                        parsed_report = WorkerReport.model_validate(
+                            extract_json_from_text(raw_content)
+                        )
 
-                        if status == "NOT_FOUND":
-                            clean_content = f"（未找到）{clean_content}"
+                        clean_content = parsed_report.content
+                        status = parsed_report.status.value
+
+                    except Exception:
+                        pass
+
+                if status == WorkerReportStatus.NOT_FOUND.value:
+                    clean_content = f"（未找到）{clean_content}"
 
                 if "FactWorker" in worker_name:
                     self.investigation_buffer["Fact"] = (

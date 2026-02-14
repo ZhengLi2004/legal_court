@@ -37,8 +37,7 @@ def parse_agent_action_output(raw_output: str) -> Union[List[AgentAction], str]:
         if isinstance(data, list):
             return [AgentAction.model_validate(item) for item in data]
 
-        else:
-            return [AgentAction.model_validate(data)]
+        return [AgentAction.model_validate(data)]
 
     except json.JSONDecodeError as e:
         return f"解析失败：JSON格式错误，请确保输出严格符合JSON规范。错误信息: {e}。原始输出: {raw_output}"

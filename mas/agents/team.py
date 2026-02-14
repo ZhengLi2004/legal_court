@@ -6,6 +6,7 @@ legal debate (either plaintiff or defendant). A team consists of a
 """
 
 import asyncio
+import json
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -22,6 +23,7 @@ from tools.law_es_tool import LawEsTool
 from tools.llm import GPTChat
 
 from ..core.graph import ShadowGraph
+from ..core.schemas import WorkerReport
 from ..core.system import LegalSystem
 
 
@@ -148,31 +150,31 @@ class DebateTeam:
         self, worker_name: str, raw_content: str
     ) -> Dict[str, Any]:
         """Extract normalized worker report fields from raw response text."""
-        parsed: Dict[str, Any] = {}
-
-        if "{" in raw_content:
-            try:
-                parsed = extract_json_from_text(raw_content)
-
-            except Exception:
-                parsed = {}
-
         content = raw_content
-
-        if isinstance(parsed, dict):
-            maybe_content = parsed.get("content")
-
-            if isinstance(maybe_content, str) and maybe_content.strip():
-                content = maybe_content
-
         status = "UNKNOWN"
         max_score = 0.0
+        report: WorkerReport | None = None
 
-        if isinstance(parsed, dict):
-            status = str(parsed.get("status", "UNKNOWN"))
+        try:
+            report = WorkerReport.model_validate_json(raw_content)
+
+        except Exception:
+            try:
+                report = WorkerReport.model_validate(
+                    extract_json_from_text(raw_content)
+                )
+
+            except Exception:
+                report = None
+
+        if report is not None:
+            if isinstance(report.content, str) and report.content.strip():
+                content = report.content
+
+            status = report.status.value
 
             try:
-                max_score = float(parsed.get("max_score", 0.0))
+                max_score = float(report.max_score)
 
             except Exception:
                 max_score = 0.0
@@ -247,7 +249,14 @@ class DebateTeam:
             if "batch_instructions" in content:
                 try:
                     data = extract_json_from_text(content)
+
+                    if not isinstance(data, dict):
+                        raise ValueError("batch payload must be a JSON object")
+
                     instructions_list = data.get("batch_instructions", [])
+
+                    if not isinstance(instructions_list, list):
+                        raise ValueError("batch_instructions must be a list")
 
                     if not instructions_list:
                         logger.info(
@@ -266,13 +275,24 @@ class DebateTeam:
                     )
 
                     for item in instructions_list:
+                        if not isinstance(item, dict):
+                            raise ValueError("instruction item must be a JSON object")
+
                         target_name = item.get("target")
                         inst_json = item.get("instruction")
                         worker = self._get_worker_by_name(target_name)
 
                         if worker:
+                            inst_payload = (
+                                json.dumps(inst_json, ensure_ascii=False)
+                                if isinstance(inst_json, dict)
+                                else str(inst_json)
+                            )
+
                             worker.rc.memory.add(
-                                Message(content=inst_json, role=self.controller.profile)
+                                Message(
+                                    content=inst_payload, role=self.controller.profile
+                                )
                             )
 
                             tasks.append(worker._act())
