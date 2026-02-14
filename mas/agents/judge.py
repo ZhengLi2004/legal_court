@@ -21,6 +21,22 @@ from tools.llm import GPTChat, Message
 from ..analysis.baf import BAFCalculator
 from ..core.graph import NodeStatus, ShadowGraph
 
+_VERDICT_STATUS_SCHEMA = {
+    "name": "verdict_status",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "enum": ["ACCEPTED", "REJECTED", "UNMENTIONED"],
+            }
+        },
+        "required": ["status"],
+        "additionalProperties": False,
+    },
+}
+
 
 class BaseJudge(ABC):
     """Abstract base class for a Judge."""
@@ -217,21 +233,36 @@ class LLMJudge(BaseJudge):
                 claim_content=claim_content,
             )
 
-            extraction_tasks.append(self.extraction_llm.aask(extraction_prompt))
+            extraction_tasks.append(
+                self.extraction_llm.aask_json_schema(
+                    extraction_prompt,
+                    schema=_VERDICT_STATUS_SCHEMA,
+                    temperature=0.0,
+                )
+            )
 
-        extraction_responses = await asyncio.gather(*extraction_tasks)
+        extraction_responses = await asyncio.gather(
+            *extraction_tasks, return_exceptions=True
+        )
 
         for i, (claim_id, claim_content) in enumerate(all_root_claims.items()):
             response = extraction_responses[i]
 
-            if "STATUS: ACCEPTED" in response:
+            if isinstance(response, Exception):
+                root_claims_status[claim_id] = NodeStatus.HYPOTHETICAL
+                logger.warning(f"[Judge-Extract] Extraction failed for {claim_id}: {response}")
+                continue
+
+            status = ""
+
+            if isinstance(response, dict):
+                status = str(response.get("status", "")).upper().strip()
+
+            if status == "ACCEPTED":
                 root_claims_status[claim_id] = NodeStatus.VALIDATED
 
-            elif "STATUS: REJECTED" in response:
+            elif status == "REJECTED":
                 root_claims_status[claim_id] = NodeStatus.DEFEATED
-
-            elif "STATUS: UNMENTIONED" in response:
-                root_claims_status[claim_id] = NodeStatus.HYPOTHETICAL
 
             else:
                 root_claims_status[claim_id] = NodeStatus.HYPOTHETICAL

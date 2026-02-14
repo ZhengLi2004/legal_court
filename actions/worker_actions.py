@@ -20,7 +20,17 @@ from prompts.common_prompts import (
     DECOMPOSE_SEARCH_INTENT_PROMPT,
 )
 from tools.embedding import cosine_similarity
-from tools.json_utils import extract_json_from_text
+
+_SEARCH_QUERY_LIST_SCHEMA = {
+    "name": "search_query_list",
+    "strict": True,
+    "schema": {
+        "type": "array",
+        "items": {"type": "string"},
+        "minItems": 2,
+        "maxItems": 3,
+    },
+}
 
 
 class AnalyzeSearchResults(Action):
@@ -86,8 +96,11 @@ class FormulateSearchQueries(Action):
         prompt = prompt_template.format(intent=intent)
 
         try:
-            response = await self.llm.aask(prompt, temperature=0.5)
-            queries = extract_json_from_text(response)
+            queries = await self.llm.aask_json_schema(
+                prompt,
+                schema=_SEARCH_QUERY_LIST_SCHEMA,
+                temperature=0.5,
+            )
 
             if isinstance(queries, list) and all(isinstance(q, str) for q in queries):
                 return queries

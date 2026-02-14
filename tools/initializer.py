@@ -17,8 +17,32 @@ from prompts.common_prompts import (
     GENERATE_PERSONA_PROMPT,
     GENERATE_ROOT_CLAIM_PROMPT,
 )
-from tools.json_utils import extract_json_from_text
 from tools.llm import GPTChat, Message
+
+_ROOT_CLAIMS_SCHEMA = {
+    "name": "root_claim_actions",
+    "strict": True,
+    "schema": {
+        "type": "array",
+        "items": {"type": "string"},
+    },
+}
+
+_PERSONA_SCHEMA = {
+    "name": "agent_persona",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "belief": {"type": "string"},
+            "desire": {"type": "string"},
+            "intention": {"type": "string"},
+            "strategy": {"type": "string"},
+        },
+        "required": ["belief", "desire", "intention", "strategy"],
+        "additionalProperties": False,
+    },
+}
 
 
 @dataclass
@@ -144,10 +168,13 @@ class CaseInitializer:
     async def _generate_root_claim(self, facts: str, cause: str) -> List[str]:
         """Use an LLM to generate the plaintiff's primary legal claims."""
         prompt = GENERATE_ROOT_CLAIM_PROMPT.format(cause=cause, facts=facts)
-        response = self.llm([Message(role="user", content=prompt)])
 
         try:
-            claims_list = extract_json_from_text(response)
+            claims_list = await self.llm.aask_json_schema(
+                prompt,
+                schema=_ROOT_CLAIMS_SCHEMA,
+                temperature=0.1,
+            )
 
             if not isinstance(claims_list, list) or not all(
                 isinstance(item, str) for item in claims_list
@@ -157,7 +184,7 @@ class CaseInitializer:
             return claims_list
 
         except Exception as e:
-            logger.error(f"Error parsing root claim texts: {e}\nResponse: {response}")
+            logger.error(f"Error parsing root claim texts: {e}")
             return []
 
     async def _generate_persona(
@@ -170,13 +197,12 @@ class CaseInitializer:
             cause=cause, role_cn=role_cn, facts=facts
         )
 
-        response = self.llm([Message(role="user", content=prompt)], temperature=0.7)
-
         try:
-            data = extract_json_from_text(response)
-
-            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                data = data[0]
+            data = await self.llm.aask_json_schema(
+                prompt,
+                schema=_PERSONA_SCHEMA,
+                temperature=0.7,
+            )
 
             return AgentPersona(
                 role_name=role,
@@ -187,7 +213,7 @@ class CaseInitializer:
             )
 
         except Exception as e:
-            logger.error(f"Error parsing persona for {role}: {e}\nResponse: {response}")
+            logger.error(f"Error parsing persona for {role}: {e}")
 
             return AgentPersona(
                 role,

@@ -295,8 +295,10 @@ JUDGE_EXTRACT_VERDICT_PROMPT = """
     原告诉求 ID: {claim_id}
     原告诉求内容: {claim_content}
     
-    请严格按照以下格式输出你的判断：
-    STATUS: [ACCEPTED|REJECTED|UNMENTIONED]
+    请输出一个 JSON 对象，字段如下：
+    {{
+        "status": "ACCEPTED" | "REJECTED" | "UNMENTIONED"
+    }}
     """
 
 EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT = """

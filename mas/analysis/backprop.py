@@ -57,22 +57,6 @@ class BackPropagator:
         defeated_nodes: Set[str] = set()
 
         for val_id in validated_set:
-            for pred_id in nx_graph.predecessors(val_id):
-                edge_data = nx_graph.get_edge_data(pred_id, val_id)
-
-                if edge_data.get("type") != EdgeType.CONFLICT:
-                    continue
-
-                if pred_id in validated_set:
-                    continue
-
-                if skip_defeat_for_fact_law and self._is_fact_or_law(nx_graph, pred_id):
-                    continue
-
-                self._mark_defeated(nx_graph, pred_id)
-                defeated_nodes.add(str(pred_id))
-
-        for val_id in validated_set:
             for succ_id in nx_graph.successors(val_id):
                 edge_data = nx_graph.get_edge_data(val_id, succ_id)
 
@@ -174,9 +158,7 @@ class BackPropagator:
         Propagation strategy:
         1. All nodes in BAF extension are marked VALIDATED
         2. VALIDATED status propagates backward through SUPPORT edges
-        3. DEFEATED status is applied based on collective attack relationships:
-           - If a node attacks a VALIDATED node → DEFEATED
-           - If a node is attacked by a VALIDATED node → DEFEATED
+        3. DEFEATED status is applied to direct CONFLICT targets of VALIDATED nodes
 
         Args:
             graph: The ShadowGraph instance representing the final state

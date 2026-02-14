@@ -7,10 +7,11 @@ token counter for tracking usage.
 """
 
 import asyncio
+import json
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Literal, Optional, Protocol
+from typing import Any, Dict, List, Literal, Optional, Protocol
 
 from openai import OpenAI
 
@@ -38,6 +39,7 @@ class LLMCallable(Protocol):
         max_tokens: int = None,
         stop_strs: Optional[List[str]] = None,
         num_comps: int = 1,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Define the standard call signature for a language model.
 
@@ -51,6 +53,8 @@ class LLMCallable(Protocol):
             stop_strs: An optional list of strings at which to stop generation.
             num_comps: The number of completions to generate (typically, only the
                 first one is used).
+            response_format: Optional structured output constraint for compatible
+                OpenAI-style APIs.
 
         Returns:
             The string content of the language model's response.
@@ -116,6 +120,7 @@ class GPTChat(LLM):
         max_tokens: int = None,
         stop_strs: Optional[List[str]] = None,
         num_comps: int = 1,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Make a synchronous chat completion request.
 
@@ -125,6 +130,8 @@ class GPTChat(LLM):
             max_tokens: The maximum number of tokens to generate. Defaults to system config.
             stop_strs: A list of strings to stop generation at.
             num_comps: The number of completions to generate (always uses the first).
+            response_format: Optional OpenAI-style response format constraint,
+                e.g. {"type": "json_object"} or {"type": "json_schema", ...}.
 
         Returns:
             The content of the assistant's response as a string, or an empty
@@ -143,6 +150,11 @@ class GPTChat(LLM):
 
         for attempt in range(max_retries):
             try:
+                request_kwargs: Dict[str, Any] = {}
+
+                if response_format is not None:
+                    request_kwargs["response_format"] = response_format
+
                 response = self.client.chat.completions.create(
                     model=self._model_name,
                     messages=openai_messages,
@@ -150,6 +162,7 @@ class GPTChat(LLM):
                     temperature=final_temp,
                     n=num_comps,
                     stop=stop_strs,
+                    **request_kwargs,
                 )
 
                 if not response.choices:
@@ -182,12 +195,25 @@ class GPTChat(LLM):
 
         return ""
 
+    @staticmethod
+    def _parse_json_output(raw: str) -> Any:
+        """Parse a JSON string and raise clear errors for invalid outputs."""
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError("LLM returned empty or non-string JSON content.")
+
+        try:
+            return json.loads(raw)
+
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"LLM JSON decode failed: {exc}") from exc
+
     async def aask(
         self,
         prompt: str,
         system_msgs: Optional[List[str]] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Make an asynchronous chat completion request with a simple prompt.
 
@@ -199,6 +225,7 @@ class GPTChat(LLM):
             system_msgs: An optional list of system message strings.
             max_tokens: The maximum number of tokens to generate.
             temperature: The sampling temperature.
+            response_format: Optional OpenAI-style response format constraint.
 
         Returns:
             The content of the assistant's response as a string.
@@ -210,12 +237,105 @@ class GPTChat(LLM):
                 messages.append(Message(role="system", content=sm))
 
         messages.append(Message(role="user", content=prompt))
-
         loop = asyncio.get_running_loop()
 
         return await loop.run_in_executor(
-            None, self.__call__, messages, temperature, max_tokens
+            None,
+            lambda: self.__call__(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format=response_format,
+            ),
         )
+
+    def ask_json_object(
+        self,
+        messages: List[Message],
+        temperature: float = None,
+        max_tokens: int = None,
+        stop_strs: Optional[List[str]] = None,
+        num_comps: int = 1,
+    ) -> Dict[str, Any]:
+        """Request strict JSON-object output and return parsed dict."""
+        raw = self.__call__(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stop_strs=stop_strs,
+            num_comps=num_comps,
+            response_format={"type": "json_object"},
+        )
+
+        data = self._parse_json_output(raw)
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected JSON object, got {type(data).__name__}.")
+
+        return data
+
+    def ask_json_schema(
+        self,
+        messages: List[Message],
+        schema: Dict[str, Any],
+        temperature: float = None,
+        max_tokens: int = None,
+        stop_strs: Optional[List[str]] = None,
+        num_comps: int = 1,
+    ) -> Any:
+        """Request strict JSON-schema output and return parsed JSON value."""
+        raw = self.__call__(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stop_strs=stop_strs,
+            num_comps=num_comps,
+            response_format={"type": "json_schema", "json_schema": schema},
+        )
+
+        return self._parse_json_output(raw)
+
+    async def aask_json_object(
+        self,
+        prompt: str,
+        system_msgs: Optional[List[str]] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Async helper for strict JSON-object outputs."""
+        raw = await self.aask(
+            prompt=prompt,
+            system_msgs=system_msgs,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format={"type": "json_object"},
+        )
+
+        data = self._parse_json_output(raw)
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected JSON object, got {type(data).__name__}.")
+
+        return data
+
+    async def aask_json_schema(
+        self,
+        prompt: str,
+        schema: Dict[str, Any],
+        system_msgs: Optional[List[str]] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> Any:
+        """Async helper for strict JSON-schema outputs."""
+        raw = await self.aask(
+            prompt=prompt,
+            system_msgs=system_msgs,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format={"type": "json_schema", "json_schema": schema},
+        )
+
+        return self._parse_json_output(raw)
 
 
 def get_price():

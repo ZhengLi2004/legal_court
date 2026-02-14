@@ -7,6 +7,8 @@ assessing the state of the debate, determining resource needs (facts, laws,
 historical cases), and generating the final graph operations for a turn.
 """
 
+import json
+
 from metagpt.actions import Action
 
 from mas.core.schemas import AGENT_ACTION_SCHEMA_DESC
@@ -16,6 +18,44 @@ from prompts.common_prompts import (
     ASSESS_RECALL_NEEDS_PROMPT,
     VERIFY_AND_DECIDE_PROMPT,
 )
+
+_RESOURCE_REQUIREMENT_SCHEMA = {
+    "name": "resource_requirement",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "need": {"type": "boolean"},
+            "reasoning": {"type": "string"},
+            "intent": {"type": ["string", "null"]},
+        },
+        "required": ["need", "reasoning", "intent"],
+        "additionalProperties": False,
+    },
+}
+
+_AGENT_ACTION_LIST_SCHEMA = {
+    "name": "agent_action_list",
+    "strict": True,
+    "schema": {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "action_type": {
+                    "type": "string",
+                    "enum": ["cite_fact", "cite_law", "support_claim", "rebut_claim"],
+                },
+                "content": {"type": "string"},
+                "target_id": {"type": ["string", "null"]},
+                "source_id": {"type": ["string", "null"]},
+                "metadata": {"type": "object", "additionalProperties": True},
+            },
+            "required": ["action_type", "content", "target_id", "source_id"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 class AssessFactNeeds(Action):
@@ -48,7 +88,13 @@ class AssessFactNeeds(Action):
             graph_context=graph_context,
         )
 
-        return await self.llm.aask(prompt, temperature=0.5)
+        result = await self.llm.aask_json_schema(
+            prompt,
+            schema=_RESOURCE_REQUIREMENT_SCHEMA,
+            temperature=0.5,
+        )
+
+        return json.dumps(result, ensure_ascii=False)
 
 
 class AssessLawNeeds(Action):
@@ -81,7 +127,13 @@ class AssessLawNeeds(Action):
             graph_context=graph_context,
         )
 
-        return await self.llm.aask(prompt, temperature=0.5)
+        result = await self.llm.aask_json_schema(
+            prompt,
+            schema=_RESOURCE_REQUIREMENT_SCHEMA,
+            temperature=0.5,
+        )
+
+        return json.dumps(result, ensure_ascii=False)
 
 
 class AssessRecallNeeds(Action):
@@ -114,7 +166,13 @@ class AssessRecallNeeds(Action):
             graph_context=graph_context,
         )
 
-        return await self.llm.aask(prompt, temperature=0.5)
+        result = await self.llm.aask_json_schema(
+            prompt,
+            schema=_RESOURCE_REQUIREMENT_SCHEMA,
+            temperature=0.5,
+        )
+
+        return json.dumps(result, ensure_ascii=False)
 
 
 class VerifyAndDecide(Action):
@@ -167,4 +225,10 @@ class VerifyAndDecide(Action):
             id_inventory=id_inventory,
         )
 
-        return await self.llm.aask(prompt, temperature=0.5)
+        result = await self.llm.aask_json_schema(
+            prompt,
+            schema=_AGENT_ACTION_LIST_SCHEMA,
+            temperature=0.5,
+        )
+
+        return json.dumps(result, ensure_ascii=False)
