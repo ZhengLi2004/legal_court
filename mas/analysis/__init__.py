@@ -1,1 +1,1 @@
-"""Argumentation-analysis components (BAF semantics, propagation, execution)."""
+"""Argumentation-analysis components for propagation and graph execution."""

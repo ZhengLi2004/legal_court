@@ -79,8 +79,6 @@ class DebateEngine:
         self.turn_artifacts: List[Dict[str, Any]] = []
         self.latest_turn_uid: str = ""
         self.narrator: Optional[GraphNarrator] = None
-        self.baf_details: Dict[str, Any] = {}
-        self.preferred_extension: Set[str] = set()
         self.on_state_change: Optional[Callable[[str, Any], None]] = None
         self._is_running: bool = False
 
@@ -1042,8 +1040,6 @@ class DebateEngine:
         (
             self.judgment_document,
             self.root_claims_status,
-            baf_details,
-            preferred_extension,
         ) = await self.legal_sys.adjudicate(
             self.raw_facts,
             self.graph,
@@ -1051,11 +1047,6 @@ class DebateEngine:
         )
 
         logger.info(f">>> [Engine] root_claims_status: {self.root_claims_status}")
-        self.baf_details = baf_details if isinstance(baf_details, dict) else {}
-
-        self.preferred_extension = {
-            str(node) for node in (preferred_extension or set()) if str(node).strip()
-        }
 
         self.last_step_log["adjudication_result"] = {
             "document": self.judgment_document,
@@ -1063,15 +1054,9 @@ class DebateEngine:
                 k: v.value if hasattr(v, "value") else str(v)
                 for k, v in self.root_claims_status.items()
             },
-            "baf_details": self.baf_details,
-            "preferred_extension_size": len(self.preferred_extension),
+            "claim_count": len(self.root_claims_status),
+            "document_length": len(self.judgment_document),
         }
-
-        logger.info(
-            ">>> [BAF] chosen_extension_size={} alignment_rate={:.2f}%",
-            len(self.preferred_extension),
-            float(self.baf_details.get("alignment_rate", 0.0)) * 100.0,
-        )
 
         self.is_finished = True
         self.is_ready_for_adjudication = False
@@ -1080,7 +1065,7 @@ class DebateEngine:
             "adjudication_complete",
             {
                 "judgment_length": len(self.judgment_document),
-                "baf_details": self.baf_details,
+                "root_claim_count": len(self.root_claims_status),
             },
         )
 
@@ -1131,8 +1116,6 @@ class DebateEngine:
             "winner": self.winner,
             "judgment_document": self.judgment_document,
             "root_claims_status": serializable_claims_status,
-            "baf_details": self.baf_details,
-            "preferred_extension": list(self.preferred_extension),
             "last_log": self.last_step_log,
             "transcript": transcript_rows,
             "full_transcript": transcript_rows,

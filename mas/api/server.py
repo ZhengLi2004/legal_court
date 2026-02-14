@@ -11,8 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
 
-from mas.analysis.baf import BAFComputationError
-
 from .serializers import (
     graph_diff_response,
     graph_response,
@@ -473,16 +471,6 @@ def create_app(
 
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-        except BAFComputationError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "code": exc.code,
-                    "message": str(exc),
-                    "stats": exc.stats,
-                },
-            ) from exc
 
         except Exception as exc:
             raise HTTPException(
