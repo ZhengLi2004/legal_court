@@ -18,7 +18,6 @@ from roles.worker import FactWorker, LawWorker, RecallWorker
 from tools.fact_es_tool import FactEsTool
 from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
-from tools.json_utils import extract_json_from_text
 from tools.law_es_tool import LawEsTool
 from tools.llm import GPTChat
 
@@ -159,13 +158,7 @@ class DebateTeam:
             report = WorkerReport.model_validate_json(raw_content)
 
         except Exception:
-            try:
-                report = WorkerReport.model_validate(
-                    extract_json_from_text(raw_content)
-                )
-
-            except Exception:
-                report = None
+            report = None
 
         if report is not None:
             if isinstance(report.content, str) and report.content.strip():
@@ -248,7 +241,7 @@ class DebateTeam:
 
             if "batch_instructions" in content:
                 try:
-                    data = extract_json_from_text(content)
+                    data = json.loads(content)
 
                     if not isinstance(data, dict):
                         raise ValueError("batch payload must be a JSON object")

@@ -7,7 +7,7 @@ assessing the state of the debate, determining resource needs (facts, laws,
 historical cases), and generating the final graph operations for a turn.
 """
 
-import json
+from typing import Any, Dict, List
 
 from metagpt.actions import Action
 
@@ -67,7 +67,9 @@ class AssessFactNeeds(Action):
 
     name: str = "AssessFactNeeds"
 
-    async def run(self, role_name: str, persona: object, graph_context: str) -> str:
+    async def run(
+        self, role_name: str, persona: object, graph_context: str
+    ) -> Dict[str, Any]:
         """Format a prompt and queries the LLM to assess fact-finding needs.
 
         Args:
@@ -76,9 +78,8 @@ class AssessFactNeeds(Action):
             graph_context: A textual representation of the current debate graph.
 
         Returns:
-            A raw string response from the language model, expected to be a JSON
-            object detailing whether a fact search is needed, the reasoning,
-            and the search intent.
+            A parsed JSON object detailing whether a fact search is needed,
+            the reasoning, and the search intent.
         """
         prompt = ASSESS_FACT_NEEDS_PROMPT.format(
             role_name=role_name,
@@ -94,7 +95,7 @@ class AssessFactNeeds(Action):
             temperature=0.5,
         )
 
-        return json.dumps(result, ensure_ascii=False)
+        return result
 
 
 class AssessLawNeeds(Action):
@@ -106,7 +107,9 @@ class AssessLawNeeds(Action):
 
     name: str = "AssessLawNeeds"
 
-    async def run(self, role_name: str, persona: object, graph_context: str) -> str:
+    async def run(
+        self, role_name: str, persona: object, graph_context: str
+    ) -> Dict[str, Any]:
         """Format a prompt and queries the LLM to assess legal research needs.
 
         Args:
@@ -115,9 +118,8 @@ class AssessLawNeeds(Action):
             graph_context: A textual representation of the current debate graph.
 
         Returns:
-            A raw string response from the language model, expected to be a JSON
-            object detailing whether a law search is needed, the reasoning,
-            and the search intent.
+            A parsed JSON object detailing whether a law search is needed,
+            the reasoning, and the search intent.
         """
         prompt = ASSESS_LAW_NEEDS_PROMPT.format(
             role_name=role_name,
@@ -133,7 +135,7 @@ class AssessLawNeeds(Action):
             temperature=0.5,
         )
 
-        return json.dumps(result, ensure_ascii=False)
+        return result
 
 
 class AssessRecallNeeds(Action):
@@ -145,7 +147,9 @@ class AssessRecallNeeds(Action):
 
     name: str = "AssessRecallNeeds"
 
-    async def run(self, role_name: str, persona: object, graph_context: str) -> str:
+    async def run(
+        self, role_name: str, persona: object, graph_context: str
+    ) -> Dict[str, Any]:
         """Format a prompt and queries the LLM to assess historical recall needs.
 
         Args:
@@ -154,9 +158,8 @@ class AssessRecallNeeds(Action):
             graph_context: A textual representation of the current debate graph.
 
         Returns:
-            A raw string response from the language model, expected to be a JSON
-            object detailing whether recalling past cases is needed, the reasoning,
-            and the strategic intent.
+            A parsed JSON object detailing whether recalling past cases is needed,
+            the reasoning, and the strategic intent.
         """
         prompt = ASSESS_RECALL_NEEDS_PROMPT.format(
             role_name=role_name,
@@ -172,7 +175,7 @@ class AssessRecallNeeds(Action):
             temperature=0.5,
         )
 
-        return json.dumps(result, ensure_ascii=False)
+        return result
 
 
 class VerifyAndDecide(Action):
@@ -194,7 +197,7 @@ class VerifyAndDecide(Action):
         focus: str,
         id_inventory: str,
         feedback: str = "",
-    ):
+    ) -> List[Dict[str, Any]]:
         """Format a prompt and queries the LLM to generate final agent actions.
 
         Args:
@@ -207,8 +210,8 @@ class VerifyAndDecide(Action):
             feedback: Optional feedback from a previously failed execution attempt.
 
         Returns:
-            A raw string response from the language model, expected to be a JSON
-            array of `AgentAction` objects to be executed on the debate graph.
+            A parsed JSON array of `AgentAction` objects to be executed on
+            the debate graph.
         """
         feedback_text = ""
 
@@ -231,4 +234,4 @@ class VerifyAndDecide(Action):
             temperature=0.5,
         )
 
-        return json.dumps(result, ensure_ascii=False)
+        return result

@@ -34,7 +34,6 @@ from mas.core.schemas import (
 from tools.action_parser import parse_agent_action_output
 from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
-from tools.json_utils import extract_json_from_text
 
 
 class ControllerPipelineStep(Enum):
@@ -155,16 +154,7 @@ class ArgumentController(Role):
                     status = parsed_report.status.value
 
                 except Exception:
-                    try:
-                        parsed_report = WorkerReport.model_validate(
-                            extract_json_from_text(raw_content)
-                        )
-
-                        clean_content = parsed_report.content
-                        status = parsed_report.status.value
-
-                    except Exception:
-                        pass
+                    pass
 
                 if status == WorkerReportStatus.NOT_FOUND.value:
                     clean_content = f"（未找到）{clean_content}"
@@ -248,10 +238,10 @@ class ArgumentController(Role):
             )
 
             results = await asyncio.gather(fact_task, law_task, recall_task)
-            raw_fact, raw_law, raw_recall = results
-            req_fact = self._parse_requirement(raw_fact)
-            req_law = self._parse_requirement(raw_law)
-            req_recall = self._parse_requirement(raw_recall)
+            fact_payload, law_payload, recall_payload = results
+            req_fact = self._parse_requirement(fact_payload)
+            req_law = self._parse_requirement(law_payload)
+            req_recall = self._parse_requirement(recall_payload)
             instructions = []
 
             self.last_assessment = {
@@ -377,7 +367,7 @@ class ArgumentController(Role):
             action = VerifyAndDecide(llm=self.llm)
             id_list_str = self.graph_tool.current_graph.get_simple_id_list()
 
-            decision_raw = await action.run(
+            decision_payload = await action.run(
                 self.name,
                 current_advice,
                 graph_context,
@@ -386,8 +376,8 @@ class ArgumentController(Role):
                 id_inventory=id_list_str,
             )
 
-            self.last_decision_raw = decision_raw
-            parsed_actions = parse_agent_action_output(decision_raw)
+            self.last_decision_raw = json.dumps(decision_payload, ensure_ascii=False)
+            parsed_actions = parse_agent_action_output(decision_payload)
 
             if isinstance(parsed_actions, list) and all(
                 isinstance(a, AgentAction) for a in parsed_actions
@@ -406,7 +396,7 @@ class ArgumentController(Role):
                     logger.warning(f"[{self.name}] Action Execution Failed: {exec_msg}")
 
                     detailed_error = (
-                        f"[系统报错]: {exec_msg}\n[你的原始输出]: \n{decision_raw}\n"
+                        f"[系统报错]: {exec_msg}\n[你的原始输出]: \n{self.last_decision_raw}\n"
                     )
 
                     self.recent_errors = [detailed_error]
@@ -439,7 +429,7 @@ class ArgumentController(Role):
                 self.last_execution_log = error_msg
 
                 detailed_error = (
-                    f"[格式错误]: {error_msg}\n[你的原始输出]: \n{decision_raw}\n"
+                    f"[格式错误]: {error_msg}\n[你的原始输出]: \n{self.last_decision_raw}\n"
                 )
 
                 self.recent_errors = [detailed_error]
@@ -501,19 +491,21 @@ class ArgumentController(Role):
             self.latest_summary = fallback_msg
             self.rc.memory.add(Message(content=fallback_msg, role="System"))
 
-    def _parse_requirement(self, raw_text: str) -> ResourceRequirement:
-        """Safely parse a JSON string into a ResourceRequirement object.
+    def _parse_requirement(self, payload: Any) -> ResourceRequirement:
+        """Safely parse a ResourceRequirement payload from strict JSON data.
 
         Args:
-            raw_text: The raw string output from a needs assessment LLM call.
+            payload: Parsed JSON object or JSON string.
 
         Returns:
             A `ResourceRequirement` object. Returns a default `need=False` object
             on parsing failure.
         """
         try:
-            data = extract_json_from_text(raw_text)
-            return ResourceRequirement.model_validate(data)
+            if isinstance(payload, str):
+                return ResourceRequirement.model_validate_json(payload)
+
+            return ResourceRequirement.model_validate(payload)
 
         except Exception as e:
             logger.warning(f"[{self.name}] Parse Error: {e}. Defaulting to NEED=False.")

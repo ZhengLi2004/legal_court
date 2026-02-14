@@ -1,43 +1,42 @@
-"""Parses and validates raw language model output into structured AgentAction objects.
-
-This module provides a robust parsing function that takes the string output
-from a language model, which is expected to be a JSON object or array, and
-converts it into a list of `AgentAction` Pydantic models. It handles potential
-JSON decoding errors and Pydantic validation errors gracefully, returning
-a descriptive error string in case of failure.
-"""
+"""Parses strict JSON action output into structured AgentAction objects."""
 
 import json
-from typing import List, Union
+from typing import Any, Dict, List, Union
 
 from pydantic import ValidationError
 
 from mas.core.schemas import AgentAction
-from tools.json_utils import extract_json_from_text
 
 
-def parse_agent_action_output(raw_output: str) -> Union[List[AgentAction], str]:
-    """Parse a raw string from an LLM into a list of AgentAction objects.
+def _load_action_payload(raw_output: Union[str, Dict[str, Any], List[Any]]) -> Any:
+    """Load action payload from strict JSON string or already-decoded data."""
+    if isinstance(raw_output, (dict, list)):
+        return raw_output
 
-    The function first attempts to extract a JSON block from the raw text. It then
-    parses the JSON and validates it against the `AgentAction` schema. It can
-    handle both a single JSON object and a JSON array of objects.
+    if not isinstance(raw_output, str):
+        raise TypeError(
+            f"Unsupported raw_output type: {type(raw_output).__name__}. Expected str|dict|list."
+        )
 
-    Args:
-        raw_output: The raw string output from the language model.
+    return json.loads(raw_output)
 
-    Returns:
-        A list of validated `AgentAction` objects if parsing and validation
-        are successful.
-        A descriptive error string if any part of the process fails.
-    """
+
+def parse_agent_action_output(
+    raw_output: Union[str, Dict[str, Any], List[Any]],
+) -> Union[List[AgentAction], str]:
+    """Parse strict action payload into a list of AgentAction objects."""
     try:
-        data = extract_json_from_text(raw_output)
+        data = _load_action_payload(raw_output)
 
         if isinstance(data, list):
             return [AgentAction.model_validate(item) for item in data]
 
-        return [AgentAction.model_validate(data)]
+        if isinstance(data, dict):
+            return [AgentAction.model_validate(data)]
+
+        raise ValueError(
+            f"解析失败：JSON根结构必须是对象或数组，当前为 {type(data).__name__}。"
+        )
 
     except json.JSONDecodeError as e:
         return f"解析失败：JSON格式错误，请确保输出严格符合JSON规范。错误信息: {e}。原始输出: {raw_output}"
