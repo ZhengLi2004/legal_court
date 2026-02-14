@@ -75,6 +75,11 @@ def _derive_round_idx(
 
 
 def _default_case_path() -> Path:
+    """Return the default bundled case JSONL path.
+
+    Returns:
+        Absolute path to `data/sampling/cleaned_samples.jsonl`.
+    """
     return (
         Path(__file__).resolve().parents[2]
         / "data"
@@ -84,10 +89,23 @@ def _default_case_path() -> Path:
 
 
 def _default_frontend_snapshots_dir() -> Path:
+    """Return the directory used for persisted frontend snapshot files.
+
+    Returns:
+        Absolute path to the frontend snapshot storage directory.
+    """
     return Path(__file__).resolve().parents[2] / "tmp" / "frontend_snapshots"
 
 
 def _to_json_safe(value: Any) -> Any:
+    """Recursively convert values into JSON-serializable structures.
+
+    Args:
+        value: Arbitrary value, potentially containing enums, sets, or objects.
+
+    Returns:
+        JSON-friendly representation using only primitive containers/scalars.
+    """
     if isinstance(value, dict):
         return {str(k): _to_json_safe(v) for k, v in value.items()}
 
@@ -110,6 +128,11 @@ def _to_json_safe(value: Any) -> Any:
 
 
 def _default_engine_factory() -> Any:
+    """Build a default `DebateEngine` instance for API sessions.
+
+    Returns:
+        Ready-to-use debate engine instance.
+    """
     from mas.config import SystemConfig
     from mas.core.engine import DebateEngine
 
@@ -117,6 +140,14 @@ def _default_engine_factory() -> Any:
 
 
 def _load_case_from_jsonl(path: Path) -> Dict[str, Any]:
+    """Load the first valid case row from a JSONL file.
+
+    Args:
+        path: JSONL file path to read.
+
+    Returns:
+        Parsed case dictionary.
+    """
     with path.open("r", encoding="utf-8") as file:
         for line in file:
             row = line.strip()
@@ -164,6 +195,13 @@ class SessionManager:
         default_case_path: Optional[Path] = None,
         frontend_snapshots_dir: Optional[Path] = None,
     ):
+        """Initialize the session manager and storage locations.
+
+        Args:
+            engine_factory: Optional dependency-injected engine factory.
+            default_case_path: Optional fallback case JSONL path.
+            frontend_snapshots_dir: Optional snapshot persistence directory.
+        """
         self._engine_factory = engine_factory or _default_engine_factory
         self._default_case_path = default_case_path or _default_case_path()
         self._frontend_snapshots_dir = (
@@ -173,9 +211,22 @@ class SessionManager:
         self._sessions: Dict[str, DebateSession] = {}
 
     def list_sessions(self) -> List[DebateSession]:
+        """Return all currently active in-memory sessions.
+
+        Returns:
+            List of `DebateSession` objects.
+        """
         return list(self._sessions.values())
 
     def get_session(self, session_id: str) -> DebateSession:
+        """Fetch a session by ID.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Matching `DebateSession`.
+        """
         try:
             return self._sessions[session_id]
 
@@ -187,6 +238,15 @@ class SessionManager:
         case_data: Optional[Dict[str, Any]] = None,
         auto_setup: bool = True,
     ) -> DebateSession:
+        """Create a new session and optionally execute setup immediately.
+
+        Args:
+            case_data: Optional case payload used by setup.
+            auto_setup: Whether to run setup after creation.
+
+        Returns:
+            Newly created `DebateSession`.
+        """
         session_id = f"sess_{uuid.uuid4().hex[:12]}"
         engine = self._engine_factory()
         session = DebateSession(session_id=session_id, engine=engine)
@@ -213,6 +273,16 @@ class SessionManager:
         case_data: Optional[Dict[str, Any]] = None,
         case_data_path: Optional[Path] = None,
     ) -> DebateSession:
+        """Initialize engine state for an existing session.
+
+        Args:
+            session_id: Session identifier.
+            case_data: Optional in-memory case payload.
+            case_data_path: Optional path for loading case payload.
+
+        Returns:
+            Updated session after setup.
+        """
         session = self.get_session(session_id)
 
         async with session.lock:
@@ -259,6 +329,14 @@ class SessionManager:
                 raise
 
     async def step_session(self, session_id: str) -> DebateSession:
+        """Advance the debate by one turn for the given session.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Updated session after stepping.
+        """
         session = self.get_session(session_id)
 
         if session.status == "CREATED":
@@ -349,6 +427,14 @@ class SessionManager:
                 raise
 
     async def adjudicate_session(self, session_id: str) -> DebateSession:
+        """Run final adjudication for a session.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Updated session after adjudication.
+        """
         session = self.get_session(session_id)
 
         if session.status == "CREATED":
@@ -393,6 +479,11 @@ class SessionManager:
                 raise
 
     async def delete_session(self, session_id: str) -> None:
+        """Delete a session and release underlying engine resources.
+
+        Args:
+            session_id: Session identifier.
+        """
         session = self.get_session(session_id)
 
         async with session.lock:
@@ -409,6 +500,17 @@ class SessionManager:
         from_seq: Optional[int] = None,
         to_seq: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
+        """Return filtered event history for a session.
+
+        Args:
+            session_id: Session identifier.
+            limit: Maximum number of events to return.
+            from_seq: Optional inclusive lower sequence bound.
+            to_seq: Optional inclusive upper sequence bound.
+
+        Returns:
+            Event envelopes ordered by original sequence.
+        """
         session = self.get_session(session_id)
         events = session.events
 
@@ -424,6 +526,15 @@ class SessionManager:
     def register_event_subscriber(
         self, session_id: str, max_queue_size: int = 200
     ) -> asyncio.Queue:
+        """Register a queue subscriber for live event streaming.
+
+        Args:
+            session_id: Session identifier.
+            max_queue_size: Queue capacity for backpressure handling.
+
+        Returns:
+            Newly created asyncio queue.
+        """
         session = self.get_session(session_id)
         queue: asyncio.Queue = asyncio.Queue(maxsize=max(1, int(max_queue_size)))
         session.event_subscribers.append(queue)
@@ -432,6 +543,12 @@ class SessionManager:
     def unregister_event_subscriber(
         self, session_id: str, queue: asyncio.Queue
     ) -> None:
+        """Remove a previously registered live-event subscriber queue.
+
+        Args:
+            session_id: Session identifier.
+            queue: Queue instance to remove.
+        """
         session = self.get_session(session_id)
 
         try:
@@ -441,6 +558,14 @@ class SessionManager:
             return
 
     def get_snapshot_index(self, session_id: str) -> List[Dict[str, Any]]:
+        """Build a compact index for available round snapshots.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            List of snapshot metadata rows.
+        """
         session = self.get_session(session_id)
         snapshots = getattr(session.engine, "round_snapshots", [])
 
@@ -483,6 +608,16 @@ class SessionManager:
         turn_uid: Optional[str] = None,
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
+        """Return turn artifacts, optionally filtered by one turn UID.
+
+        Args:
+            session_id: Session identifier.
+            turn_uid: Optional turn UID filter.
+            limit: Maximum number of artifacts to return.
+
+        Returns:
+            Artifact rows returned by the engine.
+        """
         session = self.get_session(session_id)
         getter = getattr(session.engine, "get_turn_artifacts", None)
 
@@ -493,6 +628,14 @@ class SessionManager:
 
     @staticmethod
     def _stringify_compact(value: Any) -> str:
+        """Render nested values into compact multiline display text.
+
+        Args:
+            value: Arbitrary structured value.
+
+        Returns:
+            Human-readable compact string.
+        """
         if isinstance(value, str):
             return value.strip()
 
@@ -553,6 +696,21 @@ class SessionManager:
         ts_ms: Optional[int] = None,
         meta: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Create one normalized TeamFlow timeline message payload.
+
+        Args:
+            message_id: Stable message identifier.
+            phase: Pipeline phase (ASSESS, INSTRUCT, WORKER, etc.).
+            actor: Display name of the message source.
+            role: Actor role used by frontend styling.
+            title: Short message title.
+            content: Message body text.
+            ts_ms: Optional event timestamp in milliseconds.
+            meta: Optional auxiliary metadata.
+
+        Returns:
+            TeamFlow message dictionary ready for serialization.
+        """
         payload: Dict[str, Any] = {
             "id": message_id,
             "phase": phase,
@@ -575,6 +733,15 @@ class SessionManager:
         session_id: str,
         limit: int = 80,
     ) -> List[Dict[str, Any]]:
+        """Transform artifacts/events into frontend TeamFlow timeline rows.
+
+        Args:
+            session_id: Session identifier.
+            limit: Maximum number of turns to include.
+
+        Returns:
+            Ordered list of turn-level TeamFlow payloads.
+        """
         self.get_session(session_id)
         safe_limit = max(1, int(limit))
 
@@ -637,6 +804,17 @@ class SessionManager:
                 ts_override: Optional[int] = None,
                 meta: Optional[Dict[str, Any]] = None,
             ) -> None:
+                """Append one formatted message to the current turn bucket.
+
+                Args:
+                    phase: Pipeline phase label.
+                    actor: Message source name.
+                    role: Source role used by frontend rendering.
+                    title: Short message title.
+                    content: Message text body.
+                    ts_override: Optional timestamp override.
+                    meta: Optional metadata payload.
+                """
                 nonlocal message_seq
                 message_seq += 1
 
@@ -915,6 +1093,15 @@ class SessionManager:
     def _graph_data_for_export(
         self, session: DebateSession, round_idx: Optional[int] = None
     ) -> Dict[str, Any]:
+        """Resolve graph payload used by export endpoints.
+
+        Args:
+            session: Target debate session.
+            round_idx: Optional round index for historical export.
+
+        Returns:
+            Graph payload dictionary containing nodes and edges.
+        """
         snapshots = getattr(session.engine, "round_snapshots", [])
 
         if isinstance(round_idx, int) and isinstance(snapshots, list):
@@ -1062,6 +1249,15 @@ class SessionManager:
 
     @staticmethod
     def _as_non_negative_int(value: Any, fallback: int = 0) -> int:
+        """Parse a non-negative integer with fallback on invalid input.
+
+        Args:
+            value: Candidate numeric value.
+            fallback: Value returned when parse fails or number is negative.
+
+        Returns:
+            Parsed non-negative integer or `fallback`.
+        """
         try:
             parsed = int(value)
             return parsed if parsed >= 0 else fallback
@@ -1070,10 +1266,23 @@ class SessionManager:
             return fallback
 
     def _ensure_frontend_snapshots_dir(self) -> Path:
+        """Ensure the frontend snapshot directory exists on disk.
+
+        Returns:
+            Existing or newly created snapshot directory path.
+        """
         self._frontend_snapshots_dir.mkdir(parents=True, exist_ok=True)
         return self._frontend_snapshots_dir
 
     def _frontend_snapshot_path(self, snapshot_id: str) -> Path:
+        """Build a sanitized filesystem path for one snapshot ID.
+
+        Args:
+            snapshot_id: User- or system-provided snapshot identifier.
+
+        Returns:
+            Target snapshot JSON file path.
+        """
         safe_id = "".join(
             ch for ch in str(snapshot_id).strip() if ch.isalnum() or ch in {"-", "_"}
         )
@@ -1084,6 +1293,14 @@ class SessionManager:
         return self._ensure_frontend_snapshots_dir() / f"{safe_id}.json"
 
     def _extract_replay_metadata(self, bundle: Dict[str, Any]) -> Dict[str, int]:
+        """Derive replay counts from bundle content and metadata fallback.
+
+        Args:
+            bundle: Replay bundle payload.
+
+        Returns:
+            Dictionary with event/artifact/snapshot counts.
+        """
         metadata_raw = bundle.get("metadata", {})
 
         if not isinstance(metadata_raw, dict):
@@ -1118,6 +1335,14 @@ class SessionManager:
         }
 
     def _frontend_snapshot_item(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert a raw snapshot record into API list-item shape.
+
+        Args:
+            record: Persisted frontend snapshot record.
+
+        Returns:
+            Normalized snapshot metadata for list/detail endpoints.
+        """
         metadata = record.get("metadata", {})
 
         if not isinstance(metadata, dict):
@@ -1143,12 +1368,25 @@ class SessionManager:
         }
 
     def _write_frontend_snapshot_record(self, record: Dict[str, Any]) -> None:
+        """Persist a frontend snapshot record as JSON.
+
+        Args:
+            record: Snapshot record payload to persist.
+        """
         target = self._frontend_snapshot_path(str(record.get("snapshot_id", "")))
 
         with target.open("w", encoding="utf-8") as file:
             json.dump(record, file, ensure_ascii=False, indent=2)
 
     def _read_frontend_snapshot_record(self, snapshot_id: str) -> Dict[str, Any]:
+        """Load and validate one frontend snapshot record from disk.
+
+        Args:
+            snapshot_id: Snapshot identifier.
+
+        Returns:
+            Parsed snapshot record payload.
+        """
         target = self._frontend_snapshot_path(snapshot_id)
 
         if not target.exists():
@@ -1174,6 +1412,14 @@ class SessionManager:
         return payload
 
     def _build_snapshot_payload(self, session: DebateSession) -> Dict[str, Any]:
+        """Build the API-facing snapshot payload for a session.
+
+        Args:
+            session: Source session.
+
+        Returns:
+            JSON-safe snapshot payload with compatibility fields.
+        """
         base = session.engine.get_serializable_snapshot()
         graph_stats = base.get("graph_stats", {})
 
@@ -1203,6 +1449,15 @@ class SessionManager:
         record: Dict[str, Any],
         session: DebateSession,
     ) -> Dict[str, Any]:
+        """Build response payload returned after loading a frontend snapshot.
+
+        Args:
+            record: Snapshot record that was loaded.
+            session: Session restored from that snapshot.
+
+        Returns:
+            Combined payload for frontend state and backend session state.
+        """
         return {
             "snapshot": self._frontend_snapshot_item(record),
             "frontend_state": _to_json_safe(record.get("frontend_state", {})),
@@ -1219,6 +1474,14 @@ class SessionManager:
         self,
         bundle: Dict[str, Any],
     ) -> Dict[str, Any]:
+        """Normalize imported replay bundle into canonical structure.
+
+        Args:
+            bundle: Import payload from client.
+
+        Returns:
+            JSON-safe normalized replay bundle.
+        """
         candidate: Any = bundle
         replay_bundle = bundle.get("replay_bundle")
 
@@ -1241,6 +1504,16 @@ class SessionManager:
         label: str = "",
         frontend_state: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Persist current session replay plus optional frontend state.
+
+        Args:
+            session_id: Source session identifier.
+            label: Optional human-readable snapshot label.
+            frontend_state: Optional frontend UI state payload.
+
+        Returns:
+            Stored snapshot metadata.
+        """
         self.get_session(session_id)
         bundle = self.export_replay_bundle(session_id=session_id)
         snapshot_id = f"fs_{uuid.uuid4().hex[:12]}"
@@ -1265,6 +1538,16 @@ class SessionManager:
         label: str = "",
         frontend_state: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Persist an externally provided replay bundle as a snapshot record.
+
+        Args:
+            bundle: Imported replay bundle payload.
+            label: Optional override label for the imported snapshot.
+            frontend_state: Optional override frontend state payload.
+
+        Returns:
+            Stored snapshot metadata.
+        """
         normalized_bundle = self._normalize_import_bundle(bundle)
         session = normalized_bundle.get("session", {})
 
@@ -1305,6 +1588,15 @@ class SessionManager:
         limit: int = 20,
         offset: int = 0,
     ) -> Dict[str, Any]:
+        """List persisted frontend snapshots with pagination.
+
+        Args:
+            limit: Maximum number of rows to return.
+            offset: Pagination offset.
+
+        Returns:
+            Paginated snapshot list payload.
+        """
         limit_value = max(1, int(limit))
         offset_value = max(0, int(offset))
         snapshot_dir = self._ensure_frontend_snapshots_dir()
@@ -1341,6 +1633,15 @@ class SessionManager:
         session_id: str,
         events: Any,
     ) -> List[Dict[str, Any]]:
+        """Normalize replay events into internal event-envelope format.
+
+        Args:
+            session_id: Restored session identifier.
+            events: Raw event list from replay bundle.
+
+        Returns:
+            Validated and normalized event envelopes.
+        """
         if not isinstance(events, list):
             return []
 
@@ -1395,6 +1696,15 @@ class SessionManager:
 
     @staticmethod
     def _restore_round_index(bundle: Dict[str, Any], snapshots: Any) -> int:
+        """Choose the best snapshot index to restore from replay data.
+
+        Args:
+            bundle: Replay bundle containing top-level snapshot metadata.
+            snapshots: Snapshot list available for restore.
+
+        Returns:
+            Snapshot index to restore.
+        """
         rows = snapshots if isinstance(snapshots, list) else []
         snapshot_count = len(rows)
 
@@ -1464,6 +1774,14 @@ class SessionManager:
         return snapshot_count - 1
 
     async def load_frontend_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
+        """Restore a persisted frontend snapshot into a live session.
+
+        Args:
+            snapshot_id: Snapshot identifier to restore.
+
+        Returns:
+            Frontend bootstrap payload containing restored session details.
+        """
         record = self._read_frontend_snapshot_record(snapshot_id)
         now_ts = time.time()
         cache_entry = self._recent_frontend_snapshot_loads.get(snapshot_id, {})
@@ -1581,6 +1899,19 @@ class SessionManager:
         turn_uid: str,
         extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Build one demo keyframe record.
+
+        Args:
+            session_id: Session identifier.
+            event: Keyframe event type.
+            reason: Deterministic reason label for this keyframe.
+            round_idx: Round index associated with the event.
+            turn_uid: Turn UID associated with the event.
+            extra: Optional extra payload.
+
+        Returns:
+            Keyframe dictionary.
+        """
         payload = {
             "session_id": session_id,
             "event": event,
@@ -1847,6 +2178,14 @@ class SessionManager:
     def _record_event(
         self, session_id: str, event: str, source: str, data: Optional[Dict[str, Any]]
     ) -> None:
+        """Append one event envelope and fan it out to live subscribers.
+
+        Args:
+            session_id: Session identifier.
+            event: Event type name.
+            source: Event source namespace.
+            data: Optional structured event payload.
+        """
         session = self._sessions.get(session_id)
 
         if not session:
@@ -1917,6 +2256,14 @@ class SessionManager:
         session.updated_at = utc_now_iso()
 
     def _derive_status(self, engine: Any) -> str:
+        """Derive API session status from engine runtime fields.
+
+        Args:
+            engine: Debate engine instance.
+
+        Returns:
+            Session status string consumed by API responses.
+        """
         if getattr(engine, "is_finished", False):
             return "FINISHED"
 

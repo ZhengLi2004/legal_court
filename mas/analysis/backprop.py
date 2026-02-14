@@ -15,6 +15,15 @@ class BackPropagator:
     """Propagates final claim statuses through the argument graph via BAF."""
 
     def _node_type_name(self, nx_graph, node_id: str) -> str:
+        """Normalize a node's stored type value to an uppercase enum name.
+
+        Args:
+            nx_graph: Underlying NetworkX graph instance.
+            node_id: Node ID whose type should be read.
+
+        Returns:
+            Canonical node-type text such as `CLAIM`, `FACT`, or `LAW`.
+        """
         raw_type = nx_graph.nodes[node_id].get("type")
 
         if isinstance(raw_type, NodeType):
@@ -28,12 +37,29 @@ class BackPropagator:
         return text
 
     def _is_fact_or_law(self, nx_graph, node_id: str) -> bool:
+        """Check whether a node is a FACT or LAW node.
+
+        Args:
+            nx_graph: Underlying NetworkX graph instance.
+            node_id: Node ID to classify.
+
+        Returns:
+            `True` when the node type is FACT or LAW.
+        """
         return self._node_type_name(nx_graph, node_id) in {
             NodeType.FACT.value,
             NodeType.LAW.value,
         }
 
     def _coerce_status(self, value: object) -> NodeStatus:
+        """Convert a raw status payload into a `NodeStatus` enum value.
+
+        Args:
+            value: Raw status object from external input or graph metadata.
+
+        Returns:
+            A valid `NodeStatus`, defaulting to `HYPOTHETICAL` on parse failure.
+        """
         if isinstance(value, NodeStatus):
             return value
 
@@ -54,6 +80,17 @@ class BackPropagator:
         validated_set: Set[str],
         skip_defeat_for_fact_law: bool = True,
     ) -> int:
+        """Mark direct conflict targets of validated claims as defeated.
+
+        Args:
+            nx_graph: Underlying NetworkX graph instance.
+            validated_set: IDs currently marked as validated.
+            skip_defeat_for_fact_law: Whether FACT/LAW nodes are exempted from
+                automatic defeat.
+
+        Returns:
+            Number of nodes newly marked as defeated.
+        """
         defeated_nodes: Set[str] = set()
 
         for val_id in validated_set:

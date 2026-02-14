@@ -27,11 +27,23 @@ class BAFComputationError(RuntimeError):
         message: str,
         stats: Optional[Dict[str, Any]] = None,
     ):
+        """Initialize a BAF computation error with structured metadata.
+
+        Args:
+            code: Stable error code used by API and logging layers.
+            message: Human-readable failure message.
+            stats: Optional search or graph statistics captured at failure time.
+        """
         super().__init__(message)
         self.code = str(code).strip() or "BAF_ERROR"
         self.stats = stats or {}
 
     def __str__(self) -> str:
+        """Render the error as `<code>: <message>` when possible.
+
+        Returns:
+            A formatted error string suitable for logs and responses.
+        """
         base = super().__str__()
         return f"{self.code}: {base}" if base else self.code
 
@@ -51,6 +63,11 @@ class BAFCalculator:
     """
 
     def __init__(self, graph: ShadowGraph):
+        """Initialize indexes and attack closures for a debate graph.
+
+        Args:
+            graph: Debate graph on which BAF semantics will be computed.
+        """
         self.graph = graph
         self.algorithm_version = "baf_exact_v2"
         self.collective_attacks: Dict[str, Dict[str, List[str]]] = {}
@@ -71,6 +88,14 @@ class BAFCalculator:
         self._compute_all_attacks()
 
     def _edge_type_name(self, value: Any) -> str:
+        """Normalize a raw edge type value to canonical uppercase text.
+
+        Args:
+            value: Raw edge type value from graph metadata.
+
+        Returns:
+            Canonical edge type name, such as `SUPPORT` or `CONFLICT`.
+        """
         if isinstance(value, EdgeType):
             return value.value
 
@@ -82,6 +107,14 @@ class BAFCalculator:
         return text
 
     def _node_type_name(self, node_id: str) -> str:
+        """Normalize a node's raw type field to canonical uppercase text.
+
+        Args:
+            node_id: Node ID whose type should be resolved.
+
+        Returns:
+            Canonical node type name, such as `CLAIM`, `FACT`, or `LAW`.
+        """
         data = self.graph.graph.nodes.get(node_id, {})
         raw_type = data.get("type")
 
@@ -96,15 +129,32 @@ class BAFCalculator:
         return text
 
     def _is_fact_or_law_node(self, node_id: str) -> bool:
+        """Check whether a node is a FACT or LAW node.
+
+        Args:
+            node_id: Node ID to classify.
+
+        Returns:
+            `True` when the node type is FACT or LAW.
+        """
         return self._node_type_name(node_id) in {
             NodeType.FACT.value,
             NodeType.LAW.value,
         }
 
     def _is_claim_node(self, node_id: str) -> bool:
+        """Check whether a node is a CLAIM node.
+
+        Args:
+            node_id: Node ID to classify.
+
+        Returns:
+            `True` when the node type is CLAIM.
+        """
         return self._node_type_name(node_id) == NodeType.CLAIM.value
 
     def _build_edge_indexes(self) -> None:
+        """Precompute adjacency indexes used by BAF attack derivations."""
         graph = self.graph.graph
         nodes = [str(n) for n in graph.nodes()]
         self._all_nodes_sorted = sorted(nodes)
@@ -156,6 +206,14 @@ class BAFCalculator:
         attack_type: str,
         type_buckets: Dict[str, Dict[str, Set[str]]],
     ) -> None:
+        """Register one computed attack relation in all internal indexes.
+
+        Args:
+            source: Attacker node ID.
+            target: Target node ID.
+            attack_type: Attack category name.
+            type_buckets: Mutable map used to aggregate typed attacker sets.
+        """
         if source == target:
             return
 
@@ -251,6 +309,15 @@ class BAFCalculator:
         )
 
     def _has_internal_conflict(self, node: str, node_set: Set[str]) -> bool:
+        """Check whether `node` attacks or is attacked by nodes in `node_set`.
+
+        Args:
+            node: Candidate node to test.
+            node_set: Nodes currently included in a candidate extension.
+
+        Returns:
+            `True` if adding or keeping `node` violates conflict-freeness.
+        """
         if not node_set:
             return False
 
@@ -299,6 +366,11 @@ class BAFCalculator:
         return True
 
     def _start_search(self, stage: str) -> None:
+        """Reset search timers and counters for a new solving stage.
+
+        Args:
+            stage: Logical stage name used in telemetry output.
+        """
         self._search_started_ms = time.perf_counter() * 1000.0
         self._searched_states = 0
         self._pruned_states = 0
@@ -309,12 +381,25 @@ class BAFCalculator:
         }
 
     def _elapsed_ms(self) -> int:
+        """Return elapsed milliseconds since the current search started.
+
+        Returns:
+            Non-negative elapsed time in milliseconds.
+        """
         if self._search_started_ms <= 0:
             return 0
 
         return max(0, int(time.perf_counter() * 1000.0 - self._search_started_ms))
 
     def _search_stats(self, termination_reason: str) -> Dict[str, Any]:
+        """Build the common telemetry payload for search completion.
+
+        Args:
+            termination_reason: Reason string describing why search ended.
+
+        Returns:
+            Dictionary with counters, timing, and termination metadata.
+        """
         return {
             **self._last_search_stats,
             "searched_states": int(self._searched_states),
@@ -345,6 +430,11 @@ class BAFCalculator:
         return True
 
     def _contentious_nodes(self) -> List[str]:
+        """List nodes that participate in at least one attack relation.
+
+        Returns:
+            Sorted node IDs that either attack or are attacked.
+        """
         return sorted(
             [
                 node
@@ -383,6 +473,16 @@ class BAFCalculator:
         excluded: Set[str],
         neutral: Set[str],
     ) -> bool:
+        """Check maximality of a candidate extension under one DFS branch.
+
+        Args:
+            chosen: Currently selected contentious nodes.
+            excluded: Contention nodes explicitly excluded in this branch.
+            neutral: Always-included neutral nodes.
+
+        Returns:
+            `True` if no excluded node can be added while remaining admissible.
+        """
         base = set(chosen) | neutral
 
         for node in excluded:
@@ -396,6 +496,14 @@ class BAFCalculator:
 
     @staticmethod
     def _extension_sort_key(extension: Set[str]) -> Tuple[int, Tuple[str, ...]]:
+        """Build deterministic ordering key for preferred extensions.
+
+        Args:
+            extension: Candidate extension.
+
+        Returns:
+            Tuple that sorts by size descending and lexicographic node order.
+        """
         return (-len(extension), tuple(sorted(extension)))
 
     def _score_extension(
@@ -404,6 +512,16 @@ class BAFCalculator:
         llm_validated: Set[str],
         llm_defeated: Set[str],
     ) -> int:
+        """Score an extension against LLM-validated and defeated sets.
+
+        Args:
+            extension: Candidate preferred extension.
+            llm_validated: Nodes judged as validated by LLM extraction.
+            llm_defeated: Nodes judged as defeated by LLM extraction.
+
+        Returns:
+            Integer agreement score; higher values indicate better alignment.
+        """
         validated_in_ext = len(extension & llm_validated)
         validated_out_ext = len(llm_validated - extension)
         defeated_in_ext = len(extension & llm_defeated)
@@ -417,6 +535,17 @@ class BAFCalculator:
         llm_defeated: Set[str],
         extension_index: int = -1,
     ) -> Dict[str, Any]:
+        """Build detailed alignment statistics for one extension candidate.
+
+        Args:
+            extension: Candidate preferred extension.
+            llm_validated: Nodes judged as validated by LLM extraction.
+            llm_defeated: Nodes judged as defeated by LLM extraction.
+            extension_index: Original index in the candidate list.
+
+        Returns:
+            Dictionary containing score components and alignment metrics.
+        """
         validated_in_ext = extension & llm_validated
         validated_out_ext = llm_validated - extension
         defeated_in_ext = extension & llm_defeated
@@ -440,6 +569,11 @@ class BAFCalculator:
         return details
 
     def _maybe_log_search_progress(self, stage: str) -> None:
+        """Log coarse-grained DFS progress at fixed search intervals.
+
+        Args:
+            stage: Stage label included in log output.
+        """
         if self._searched_states <= 0:
             return
 
@@ -454,6 +588,14 @@ class BAFCalculator:
         )
 
     def _contentious_components(self, contentious: List[str]) -> List[Set[str]]:
+        """Split contentious nodes into undirected connected components.
+
+        Args:
+            contentious: Sorted contentious node IDs.
+
+        Returns:
+            Components sorted by size descending and lexical tie-breaker.
+        """
         if not contentious:
             return []
 
@@ -499,6 +641,14 @@ class BAFCalculator:
         self,
         component_nodes: Set[str],
     ) -> Optional[List[str]]:
+        """Try building a topological order for a component attack subgraph.
+
+        Args:
+            component_nodes: Node IDs in one contentious component.
+
+        Returns:
+            Topological order when the component is a DAG, otherwise `None`.
+        """
         if not component_nodes:
             return []
 
@@ -534,6 +684,15 @@ class BAFCalculator:
         component_nodes: Set[str],
         topo_order: List[str],
     ) -> Set[str]:
+        """Compute one preferred extension for an acyclic attack component.
+
+        Args:
+            component_nodes: Node IDs in one contentious component.
+            topo_order: Topological ordering of that component.
+
+        Returns:
+            Accepted node IDs selected by linear DAG pass.
+        """
         accepted: Set[str] = set()
 
         for node in topo_order:
@@ -552,6 +711,16 @@ class BAFCalculator:
         neutral: Set[str],
         stage_label: str,
     ) -> List[Set[str]]:
+        """Enumerate all preferred extensions for a scoped node subset.
+
+        Args:
+            contentious: Nodes that require include/exclude search.
+            neutral: Nodes that are always included.
+            stage_label: Stage label used for progress logging.
+
+        Returns:
+            Sorted list of maximal admissible sets for the scope.
+        """
         preferred_sets: List[Set[str]] = []
         seen: Set[Tuple[str, ...]] = set()
 
@@ -564,6 +733,14 @@ class BAFCalculator:
             undecided: Set[str],
             excluded: Set[str],
         ) -> None:
+            """Depth-first branch search over include/exclude decisions.
+
+            Args:
+                idx: Current index within `contentious`.
+                chosen: Nodes currently selected in this branch.
+                undecided: Nodes not yet decided in this branch.
+                excluded: Nodes rejected in this branch.
+            """
             self._searched_states += 1
             self._maybe_log_search_progress(stage=stage_label)
 
@@ -619,6 +796,15 @@ class BAFCalculator:
         component_nodes: Set[str],
         component_index: int,
     ) -> Tuple[List[Set[str]], Dict[str, Any]]:
+        """Solve preferred extensions for one contentious component.
+
+        Args:
+            component_nodes: Node IDs that belong to one component.
+            component_index: Stable index used in telemetry payloads.
+
+        Returns:
+            Tuple of `(preferred_extensions, component_detail_dict)`.
+        """
         component_sorted = sorted(component_nodes)
         before_states = self._searched_states
         before_pruned = self._pruned_states
@@ -905,6 +1091,14 @@ class BAFCalculator:
         return dict(self._last_search_stats)
 
     def _shortest_distance_from_roots(self, roots: Set[str]) -> Dict[str, int]:
+        """Compute undirected BFS distance from root nodes to reachable nodes.
+
+        Args:
+            roots: Root node IDs used as BFS sources.
+
+        Returns:
+            Mapping from node ID to minimum hop distance from any root.
+        """
         dist: Dict[str, int] = {}
         queue = deque()
 
@@ -929,6 +1123,15 @@ class BAFCalculator:
         return dist
 
     def _expand_support_predecessors(self, seeds: Set[str], max_hop: int) -> Set[str]:
+        """Expand upstream SUPPORT predecessors up to a hop limit.
+
+        Args:
+            seeds: Seed node IDs from which expansion starts.
+            max_hop: Maximum predecessor hop distance.
+
+        Returns:
+            Predecessor node IDs discovered within `max_hop`.
+        """
         max_depth = max(0, int(max_hop))
 
         if max_depth <= 0 or not seeds:
@@ -1150,6 +1353,16 @@ class BAFCalculator:
         llm_validated: Set[str],
         llm_defeated: Set[str],
     ) -> float:
+        """Calculate ratio of LLM decisions that match one extension.
+
+        Args:
+            extension: Candidate preferred extension.
+            llm_validated: Nodes judged as validated by LLM extraction.
+            llm_defeated: Nodes judged as defeated by LLM extraction.
+
+        Returns:
+            Agreement ratio in `[0.0, 1.0]`.
+        """
         total_decided = len(llm_validated) + len(llm_defeated)
 
         if total_decided == 0:

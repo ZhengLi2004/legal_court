@@ -69,11 +69,10 @@ async def run_experiment():
 
 
 def main():
-    """Enter the script.
+    """Run the CLI experiment coroutine inside an isolated event loop.
 
-    This function sets up a new asyncio event loop and uses it to run the
-    `run_experiment` coroutine. It ensures the event loop is properly closed
-    after the experiment finishes.
+    This wrapper creates and owns an asyncio loop so the script can be invoked
+    directly from synchronous entry points.
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

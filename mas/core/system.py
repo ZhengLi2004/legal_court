@@ -329,6 +329,14 @@ class LegalSystem:
         return logs
 
     def _coerce_status(self, value: Any) -> NodeStatus:
+        """Convert raw status input into a `NodeStatus` enum.
+
+        Args:
+            value: Raw status value from graph data or LLM output.
+
+        Returns:
+            Parsed `NodeStatus`, defaulting to `HYPOTHETICAL` when invalid.
+        """
         if isinstance(value, NodeStatus):
             return value
 
@@ -346,6 +354,14 @@ class LegalSystem:
     def _collect_root_status_from_graph(
         self, graph: ShadowGraph
     ) -> Dict[str, NodeStatus]:
+        """Collect current statuses for nodes marked as root claims.
+
+        Args:
+            graph: Debate graph containing node metadata and statuses.
+
+        Returns:
+            Mapping from root-claim node ID to normalized `NodeStatus`.
+        """
         status_map: Dict[str, NodeStatus] = {}
 
         for node_id, data in graph.graph.nodes(data=True):
@@ -363,6 +379,14 @@ class LegalSystem:
     def _collect_graph_status_sets(
         self, graph: ShadowGraph
     ) -> Tuple[Set[str], Set[str]]:
+        """Build validated/defeated node ID sets from current graph state.
+
+        Args:
+            graph: Debate graph containing node statuses.
+
+        Returns:
+            A tuple of `(validated_ids, defeated_ids)`.
+        """
         validated: Set[str] = set()
         defeated: Set[str] = set()
 
@@ -383,6 +407,15 @@ class LegalSystem:
         graph: ShadowGraph,
         root_claims_status: Dict[str, NodeStatus],
     ) -> List[str]:
+        """Unset root markers for root claims that remain hypothetical.
+
+        Args:
+            graph: Debate graph to mutate.
+            root_claims_status: Root-claim verdicts after adjudication.
+
+        Returns:
+            Sorted node IDs whose `is_root_claim` flag was removed.
+        """
         demoted: List[str] = []
 
         for node_id, status in (root_claims_status or {}).items():
@@ -407,6 +440,14 @@ class LegalSystem:
         return sorted(set(demoted))
 
     def _remove_hypothetical_nodes(self, graph: ShadowGraph) -> int:
+        """Remove nodes still marked as hypothetical from the graph.
+
+        Args:
+            graph: Debate graph to prune.
+
+        Returns:
+            Number of nodes removed.
+        """
         removable: List[str] = []
 
         for node_id, data in graph.graph.nodes(data=True):

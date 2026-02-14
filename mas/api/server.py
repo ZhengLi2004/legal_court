@@ -71,6 +71,11 @@ class ImportFrontendSnapshotRequest(BaseModel):
 
 
 def _default_case_file() -> Path:
+    """Return the default bundled case dataset path.
+
+    Returns:
+        Absolute path to `data/sampling/cleaned_samples.jsonl`.
+    """
     return (
         Path(__file__).resolve().parents[2]
         / "data"
@@ -80,6 +85,14 @@ def _default_case_file() -> Path:
 
 
 def _load_cases(limit: int = 200) -> List[Dict[str, Any]]:
+    """Load case rows from the default JSONL file.
+
+    Args:
+        limit: Maximum number of rows to load.
+
+    Returns:
+        Parsed case dictionaries, skipping invalid lines.
+    """
     path = _default_case_file()
 
     if not path.exists():
@@ -110,6 +123,14 @@ def _load_cases(limit: int = 200) -> List[Dict[str, Any]]:
 
 
 def _case_list_item(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a compact case list item for list endpoints.
+
+    Args:
+        row: Raw case dictionary from the dataset.
+
+    Returns:
+        Dictionary with `uid`, `title`, and `cause_summary`.
+    """
     cause = row.get("cause", [])
 
     if isinstance(cause, list):
@@ -129,7 +150,15 @@ def create_app(
     engine_factory: Optional[Callable[[], Any]] = None,
     case_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> FastAPI:
-    """Create a configured FastAPI app instance."""
+    """Create and configure the FastAPI application.
+
+    Args:
+        engine_factory: Optional factory for dependency injection in tests.
+        case_rows: Optional preloaded case rows to bypass file loading.
+
+    Returns:
+        Configured FastAPI application instance.
+    """
     app = FastAPI(title="Legal Court API", version="0.1.0")
 
     app.add_middleware(
@@ -146,25 +175,57 @@ def create_app(
 
     @app.get("/")
     async def root() -> Dict[str, str]:
+        """Return basic service metadata.
+
+        Returns:
+            Service name and version information.
+        """
         return {"service": "Legal Court API", "version": "0.1.0"}
 
     @app.get("/favicon.ico", status_code=204)
     async def favicon() -> Response:
+        """Return an empty favicon response.
+
+        Returns:
+            HTTP 204 response.
+        """
         return Response(status_code=204)
 
     @app.get("/api/v1/health")
     async def health() -> Dict[str, str]:
+        """Return a basic liveness probe payload.
+
+        Returns:
+            Health status dictionary.
+        """
         return {"status": "ok"}
 
     @app.get("/api/v1/cases")
     async def list_cases(
         limit: int = Query(20, ge=1, le=200), offset: int = Query(0, ge=0)
     ) -> Dict[str, Any]:
+        """List available case summaries with pagination.
+
+        Args:
+            limit: Page size.
+            offset: Starting offset in the case list.
+
+        Returns:
+            Paginated list payload with total count.
+        """
         items = cases[offset : offset + limit]
         return {"items": [_case_list_item(row) for row in items], "total": len(cases)}
 
     @app.get("/api/v1/cases/{case_uid}")
     async def get_case(case_uid: str) -> Dict[str, Any]:
+        """Return one full case payload by UID.
+
+        Args:
+            case_uid: Unique case identifier.
+
+        Returns:
+            Dictionary containing the selected case payload.
+        """
         case_data = case_index.get(case_uid)
 
         if case_data is None:
@@ -174,6 +235,14 @@ def create_app(
 
     @app.post("/api/v1/sessions")
     async def create_session(body: CreateSessionRequest) -> Dict[str, Any]:
+        """Create a debate session and auto-run setup.
+
+        Args:
+            body: Session creation request payload.
+
+        Returns:
+            Serialized session snapshot.
+        """
         case_data = body.case_data
         case_lookup_uid = body.case_uid or body.case_id
 
@@ -200,6 +269,14 @@ def create_app(
     async def save_frontend_snapshot(
         body: SaveFrontendSnapshotRequest,
     ) -> Dict[str, Any]:
+        """Persist frontend state alongside a backend snapshot.
+
+        Args:
+            body: Frontend snapshot save request payload.
+
+        Returns:
+            Metadata of the saved snapshot record.
+        """
         try:
             return manager.save_frontend_snapshot(
                 session_id=body.session_id,
@@ -223,6 +300,14 @@ def create_app(
     async def import_frontend_snapshot(
         body: ImportFrontendSnapshotRequest,
     ) -> Dict[str, Any]:
+        """Import a replay bundle as a frontend snapshot record.
+
+        Args:
+            body: Import payload containing bundle and optional metadata.
+
+        Returns:
+            Metadata of the imported snapshot record.
+        """
         try:
             return manager.import_frontend_snapshot(
                 bundle=body.bundle,
@@ -244,10 +329,27 @@ def create_app(
         limit: int = Query(20, ge=1, le=200),
         offset: int = Query(0, ge=0),
     ) -> Dict[str, Any]:
+        """List stored frontend snapshots with pagination.
+
+        Args:
+            limit: Page size.
+            offset: Starting offset in snapshot history.
+
+        Returns:
+            Paginated snapshot metadata payload.
+        """
         return manager.list_frontend_snapshots(limit=limit, offset=offset)
 
     @app.post("/api/v1/frontend-snapshots/{snapshot_id}/load")
     async def load_frontend_snapshot(snapshot_id: str) -> Dict[str, Any]:
+        """Restore a saved frontend snapshot into a new runtime session.
+
+        Args:
+            snapshot_id: Stored snapshot identifier.
+
+        Returns:
+            Restored snapshot payload for frontend bootstrap.
+        """
         try:
             return await manager.load_frontend_snapshot(snapshot_id)
 
@@ -265,12 +367,25 @@ def create_app(
 
     @app.get("/api/v1/sessions")
     async def list_sessions() -> Dict[str, Any]:
+        """List active in-memory sessions.
+
+        Returns:
+            Collection of session snapshot payloads.
+        """
         return {
             "sessions": [snapshot_response(item) for item in manager.list_sessions()]
         }
 
     @app.get("/api/v1/sessions/{session_id}")
     async def get_session(session_id: str) -> Dict[str, Any]:
+        """Fetch one active session snapshot.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Session snapshot payload.
+        """
         try:
             session = manager.get_session(session_id)
             return snapshot_response(session)
@@ -280,6 +395,14 @@ def create_app(
 
     @app.get("/api/v1/sessions/{session_id}/snapshot")
     async def get_session_snapshot(session_id: str) -> Dict[str, Any]:
+        """Return the latest serializable snapshot for one session.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Session snapshot payload.
+        """
         try:
             session = manager.get_session(session_id)
             return snapshot_response(session)
@@ -291,6 +414,15 @@ def create_app(
     async def setup_session(
         session_id: str, body: Optional[SetupSessionRequest] = None
     ) -> Dict[str, Any]:
+        """Run setup for an existing session.
+
+        Args:
+            session_id: Session identifier.
+            body: Optional setup payload overriding case data.
+
+        Returns:
+            Updated session snapshot payload.
+        """
         try:
             payload = body.case_data if body else None
             session = await manager.setup_session(session_id, case_data=payload)
@@ -304,6 +436,14 @@ def create_app(
 
     @app.post("/api/v1/sessions/{session_id}/step")
     async def step_session(session_id: str) -> Dict[str, Any]:
+        """Advance a session by one debate turn.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Updated session snapshot payload.
+        """
         try:
             session = await manager.step_session(session_id)
             return snapshot_response(session)
@@ -319,6 +459,14 @@ def create_app(
 
     @app.post("/api/v1/sessions/{session_id}/adjudicate")
     async def adjudicate_session(session_id: str) -> Dict[str, Any]:
+        """Run final adjudication for a session.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Session snapshot after adjudication.
+        """
         try:
             session = await manager.adjudicate_session(session_id)
             return snapshot_response(session)
@@ -343,6 +491,14 @@ def create_app(
 
     @app.get("/api/v1/sessions/{session_id}/graph")
     async def get_graph(session_id: str) -> Dict[str, Any]:
+        """Return graph data for the latest session state.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Graph payload with nodes, edges, and focus nodes.
+        """
         try:
             session = manager.get_session(session_id)
             return graph_response(session)
@@ -352,6 +508,15 @@ def create_app(
 
     @app.get("/api/v1/sessions/{session_id}/snapshots/{round_idx}")
     async def get_round_snapshot(session_id: str, round_idx: int) -> Dict[str, Any]:
+        """Return graph data for a specific historical round.
+
+        Args:
+            session_id: Session identifier.
+            round_idx: Zero-based round index.
+
+        Returns:
+            Graph payload for the requested round.
+        """
         try:
             session = manager.get_session(session_id)
             return graph_response(session, round_idx)
@@ -361,6 +526,14 @@ def create_app(
 
     @app.get("/api/v1/sessions/{session_id}/snapshots")
     async def get_snapshots_index(session_id: str) -> Dict[str, Any]:
+        """List metadata for stored round snapshots in a session.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Snapshot index payload with total count.
+        """
         try:
             items = manager.get_snapshot_index(session_id)
             return {"items": items, "total": len(items)}
@@ -374,6 +547,16 @@ def create_app(
         from_round: int = Query(0, ge=0),
         to_round: int = Query(0, ge=0),
     ) -> Dict[str, Any]:
+        """Return graph-level diff between two rounds.
+
+        Args:
+            session_id: Session identifier.
+            from_round: Baseline round index.
+            to_round: Target round index.
+
+        Returns:
+            Node and edge delta payload between the two rounds.
+        """
         try:
             session = manager.get_session(session_id)
             return graph_diff_response(session, from_round, to_round)
@@ -383,6 +566,14 @@ def create_app(
 
     @app.get("/api/v1/sessions/{session_id}/memory")
     async def get_memory(session_id: str) -> Dict[str, Any]:
+        """Return memory/insight data for frontend side panels.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Compact memory payload extracted from engine state.
+        """
         try:
             session = manager.get_session(session_id)
             return memory_response(session)
@@ -397,6 +588,17 @@ def create_app(
         from_seq: Optional[int] = Query(default=None, ge=1),
         to_seq: Optional[int] = Query(default=None, ge=1),
     ) -> Dict[str, Any]:
+        """Fetch a filtered slice of event history.
+
+        Args:
+            session_id: Session identifier.
+            limit: Maximum number of events to return.
+            from_seq: Optional inclusive lower sequence bound.
+            to_seq: Optional inclusive upper sequence bound.
+
+        Returns:
+            Event list payload.
+        """
         try:
             events = manager.get_event_history(
                 session_id=session_id,
@@ -417,6 +619,17 @@ def create_app(
         from_seq: Optional[int] = Query(default=None, ge=1),
         to_seq: Optional[int] = Query(default=None, ge=1),
     ) -> Dict[str, Any]:
+        """Compatibility alias for the event-history endpoint.
+
+        Args:
+            session_id: Session identifier.
+            limit: Maximum number of events to return.
+            from_seq: Optional inclusive lower sequence bound.
+            to_seq: Optional inclusive upper sequence bound.
+
+        Returns:
+            Event list payload.
+        """
         try:
             events = manager.get_event_history(
                 session_id=session_id,
@@ -432,6 +645,12 @@ def create_app(
 
     @app.websocket("/api/v1/sessions/{session_id}/events")
     async def stream_events(session_id: str, websocket: WebSocket) -> None:
+        """Stream live session events over WebSocket.
+
+        Args:
+            session_id: Session identifier.
+            websocket: Accepted client WebSocket connection.
+        """
         await websocket.accept()
 
         try:
@@ -488,6 +707,15 @@ def create_app(
         session_id: str,
         limit: int = Query(50, ge=1, le=5000),
     ) -> Dict[str, Any]:
+        """Return latest turn artifacts for a session.
+
+        Args:
+            session_id: Session identifier.
+            limit: Maximum number of artifacts to return.
+
+        Returns:
+            Artifact list payload with total count.
+        """
         try:
             items = manager.get_turn_artifacts(
                 session_id=session_id,
@@ -504,6 +732,15 @@ def create_app(
         session_id: str,
         limit: int = Query(80, ge=1, le=5000),
     ) -> Dict[str, Any]:
+        """Return compact teamflow messages for frontend timeline display.
+
+        Args:
+            session_id: Session identifier.
+            limit: Maximum number of timeline items to return.
+
+        Returns:
+            Teamflow message list payload with total count.
+        """
         try:
             items = manager.get_teamflow_stream(
                 session_id=session_id,
@@ -521,6 +758,16 @@ def create_app(
         turn_uid: str,
         limit: int = Query(50, ge=1, le=5000),
     ) -> Dict[str, Any]:
+        """Return artifacts for one specific turn UID.
+
+        Args:
+            session_id: Session identifier.
+            turn_uid: Turn UID used to filter artifacts.
+            limit: Maximum number of artifacts to return.
+
+        Returns:
+            Filtered artifact list payload with total count.
+        """
         try:
             items = manager.get_turn_artifacts(
                 session_id=session_id,
@@ -540,6 +787,17 @@ def create_app(
         include_snapshot: bool = Query(default=True),
         include_artifact: bool = Query(default=True),
     ) -> Dict[str, Any]:
+        """Build a compact debug bundle for diagnostics.
+
+        Args:
+            session_id: Session identifier.
+            event_limit: Maximum number of events to include.
+            include_snapshot: Whether to include full session snapshot.
+            include_artifact: Whether to include latest turn artifacts.
+
+        Returns:
+            Debug payload combining metadata, logs, and optional extras.
+        """
         try:
             return manager.build_debug_bundle(
                 session_id=session_id,
@@ -556,6 +814,15 @@ def create_app(
         session_id: str,
         body: Optional[DemoRunRequest] = None,
     ) -> Dict[str, Any]:
+        """Run a deterministic demo loop for the target session.
+
+        Args:
+            session_id: Session identifier.
+            body: Optional demo-run overrides.
+
+        Returns:
+            Demo execution summary and optional keyframes.
+        """
         payload = body or DemoRunRequest()
 
         try:
@@ -576,6 +843,14 @@ def create_app(
 
     @app.get("/api/v1/sessions/{session_id}/demo/keyframes")
     async def get_demo_keyframes(session_id: str) -> Dict[str, Any]:
+        """Return keyframes captured during the latest demo run.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            Keyframe list payload with total count.
+        """
         try:
             rows = manager.get_demo_keyframes(session_id=session_id)
             return {"items": rows, "total": len(rows)}
@@ -588,6 +863,15 @@ def create_app(
         session_id: str,
         body: FailureSimulationRequest,
     ) -> Dict[str, Any]:
+        """Toggle failure simulation flags for testing resilience flows.
+
+        Args:
+            session_id: Session identifier.
+            body: Simulation toggle payload.
+
+        Returns:
+            Updated simulation settings for the session.
+        """
         try:
             return manager.set_failure_simulation(
                 session_id=session_id,
@@ -607,6 +891,16 @@ def create_app(
         events_limit: int = Query(5000, ge=1, le=50000),
         artifacts_limit: int = Query(5000, ge=1, le=50000),
     ) -> Dict[str, Any]:
+        """Export a replay bundle as JSON payload.
+
+        Args:
+            session_id: Session identifier.
+            events_limit: Maximum number of events in export.
+            artifacts_limit: Maximum number of artifacts in export.
+
+        Returns:
+            Replay export payload.
+        """
         try:
             return manager.export_replay_bundle(
                 session_id=session_id,
@@ -622,6 +916,15 @@ def create_app(
         session_id: str,
         round_idx: Optional[int] = Query(default=None, ge=0),
     ) -> Response:
+        """Export session graph as a downloadable GEXF file.
+
+        Args:
+            session_id: Session identifier.
+            round_idx: Optional round index; latest graph when omitted.
+
+        Returns:
+            HTTP response carrying GEXF bytes as attachment.
+        """
         try:
             payload = manager.export_graph_gexf(
                 session_id=session_id,
@@ -645,6 +948,14 @@ def create_app(
 
     @app.delete("/api/v1/sessions/{session_id}", status_code=204)
     async def delete_session(session_id: str) -> Response:
+        """Delete an in-memory session and close related resources.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            HTTP 204 response when deletion succeeds.
+        """
         try:
             await manager.delete_session(session_id)
             return Response(status_code=204)

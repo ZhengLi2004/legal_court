@@ -137,6 +137,16 @@ class LLMJudge(BaseJudge):
         key: str,
         default: Any,
     ) -> Any:
+        """Read a BAF config value with a fallback.
+
+        Args:
+            baf_config: Optional BAF configuration dictionary.
+            key: Configuration field name.
+            default: Default value when the key is missing.
+
+        Returns:
+            The configured value if present, otherwise `default`.
+        """
         if isinstance(baf_config, dict) and key in baf_config:
             return baf_config[key]
 
@@ -148,6 +158,17 @@ class LLMJudge(BaseJudge):
         baf_calculator: Optional[BAFCalculator] = None,
         baf_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Assemble issue list and graph context used by the judge prompt.
+
+        Args:
+            graph: Current debate graph.
+            baf_calculator: Optional BAF calculator for context selection.
+            baf_config: Optional BAF configuration dictionary.
+
+        Returns:
+            Prompt input fields including issue list, graph context, and
+            metadata about context size.
+        """
         root_claims: Dict[str, str] = {}
 
         for node_id, data in graph.graph.nodes(data=True):

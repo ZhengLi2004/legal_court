@@ -8,10 +8,26 @@ from .session_manager import DebateSession
 
 
 def _as_list(value: Any) -> List[Any]:
+    """Return `value` when it is a list, otherwise return an empty list.
+
+    Args:
+        value: Candidate value from a weakly-typed payload.
+
+    Returns:
+        A safe list object for downstream iteration.
+    """
     return value if isinstance(value, list) else []
 
 
 def _safe_graph_from_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract a normalized `graph_data` payload from a snapshot dict.
+
+    Args:
+        snapshot: Serialized snapshot payload returned by the engine.
+
+    Returns:
+        A dictionary containing `nodes` and `edges` lists.
+    """
     graph_data = snapshot.get("graph_data")
 
     if isinstance(graph_data, dict):
@@ -23,6 +39,14 @@ def _safe_graph_from_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _safe_focus_node_ids(snapshot: Dict[str, Any]) -> List[str]:
+    """Read and sanitize `focus_node_ids` from a snapshot payload.
+
+    Args:
+        snapshot: Serialized snapshot payload returned by the engine.
+
+    Returns:
+        A list of non-empty node ID strings.
+    """
     rows = snapshot.get("focus_node_ids")
 
     if not isinstance(rows, list):
@@ -40,6 +64,15 @@ def _safe_focus_node_ids(snapshot: Dict[str, Any]) -> List[str]:
 
 
 def _edge_identifier(edge: Dict[str, Any], idx: int) -> str:
+    """Build a stable edge identifier for diff computation.
+
+    Args:
+        edge: Edge dictionary from `graph_data["edges"]`.
+        idx: Fallback positional index when edge ID is missing.
+
+    Returns:
+        A deterministic identifier string for the edge.
+    """
     edge_id = edge.get("id")
 
     if isinstance(edge_id, str) and edge_id:
@@ -52,7 +85,14 @@ def _edge_identifier(edge: Dict[str, Any], idx: int) -> str:
 
 
 def snapshot_response(session: DebateSession) -> Dict[str, Any]:
-    """Build API snapshot payload with compatibility fields."""
+    """Build a session snapshot response with compatibility metrics.
+
+    Args:
+        session: In-memory session wrapper around a debate engine.
+
+    Returns:
+        A JSON-serializable payload for snapshot endpoints.
+    """
     base = session.engine.get_serializable_snapshot()
     graph_stats = base.get("graph_stats", {})
 
@@ -78,7 +118,15 @@ def snapshot_response(session: DebateSession) -> Dict[str, Any]:
 def graph_response(
     session: DebateSession, round_idx: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Return graph payload for current or historical round."""
+    """Build graph payload for the latest state or a historical round.
+
+    Args:
+        session: In-memory session wrapper around a debate engine.
+        round_idx: Optional historical round index.
+
+    Returns:
+        A graph response payload with nodes, edges, and focus node IDs.
+    """
     if round_idx is None:
         snap = snapshot_response(session)
         graph_data = _safe_graph_from_snapshot(snap)
@@ -117,7 +165,16 @@ def graph_response(
 def graph_diff_response(
     session: DebateSession, from_round: int, to_round: int
 ) -> Dict[str, Any]:
-    """Compute graph diff between two rounds."""
+    """Compute structural and status differences between two rounds.
+
+    Args:
+        session: In-memory session wrapper around a debate engine.
+        from_round: Source round index.
+        to_round: Target round index.
+
+    Returns:
+        A payload listing added, removed, and changed node/edge IDs.
+    """
     from_graph = graph_response(session, from_round)["graph_data"]
     to_graph = graph_response(session, to_round)["graph_data"]
     from_nodes = _as_list(from_graph.get("nodes"))
@@ -179,7 +236,14 @@ def graph_diff_response(
 
 
 def memory_response(session: DebateSession) -> Dict[str, Any]:
-    """Extract a compact memory payload for frontend display."""
+    """Build a compact memory panel payload for frontend rendering.
+
+    Args:
+        session: In-memory session wrapper around a debate engine.
+
+    Returns:
+        A summary of insights, historical cases, and task-layer topology.
+    """
     engine = session.engine
     legal_sys = getattr(engine, "legal_sys", None)
     insight_summaries: List[str] = []
