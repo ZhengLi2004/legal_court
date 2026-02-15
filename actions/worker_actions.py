@@ -21,14 +21,26 @@ from prompts.common_prompts import (
 )
 from tools.embedding import cosine_similarity
 
-_SEARCH_QUERY_LIST_SCHEMA = {
-    "name": "search_query_list",
-    "strict": True,
-    "schema": {
-        "type": "array",
-        "items": {"type": "string"},
-        "minItems": 2,
-        "maxItems": 3,
+_SEARCH_QUERY_ARGS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "queries": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 2,
+            "maxItems": 3,
+        }
+    },
+    "required": ["queries"],
+    "additionalProperties": False,
+}
+
+_FORMULATE_SEARCH_QUERIES_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "formulate_search_queries",
+        "description": "Decompose one legal intent into 2-3 natural-language queries.",
+        "parameters": _SEARCH_QUERY_ARGS_SCHEMA,
     },
 }
 
@@ -78,11 +90,11 @@ class FormulateSearchQueries(Action):
     async def run(
         self, intent: str, prompt_template: str = DECOMPOSE_SEARCH_INTENT_PROMPT
     ) -> List[str]:
-        """Format a prompt and queries the LLM to generate search queries.
+        """Generate search queries from high-level legal intent.
 
-        It attempts to parse the LLM's response as a JSON list of strings.
-        If parsing fails or the format is incorrect, it logs a warning and
-        falls back to returning the original intent as a single-element list.
+        The method enforces strict function-calling output via
+        `formulate_search_queries`. If the tool payload is missing or invalid,
+        it logs the issue and falls back to `[intent]`.
 
         Args:
             intent: The high-level search intent string.
@@ -96,17 +108,20 @@ class FormulateSearchQueries(Action):
         prompt = prompt_template.format(intent=intent)
 
         try:
-            queries = await self.llm.aask_json_schema(
-                prompt,
-                schema=_SEARCH_QUERY_LIST_SCHEMA,
+            result = await self.llm.aask_tool_call(
+                prompt=prompt,
+                tools=[_FORMULATE_SEARCH_QUERIES_TOOL],
+                tool_choice="formulate_search_queries",
                 temperature=0.5,
             )
+            payload = result.arguments
+            queries = payload.get("queries", [])
 
             if isinstance(queries, list) and all(isinstance(q, str) for q in queries):
                 return queries
 
             logger.warning(
-                "[FormulateSearchQueries] Output format invalid. Fallback to intent."
+                "[FormulateSearchQueries] Tool payload invalid. Fallback to intent."
             )
 
             return [intent]

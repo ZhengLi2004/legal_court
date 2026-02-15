@@ -1,10 +1,8 @@
-"""Defines high-level strategic actions for the ArgumentController role.
+"""Define high-level strategic actions for the argument controller.
 
-This module contains Action classes derived from metagpt.actions.Action. These
-actions represent the decision-making and strategic planning layer of a
-controller agent in the legal debate system. They are responsible for
-assessing the state of the debate, determining resource needs (facts, laws,
-historical cases), and generating the final graph operations for a turn.
+The actions in this module use strict OpenAI function-calling contracts for
+routing. They do not rely on JSON text extraction and do not fall back to
+legacy JSON-only prompting.
 """
 
 from typing import Any, Dict, List
@@ -20,40 +18,80 @@ from prompts.common_prompts import (
 )
 
 _RESOURCE_REQUIREMENT_SCHEMA = {
-    "name": "resource_requirement",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "properties": {
-            "need": {"type": "boolean"},
-            "reasoning": {"type": "string"},
-            "intent": {"type": ["string", "null"]},
-        },
-        "required": ["need", "reasoning", "intent"],
-        "additionalProperties": False,
+    "type": "object",
+    "properties": {
+        "need": {"type": "boolean"},
+        "reasoning": {"type": "string"},
+        "intent": {"type": ["string", "null"]},
     },
+    "required": ["need", "reasoning", "intent"],
+    "additionalProperties": False,
 }
 
 _AGENT_ACTION_LIST_SCHEMA = {
-    "name": "agent_action_list",
-    "strict": True,
-    "schema": {
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {
-                "action_type": {
-                    "type": "string",
-                    "enum": ["cite_fact", "cite_law", "support_claim", "rebut_claim"],
+    "type": "object",
+    "properties": {
+        "actions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "action_type": {
+                        "type": "string",
+                        "enum": [
+                            "cite_fact",
+                            "cite_law",
+                            "support_claim",
+                            "rebut_claim",
+                        ],
+                    },
+                    "content": {"type": "string"},
+                    "target_id": {"type": ["string", "null"]},
+                    "source_id": {"type": ["string", "null"]},
+                    "metadata": {"type": "object", "additionalProperties": True},
                 },
-                "content": {"type": "string"},
-                "target_id": {"type": ["string", "null"]},
-                "source_id": {"type": ["string", "null"]},
-                "metadata": {"type": "object", "additionalProperties": True},
+                "required": ["action_type", "content", "target_id", "source_id"],
+                "additionalProperties": False,
             },
-            "required": ["action_type", "content", "target_id", "source_id"],
-            "additionalProperties": False,
-        },
+        }
+    },
+    "required": ["actions"],
+    "additionalProperties": False,
+}
+
+_ASSESS_FACT_NEEDS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "assess_fact_needs",
+        "description": "Assess whether factual retrieval is needed this turn.",
+        "parameters": _RESOURCE_REQUIREMENT_SCHEMA,
+    },
+}
+
+_ASSESS_LAW_NEEDS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "assess_law_needs",
+        "description": "Assess whether legal-article retrieval is needed this turn.",
+        "parameters": _RESOURCE_REQUIREMENT_SCHEMA,
+    },
+}
+
+_ASSESS_RECALL_NEEDS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "assess_recall_needs",
+        "description": "Assess whether historical-case recall is needed this turn.",
+        "parameters": _RESOURCE_REQUIREMENT_SCHEMA,
+    },
+}
+
+_VERIFY_AND_DECIDE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "verify_and_decide",
+        "description": "Return finalized graph-operation actions for this turn.",
+        "parameters": _AGENT_ACTION_LIST_SCHEMA,
     },
 }
 
@@ -70,7 +108,7 @@ class AssessFactNeeds(Action):
     async def run(
         self, role_name: str, persona: object, graph_context: str
     ) -> Dict[str, Any]:
-        """Format a prompt and queries the LLM to assess fact-finding needs.
+        """Assess whether fact retrieval is needed.
 
         Args:
             role_name: The name of the role executing the action (e.g., "plaintiff").
@@ -78,8 +116,10 @@ class AssessFactNeeds(Action):
             graph_context: A textual representation of the current debate graph.
 
         Returns:
-            A parsed JSON object detailing whether a fact search is needed,
-            the reasoning, and the search intent.
+            Parsed tool-call arguments with `need`, `reasoning`, and `intent`.
+
+        Raises:
+            ToolCallContractError: If the model violates the tool-call contract.
         """
         prompt = ASSESS_FACT_NEEDS_PROMPT.format(
             role_name=role_name,
@@ -89,13 +129,14 @@ class AssessFactNeeds(Action):
             graph_context=graph_context,
         )
 
-        result = await self.llm.aask_json_schema(
-            prompt,
-            schema=_RESOURCE_REQUIREMENT_SCHEMA,
+        result = await self.llm.aask_tool_call(
+            prompt=prompt,
+            tools=[_ASSESS_FACT_NEEDS_TOOL],
+            tool_choice="assess_fact_needs",
             temperature=0.5,
         )
 
-        return result
+        return result.arguments
 
 
 class AssessLawNeeds(Action):
@@ -110,7 +151,7 @@ class AssessLawNeeds(Action):
     async def run(
         self, role_name: str, persona: object, graph_context: str
     ) -> Dict[str, Any]:
-        """Format a prompt and queries the LLM to assess legal research needs.
+        """Assess whether law retrieval is needed.
 
         Args:
             role_name: The name of the role executing the action (e.g., "defendant").
@@ -118,8 +159,10 @@ class AssessLawNeeds(Action):
             graph_context: A textual representation of the current debate graph.
 
         Returns:
-            A parsed JSON object detailing whether a law search is needed,
-            the reasoning, and the search intent.
+            Parsed tool-call arguments with `need`, `reasoning`, and `intent`.
+
+        Raises:
+            ToolCallContractError: If the model violates the tool-call contract.
         """
         prompt = ASSESS_LAW_NEEDS_PROMPT.format(
             role_name=role_name,
@@ -129,13 +172,14 @@ class AssessLawNeeds(Action):
             graph_context=graph_context,
         )
 
-        result = await self.llm.aask_json_schema(
-            prompt,
-            schema=_RESOURCE_REQUIREMENT_SCHEMA,
+        result = await self.llm.aask_tool_call(
+            prompt=prompt,
+            tools=[_ASSESS_LAW_NEEDS_TOOL],
+            tool_choice="assess_law_needs",
             temperature=0.5,
         )
 
-        return result
+        return result.arguments
 
 
 class AssessRecallNeeds(Action):
@@ -150,7 +194,7 @@ class AssessRecallNeeds(Action):
     async def run(
         self, role_name: str, persona: object, graph_context: str
     ) -> Dict[str, Any]:
-        """Format a prompt and queries the LLM to assess historical recall needs.
+        """Assess whether historical-case recall is needed.
 
         Args:
             role_name: The name of the role executing the action.
@@ -158,8 +202,10 @@ class AssessRecallNeeds(Action):
             graph_context: A textual representation of the current debate graph.
 
         Returns:
-            A parsed JSON object detailing whether recalling past cases is needed,
-            the reasoning, and the strategic intent.
+            Parsed tool-call arguments with `need`, `reasoning`, and `intent`.
+
+        Raises:
+            ToolCallContractError: If the model violates the tool-call contract.
         """
         prompt = ASSESS_RECALL_NEEDS_PROMPT.format(
             role_name=role_name,
@@ -169,13 +215,14 @@ class AssessRecallNeeds(Action):
             graph_context=graph_context,
         )
 
-        result = await self.llm.aask_json_schema(
-            prompt,
-            schema=_RESOURCE_REQUIREMENT_SCHEMA,
+        result = await self.llm.aask_tool_call(
+            prompt=prompt,
+            tools=[_ASSESS_RECALL_NEEDS_TOOL],
+            tool_choice="assess_recall_needs",
             temperature=0.5,
         )
 
-        return result
+        return result.arguments
 
 
 class VerifyAndDecide(Action):
@@ -198,7 +245,7 @@ class VerifyAndDecide(Action):
         id_inventory: str,
         feedback: str = "",
     ) -> List[Dict[str, Any]]:
-        """Format a prompt and queries the LLM to generate final agent actions.
+        """Generate final graph actions for the current turn.
 
         Args:
             role_name: The name of the role executing the action.
@@ -210,8 +257,11 @@ class VerifyAndDecide(Action):
             feedback: Optional feedback from a previously failed execution attempt.
 
         Returns:
-            A parsed JSON array of `AgentAction` objects to be executed on
-            the debate graph.
+            A list of action dictionaries parsed from function arguments.
+
+        Raises:
+            ToolCallContractError: If the model violates the tool-call contract.
+            ValueError: If `actions` field is missing or has an invalid type.
         """
         feedback_text = ""
 
@@ -228,10 +278,17 @@ class VerifyAndDecide(Action):
             id_inventory=id_inventory,
         )
 
-        result = await self.llm.aask_json_schema(
-            prompt,
-            schema=_AGENT_ACTION_LIST_SCHEMA,
+        result = await self.llm.aask_tool_call(
+            prompt=prompt,
+            tools=[_VERIFY_AND_DECIDE_TOOL],
+            tool_choice="verify_and_decide",
             temperature=0.5,
         )
 
-        return result
+        payload = result.arguments
+        actions = payload.get("actions", [])
+
+        if not isinstance(actions, list):
+            raise ValueError("`verify_and_decide` tool arguments must include list `actions`.")
+
+        return actions

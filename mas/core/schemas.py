@@ -95,9 +95,9 @@ class ResourceRequirement(BaseModel):
 
 
 AGENT_ACTION_SCHEMA_DESC = """
-    【AgentAction JSON 输出规范】
+    【AgentAction 函数参数规范】
 
-    你的输出必须是一个 JSON 数组 `[...]`，其中每个对象代表一个图谱操作。
+    你必须在函数参数 `actions` 中提供一个数组 `[...]`，其中每个对象代表一个图谱操作。
 
     **核心字段**:
     - `action_type` (string): 你的意图。必须是 "cite_fact", "cite_law", "support_claim", "rebut_claim" 之一。
@@ -121,7 +121,7 @@ AGENT_ACTION_SCHEMA_DESC = """
             -   如果你想提出一个**新观点**去支持/反驳目标，这里必须是 `null`。
         -   `content`: 描述你的新观点。
 
-    **示例**:
+    **示例（即 `actions` 字段的值）**:
     ```json
     [
         {

@@ -31,9 +31,9 @@ from mas.core.schemas import (
     WorkerReport,
     WorkerReportStatus,
 )
-from tools.action_parser import parse_agent_action_output
 from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
+from tools.llm import ToolCallContractError
 
 
 class ControllerPipelineStep(Enum):
@@ -187,7 +187,9 @@ class ArgumentController(Role):
         """Execute the main logic for the controller, driven by a state machine.
 
         This method is called repeatedly by the `DebateTeam`. Its behavior
-        depends on the current `self.pipeline_step`.
+        depends on the current `self.pipeline_step`. Strategic branches consume
+        strict function-calling outputs from the LLM and record contract errors
+        explicitly in `error_history`.
 
         Returns:
             A `Message` object containing either instructions for workers, a
@@ -237,8 +239,35 @@ class ArgumentController(Role):
                 self.name, self.persona, graph_context
             )
 
-            results = await asyncio.gather(fact_task, law_task, recall_task)
-            fact_payload, law_payload, recall_payload = results
+            try:
+                results = await asyncio.gather(fact_task, law_task, recall_task)
+                fact_payload, law_payload, recall_payload = results
+
+            except ToolCallContractError as e:
+                detail = self._record_tool_call_error(stage="assess_needs", error=e)
+                logger.warning(f"[{self.name}] Tool-call contract error: {detail}")
+
+                return Message(
+                    content="EXECUTION_FAILURE_RETRY: TOOL_CALL_ERROR",
+                    role=self.profile,
+                )
+
+            except Exception as e:
+                logger.error(f"[{self.name}] Assessment failed unexpectedly: {e}")
+
+                self.error_history.append(
+                    {
+                        "kind": "assessment_error",
+                        "detail": str(e),
+                        "ts_ms": int(time.time() * 1000),
+                    }
+                )
+
+                return Message(
+                    content="EXECUTION_FAILURE_RETRY: ASSESS_NEEDS_ERROR",
+                    role=self.profile,
+                )
+
             req_fact = self._parse_requirement(fact_payload)
             req_law = self._parse_requirement(law_payload)
             req_recall = self._parse_requirement(recall_payload)
@@ -358,7 +387,7 @@ class ArgumentController(Role):
 
                 feedback_section = (
                     f"【⚠️ 警告：之前的尝试执行失败】\n"
-                    f"请仔细分析以下报错信息，并修正你的图谱操作 JSON（检查 ID 是否存在、类型是否匹配）：\n"
+                    f"请仔细分析以下报错信息，并修正你的图谱操作函数参数（检查 ID 是否存在、类型是否匹配）：\n"
                     f"{error_log_str}\n"
                     f"请不要重复犯同样的错误。"
                 )
@@ -367,84 +396,112 @@ class ArgumentController(Role):
             action = VerifyAndDecide(llm=self.llm)
             id_list_str = self.graph_tool.current_graph.get_simple_id_list()
 
-            decision_payload = await action.run(
-                self.name,
-                current_advice,
-                graph_context,
-                self.persona.initial_strategy,
-                feedback=feedback_section,
-                id_inventory=id_list_str,
-            )
-
-            self.last_decision_raw = json.dumps(decision_payload, ensure_ascii=False)
-            parsed_actions = parse_agent_action_output(decision_payload)
-
-            if isinstance(parsed_actions, list) and all(
-                isinstance(a, AgentAction) for a in parsed_actions
-            ):
-                self.last_parsed_actions = [
-                    item.model_dump(exclude_none=True) for item in parsed_actions
-                ]
-
-                exec_msg = await self.graph_tool.process_intent(
-                    self.name, parsed_actions
+            try:
+                decision_payload = await action.run(
+                    self.name,
+                    current_advice,
+                    graph_context,
+                    self.persona.initial_strategy,
+                    feedback=feedback_section,
+                    id_inventory=id_list_str,
                 )
 
-                self.last_execution_log = exec_msg
+            except ToolCallContractError as e:
+                detail = self._record_tool_call_error(stage="decide", error=e)
+                logger.warning(f"[{self.name}] Tool-call contract error: {detail}")
+                self.last_parsed_actions = []
+                self.last_execution_log = detail
 
-                if "REJECT" in exec_msg or "Error" in exec_msg:
-                    logger.warning(f"[{self.name}] Action Execution Failed: {exec_msg}")
+                return Message(
+                    content="EXECUTION_FAILURE_RETRY: TOOL_CALL_ERROR",
+                    role=self.profile,
+                )
 
-                    detailed_error = (
-                        f"[系统报错]: {exec_msg}\n[你的原始输出]: \n{self.last_decision_raw}\n"
-                    )
-
-                    self.recent_errors = [detailed_error]
-
-                    self.error_history.append(
-                        {
-                            "kind": "execution_error",
-                            "detail": detailed_error,
-                            "ts_ms": int(time.time() * 1000),
-                        }
-                    )
-
-                    return Message(
-                        content=f"EXECUTION_FAILURE_RETRY: {exec_msg[:50]}...",
-                        role=self.profile,
-                    )
-
-                else:
-                    self.last_executed_actions = parsed_actions
-                    self.pipeline_step = ControllerPipelineStep.DONE
-
-                    return Message(
-                        content=f"Action Completed: {exec_msg}", role=self.profile
-                    )
-
-            else:
-                error_msg = f"JSON Parsing Failed: {parsed_actions}"
+            except ValueError as e:
+                error_msg = f"Action Payload Failed: {e}"
                 logger.warning(f"[{self.name}] {error_msg}")
                 self.last_parsed_actions = []
                 self.last_execution_log = error_msg
-
-                detailed_error = (
-                    f"[格式错误]: {error_msg}\n[你的原始输出]: \n{self.last_decision_raw}\n"
-                )
-
+                self.last_decision_raw = ""
+                detailed_error = f"[参数结构错误]: {error_msg}"
                 self.recent_errors = [detailed_error]
 
                 self.error_history.append(
                     {
-                        "kind": "json_parse_error",
+                        "kind": "action_payload_error",
                         "detail": detailed_error,
                         "ts_ms": int(time.time() * 1000),
                     }
                 )
 
                 return Message(
-                    content="EXECUTION_FAILURE_RETRY: JSON Error", role=self.profile
+                    content="EXECUTION_FAILURE_RETRY: ACTION_PAYLOAD_ERROR",
+                    role=self.profile,
                 )
+
+            self.last_decision_raw = json.dumps(decision_payload, ensure_ascii=False)
+
+            try:
+                parsed_actions = [
+                    AgentAction.model_validate(item) for item in decision_payload
+                ]
+
+            except Exception as e:
+                error_msg = f"Action Validation Failed: {e}"
+                logger.warning(f"[{self.name}] {error_msg}")
+                self.last_parsed_actions = []
+                self.last_execution_log = error_msg
+
+                detailed_error = (
+                    f"[参数校验错误]: {error_msg}\n"
+                    f"[你的原始输出]: \n{self.last_decision_raw}\n"
+                )
+
+                self.recent_errors = [detailed_error]
+
+                self.error_history.append(
+                    {
+                        "kind": "action_validation_error",
+                        "detail": detailed_error,
+                        "ts_ms": int(time.time() * 1000),
+                    }
+                )
+
+                return Message(
+                    content="EXECUTION_FAILURE_RETRY: ACTION_VALIDATION_ERROR",
+                    role=self.profile,
+                )
+
+            self.last_parsed_actions = [
+                item.model_dump(exclude_none=True) for item in parsed_actions
+            ]
+
+            exec_msg = await self.graph_tool.process_intent(self.name, parsed_actions)
+            self.last_execution_log = exec_msg
+
+            if "REJECT" in exec_msg or "Error" in exec_msg:
+                logger.warning(f"[{self.name}] Action Execution Failed: {exec_msg}")
+
+                detailed_error = f"[系统报错]: {exec_msg}\n[你的原始输出]: \n{self.last_decision_raw}\n"
+
+                self.recent_errors = [detailed_error]
+
+                self.error_history.append(
+                    {
+                        "kind": "execution_error",
+                        "detail": detailed_error,
+                        "ts_ms": int(time.time() * 1000),
+                    }
+                )
+
+                return Message(
+                    content=f"EXECUTION_FAILURE_RETRY: {exec_msg[:50]}...",
+                    role=self.profile,
+                )
+
+            self.last_executed_actions = parsed_actions
+            self.pipeline_step = ControllerPipelineStep.DONE
+            return Message(content=f"Action Completed: {exec_msg}", role=self.profile)
 
         elif self.pipeline_step == ControllerPipelineStep.DONE:
             return Message(
@@ -492,10 +549,10 @@ class ArgumentController(Role):
             self.rc.memory.add(Message(content=fallback_msg, role="System"))
 
     def _parse_requirement(self, payload: Any) -> ResourceRequirement:
-        """Safely parse a ResourceRequirement payload from strict JSON data.
+        """Safely parse a resource requirement payload from tool arguments.
 
         Args:
-            payload: Parsed JSON object or JSON string.
+            payload: Parsed function arguments, typically a dict.
 
         Returns:
             A `ResourceRequirement` object. Returns a default `need=False` object
@@ -510,6 +567,30 @@ class ArgumentController(Role):
         except Exception as e:
             logger.warning(f"[{self.name}] Parse Error: {e}. Defaulting to NEED=False.")
             return ResourceRequirement(need=False, reasoning=f"Parse Error: {e}")
+
+    def _record_tool_call_error(self, stage: str, error: Exception) -> str:
+        """Persist a tool-call routing error and update retry context.
+
+        Args:
+            stage: Pipeline stage where the failure happened.
+            error: Exception instance raised during tool-call processing.
+
+        Returns:
+            Normalized error detail string stored in controller state.
+        """
+        detail = f"[tool_call_error][{stage}] {error}"
+        self.recent_errors = [detail]
+
+        self.error_history.append(
+            {
+                "kind": "tool_call_error",
+                "detail": detail,
+                "stage": stage,
+                "ts_ms": int(time.time() * 1000),
+            }
+        )
+
+        return detail
 
     def _truncate(self, text: str, length: int) -> str:
         """Truncate a string to a maximum length, adding an ellipsis."""

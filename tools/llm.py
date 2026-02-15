@@ -1,9 +1,8 @@
-"""Provides a wrapper for interacting with OpenAI-compatible language models.
+"""Provide wrappers for OpenAI-compatible chat models.
 
-This module defines the `GPTChat` class, which simplifies making API calls to
-language models. It handles client initialization, request formatting, error
-handling with retries, and asynchronous execution. It also includes a simple
-token counter for tracking usage.
+The module exposes synchronous/asynchronous helpers for plain text, strict JSON
+responses, and strict function-calling responses. Function-calling helpers use
+contract validation and never fall back to plain JSON prompting.
 """
 
 import asyncio
@@ -29,8 +28,31 @@ class Message:
     content: str
 
 
+class ToolCallContractError(ValueError):
+    """Raised when the model response violates the expected tool-call contract."""
+
+
+@dataclass(frozen=True)
+class ToolCallResult:
+    """Store one validated tool-call result from the model.
+
+    Attributes:
+        tool_name: The function name emitted by the model.
+        arguments: Parsed JSON object from `function.arguments`.
+        raw_message: The raw first choice message object from the OpenAI SDK.
+    """
+
+    tool_name: str
+    arguments: Dict[str, Any]
+    raw_message: Any
+
+
 class LLMCallable(Protocol):
-    """A protocol defining the signature for a callable LLM object."""
+    """Define callable interfaces expected by MAS LLM clients.
+
+    Implementations must support plain chat generation and may expose strict
+    function-calling helpers used by routing-sensitive code paths.
+    """
 
     def __call__(
         self,
@@ -58,6 +80,56 @@ class LLMCallable(Protocol):
 
         Returns:
             The string content of the language model's response.
+        """
+        ...
+
+    def ask_tool_call(
+        self,
+        messages: List[Message],
+        tools: List[Dict[str, Any]],
+        tool_choice: str,
+        temperature: float = None,
+        max_tokens: int = None,
+        stop_strs: Optional[List[str]] = None,
+        num_comps: int = 1,
+    ) -> ToolCallResult:
+        """Request one strict function call and parse structured arguments.
+
+        Args:
+            messages: Conversation history.
+            tools: OpenAI-compatible tools payload.
+            tool_choice: Required function name for the completion.
+            temperature: Sampling temperature.
+            max_tokens: Maximum output tokens.
+            stop_strs: Optional stop strings.
+            num_comps: Number of completions requested.
+
+        Returns:
+            One validated tool-call result.
+        """
+        ...
+
+    async def aask_tool_call(
+        self,
+        prompt: str,
+        tools: List[Dict[str, Any]],
+        tool_choice: str,
+        system_msgs: Optional[List[str]] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> ToolCallResult:
+        """Asynchronously request one strict function call.
+
+        Args:
+            prompt: User prompt content.
+            tools: OpenAI-compatible tools payload.
+            tool_choice: Required function name for the completion.
+            system_msgs: Optional system prompts.
+            max_tokens: Maximum output tokens.
+            temperature: Sampling temperature.
+
+        Returns:
+            One validated tool-call result.
         """
         ...
 
@@ -196,6 +268,85 @@ class GPTChat(LLM):
         return ""
 
     @staticmethod
+    def _build_forced_tool_choice(tool_name: str) -> Dict[str, Any]:
+        """Build OpenAI `tool_choice` payload for one forced function.
+
+        Args:
+            tool_name: Function name that the model must call.
+
+        Returns:
+            OpenAI-compatible `tool_choice` object.
+        """
+        return {"type": "function", "function": {"name": tool_name}}
+
+    @staticmethod
+    def _extract_single_tool_call(
+        message: Any,
+        expected_tool_name: str,
+    ) -> ToolCallResult:
+        """Extract and validate one tool call from a chat-completion message.
+
+        Args:
+            message: OpenAI SDK message object from the first completion choice.
+            expected_tool_name: Function name required by caller-side contract.
+
+        Returns:
+            A validated `ToolCallResult` object.
+
+        Raises:
+            ToolCallContractError: If the model does not return exactly one tool
+                call, returns a mismatched function name, or emits invalid JSON
+                function arguments.
+        """
+        tool_calls = getattr(message, "tool_calls", None)
+
+        if not tool_calls:
+            raise ToolCallContractError("LLM returned no tool_calls.")
+
+        if len(tool_calls) != 1:
+            raise ToolCallContractError(
+                f"LLM must return exactly one tool call, got {len(tool_calls)}."
+            )
+
+        tool_call = tool_calls[0]
+        function_payload = getattr(tool_call, "function", None)
+
+        if function_payload is None:
+            raise ToolCallContractError("LLM tool_call missing function payload.")
+
+        tool_name = getattr(function_payload, "name", "")
+
+        if tool_name != expected_tool_name:
+            raise ToolCallContractError(
+                f"LLM returned unexpected tool '{tool_name}', expected "
+                f"'{expected_tool_name}'."
+            )
+
+        raw_arguments = getattr(function_payload, "arguments", None)
+
+        if not isinstance(raw_arguments, str) or not raw_arguments.strip():
+            raise ToolCallContractError("LLM returned empty tool_call arguments.")
+
+        try:
+            arguments = json.loads(raw_arguments)
+
+        except json.JSONDecodeError as exc:
+            raise ToolCallContractError(
+                f"LLM tool_call arguments JSON decode failed: {exc}"
+            ) from exc
+
+        if not isinstance(arguments, dict):
+            raise ToolCallContractError(
+                "LLM tool_call arguments must be a JSON object."
+            )
+
+        return ToolCallResult(
+            tool_name=tool_name,
+            arguments=arguments,
+            raw_message=message,
+        )
+
+    @staticmethod
     def _parse_json_output(raw: str) -> Any:
         """Parse a JSON string and raise clear errors for invalid outputs."""
         if not isinstance(raw, str) or not raw.strip():
@@ -206,6 +357,102 @@ class GPTChat(LLM):
 
         except json.JSONDecodeError as exc:
             raise ValueError(f"LLM JSON decode failed: {exc}") from exc
+
+    def ask_tool_call(
+        self,
+        messages: List[Message],
+        tools: List[Dict[str, Any]],
+        tool_choice: str,
+        temperature: float = None,
+        max_tokens: int = None,
+        stop_strs: Optional[List[str]] = None,
+        num_comps: int = 1,
+    ) -> ToolCallResult:
+        """Request one strict function call and return parsed arguments.
+
+        Args:
+            messages: Conversation history.
+            tools: OpenAI-compatible `tools` payload. Expected to contain the
+                function schema referenced by `tool_choice`.
+            tool_choice: Required function name that the model must call.
+            temperature: Sampling temperature. Defaults to system config.
+            max_tokens: Maximum output tokens. Defaults to system config.
+            stop_strs: Optional stop strings passed to completion API.
+            num_comps: Number of completions requested; only first choice is used.
+
+        Returns:
+            A validated `ToolCallResult` with parsed object arguments.
+
+        Raises:
+            ToolCallContractError: If API call fails after retries or response
+                violates the strict single-tool-call contract.
+        """
+        global prompt_tokens, completion_tokens
+        final_temp = temperature if temperature is not None else _CONFIG.temperature
+        final_max_tokens = max_tokens if max_tokens is not None else _CONFIG.max_tokens
+
+        if not tools:
+            raise ToolCallContractError("`tools` must contain at least one function.")
+
+        openai_messages = [
+            {"role": msg.role, "content": msg.content} for msg in messages
+        ]
+
+        max_retries = 3
+        wait_time = 2
+        last_error: Optional[Exception] = None
+
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self._model_name,
+                    messages=openai_messages,
+                    max_tokens=final_max_tokens,
+                    temperature=final_temp,
+                    n=num_comps,
+                    stop=stop_strs,
+                    tools=tools,
+                    tool_choice=self._build_forced_tool_choice(tool_choice),
+                )
+
+                if response.usage:
+                    prompt_tokens += response.usage.prompt_tokens
+                    completion_tokens += response.usage.completion_tokens
+
+                if not response.choices:
+                    last_error = ToolCallContractError("LLM returned no choices.")
+                    continue
+
+                first_message = response.choices[0].message
+
+                return self._extract_single_tool_call(
+                    message=first_message,
+                    expected_tool_name=tool_choice,
+                )
+
+            except ToolCallContractError:
+                raise
+
+            except Exception as e:
+                import traceback
+
+                last_error = e
+                error_msg = str(e)
+                print(f"⚠️ [LLM Error] Attempt {attempt + 1}/{max_retries}: {error_msg}")
+                traceback.print_exc()
+
+                if "rate limit" in error_msg.lower() or "429" in error_msg:
+                    time.sleep(wait_time * (attempt + 1))
+
+                else:
+                    break
+
+        if last_error is None:
+            raise ToolCallContractError("LLM failed to return a valid tool call.")
+
+        raise ToolCallContractError(
+            f"LLM failed to return a valid tool call after retries: {last_error}"
+        ) from last_error
 
     async def aask(
         self,
@@ -246,6 +493,51 @@ class GPTChat(LLM):
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_format=response_format,
+            ),
+        )
+
+    async def aask_tool_call(
+        self,
+        prompt: str,
+        tools: List[Dict[str, Any]],
+        tool_choice: str,
+        system_msgs: Optional[List[str]] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> ToolCallResult:
+        """Asynchronously request one strict function call.
+
+        Args:
+            prompt: User prompt content.
+            tools: OpenAI-compatible `tools` payload.
+            tool_choice: Required function name emitted by the model.
+            system_msgs: Optional system prompts.
+            max_tokens: Maximum output tokens.
+            temperature: Sampling temperature.
+
+        Returns:
+            A validated `ToolCallResult`.
+
+        Raises:
+            ToolCallContractError: If the tool-call contract is not satisfied.
+        """
+        messages = []
+
+        if system_msgs:
+            for sm in system_msgs:
+                messages.append(Message(role="system", content=sm))
+
+        messages.append(Message(role="user", content=prompt))
+        loop = asyncio.get_running_loop()
+
+        return await loop.run_in_executor(
+            None,
+            lambda: self.ask_tool_call(
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=temperature,
+                max_tokens=max_tokens,
             ),
         )
 

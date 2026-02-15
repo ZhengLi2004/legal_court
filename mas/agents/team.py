@@ -239,9 +239,21 @@ class DebateTeam:
                 self._notify_state_change("retry", {"reason": "execution_failure"})
                 continue
 
-            if "batch_instructions" in content:
+            parsed_payload = None
+
+            if content:
                 try:
-                    data = json.loads(content)
+                    parsed_payload = json.loads(content)
+
+                except Exception:
+                    parsed_payload = None
+
+            if (
+                isinstance(parsed_payload, dict)
+                and "batch_instructions" in parsed_payload
+            ):
+                try:
+                    data = parsed_payload
 
                     if not isinstance(data, dict):
                         raise ValueError("batch payload must be a JSON object")
@@ -349,7 +361,10 @@ class DebateTeam:
                     continue
 
             feedback_msg = Message(
-                content="SYSTEM_FEEDBACK: 你的输出无法被识别。请确保输出 batch_instructions JSON。",
+                content=(
+                    "SYSTEM_FEEDBACK: 你的输出无法被识别。"
+                    "请确保输出合法的 batch_instructions 协议消息。"
+                ),
                 role="System",
             )
 

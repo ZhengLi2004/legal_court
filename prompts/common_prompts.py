@@ -64,10 +64,12 @@ ASSESS_FACT_NEEDS_PROMPT = (
     
     【重要】：如果需要检索，请描述你的**高层意图**。例如，作为被告，你可能需要“查找原告是否存在过错的事实细节”。
 
-    输出字段仅包含：
+    【输出方式】:
+    你必须调用函数 `assess_fact_needs` 并在参数中填写：
     - need: 布尔值
     - reasoning: 字符串（不超过 300 字）
     - intent: 字符串或 null
+    禁止输出普通文本或 Markdown 代码块。
 """
 )
 
@@ -93,10 +95,12 @@ ASSESS_LAW_NEEDS_PROMPT = (
 
     【重要】：请描述你的**法律调研意图**。
 
-    输出字段仅包含：
+    【输出方式】:
+    你必须调用函数 `assess_law_needs` 并在参数中填写：
     - need: 布尔值
     - reasoning: 字符串（不超过 300 字）
     - intent: 字符串或 null
+    禁止输出普通文本或 Markdown 代码块。
 """
 )
 
@@ -121,10 +125,12 @@ ASSESS_RECALL_NEEDS_PROMPT = (
     
     【重要】：请描述你希望从历史案例中获得的**策略意图**。作为{role_name}，你可能想看历史上类似案件中，胜诉方是如何构建逻辑链的，或者是败诉方犯了什么错误。
 
-    输出字段仅包含：
+    【输出方式】:
+    你必须调用函数 `assess_recall_needs` 并在参数中填写：
     - need: 布尔值
     - reasoning: 字符串（不超过 300 字）
     - intent: 字符串或 null
+    禁止输出普通文本或 Markdown 代码块。
 """
 )
 
@@ -212,7 +218,7 @@ VERIFY_AND_DECIDE_PROMPT = (
 
     {feedback_section}
 
-    任务：请结合【参谋报告】和【当前战局】，生成具体的图谱操作 JSON 数组，以推进【战略重心】({focus})。
+    任务：请结合【参谋报告】和【当前战局】，生成具体的图谱操作函数参数，以推进【战略重心】({focus})。
     
     【⚠️ 强制活跃要求】:
     - 只要你能找到反驳对方或支持己方的机会，**必须**采取行动。
@@ -220,7 +226,8 @@ VERIFY_AND_DECIDE_PROMPT = (
 
     {action_schema_desc}
 
-    仅输出决策数组本身，不要输出额外解释文本。
+    你必须调用函数 `verify_and_decide`，并将动作数组放在参数字段 `actions` 中。
+    禁止输出普通文本或 Markdown 代码块。
 """
 )
 
@@ -359,9 +366,8 @@ DECOMPOSE_SEARCH_INTENT_PROMPT = """
     2. **多角度拆解**：
        - 角度1：侧重核心事实相似性（如：“类似[具体事实]的判决案例”）
        - 角度2：侧重法律争议焦点（如：“关于[争议点]的法律适用情形”）
-    3. 返回一个严格的 JSON 字符串数组。
-
-    请直接输出 JSON 数组：
+    3. 你必须调用函数 `formulate_search_queries`，并将查询数组填入参数字段 `queries`。
+    4. 禁止输出普通文本或 Markdown 代码块。
 """
 
 DECOMPOSE_LAW_INTENT_PROMPT = """
@@ -377,5 +383,7 @@ DECOMPOSE_LAW_INTENT_PROMPT = """
        - 角度1：核心法律概念定义（如：“不可抗力的法律定义”）
        - 角度2：具体适用情形与后果（如：“因天气原因导致违约的免责条款规定”）
 
-    请直接输出 JSON 数组：
+    【输出方式】：
+    你必须调用函数 `formulate_search_queries`，并将查询数组填入参数字段 `queries`。
+    禁止输出普通文本或 Markdown 代码块。
 """
