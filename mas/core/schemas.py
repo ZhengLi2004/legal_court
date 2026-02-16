@@ -104,6 +104,8 @@ AGENT_ACTION_SCHEMA_DESC = """
     - `content` (string): 你的观点内容。
     - `source_id` (string | null): 动作的“来源”或“依据”。
     - `target_id` (string | null): 动作的“目标”。
+    - `metadata.reason_brief` (string): 动作的简要推理链，格式建议为
+      `争点:...;依据:...;动作理由:...`。必须简洁，不要展开冗长思维过程。
 
     **【重要】规则按 `action_type` 定义**:
 
@@ -128,19 +130,28 @@ AGENT_ACTION_SCHEMA_DESC = """
             "action_type": "cite_fact",
             "content": "基于借条事实，我认为被告有还款义务。",
             "source_id": "FACT_9e8c2d", 
-            "target_id": null
+            "target_id": null,
+            "metadata": {
+                "reason_brief": "争点:还款义务;依据:借条与履行记录;动作理由:以事实支撑我方主张。"
+            }
         },
         {
             "action_type": "cite_law",
             "content": "依据民法典支持我方关于利息的观点。",
             "source_id": "LAW_34da21",
-            "target_id": "CLAIM_ff562a"
+            "target_id": "CLAIM_ff562a",
+            "metadata": {
+                "reason_brief": "争点:利息支持范围;依据:法条构成要件;动作理由:补齐法律适用链条。"
+            }
         },
         {
             "action_type": "rebut_claim",
             "content": "对方的观点忽略了合同中的附加条款，因此不成立。",
             "source_id": null, 
-            "target_id": "CLAIM_4eda56"
+            "target_id": "CLAIM_4eda56",
+            "metadata": {
+                "reason_brief": "争点:条款解释;依据:合同附加条款;动作理由:直接削弱对方关键主张。"
+            }
         }
     ]
     ```

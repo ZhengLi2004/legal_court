@@ -48,9 +48,20 @@ _AGENT_ACTION_LIST_SCHEMA = {
                     "content": {"type": "string"},
                     "target_id": {"type": ["string", "null"]},
                     "source_id": {"type": ["string", "null"]},
-                    "metadata": {"type": "object", "additionalProperties": True},
+                    "metadata": {
+                        "type": "object",
+                        "properties": {"reason_brief": {"type": "string"}},
+                        "required": ["reason_brief"],
+                        "additionalProperties": True,
+                    },
                 },
-                "required": ["action_type", "content", "target_id", "source_id"],
+                "required": [
+                    "action_type",
+                    "content",
+                    "target_id",
+                    "source_id",
+                    "metadata",
+                ],
                 "additionalProperties": False,
             },
         }
@@ -258,6 +269,7 @@ class VerifyAndDecide(Action):
 
         Returns:
             A list of action dictionaries parsed from function arguments.
+            Each action payload includes `metadata.reason_brief`.
 
         Raises:
             ToolCallContractError: If the model violates the tool-call contract.
@@ -266,7 +278,11 @@ class VerifyAndDecide(Action):
         feedback_text = ""
 
         if feedback:
-            feedback_text = f"【⚠️ 警告：之前的尝试被拒绝】\n错误原因: {feedback}\n请务必避免犯同样的错误。"
+            feedback_text = (
+                "【上一轮结果反馈】\n"
+                f"错误原因: {feedback}\n"
+                "请修正动作字段，并确保每个动作的 metadata.reason_brief 与动作内容一致。"
+            )
 
         prompt = VERIFY_AND_DECIDE_PROMPT.format(
             role_name=role_name,

@@ -386,10 +386,10 @@ class ArgumentController(Role):
                 error_log_str = "\n".join(self.recent_errors)
 
                 feedback_section = (
-                    f"【⚠️ 警告：之前的尝试执行失败】\n"
-                    f"请仔细分析以下报错信息，并修正你的图谱操作函数参数（检查 ID 是否存在、类型是否匹配）：\n"
+                    f"【上一轮执行反馈】\n"
+                    f"请根据以下报错信息修正图谱操作函数参数（检查 ID 是否存在、类型是否匹配），并同步修正对应动作的 metadata.reason_brief：\n"
                     f"{error_log_str}\n"
-                    f"请不要重复犯同样的错误。"
+                    f"请确保动作与理由一致。"
                 )
 
             current_advice = self.latest_summary or "（本轮无额外信息）"
