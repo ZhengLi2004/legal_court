@@ -2,12 +2,10 @@ import { createContext } from "react";
 
 import type {
   DebateSnapshot,
-  DemoKeyframe,
   GraphDiffView,
   GraphView,
   FrontendSnapshotListItem,
   MemoryView,
-  ReplayExportView,
   SnapshotIndexItem,
   TeamFlowTurn,
   TimelineEvent,
@@ -31,8 +29,6 @@ export interface DebateContextValue {
   snapshotIndex: SnapshotIndexItem[];
   turnArtifacts: TurnArtifact[];
   memoryView: MemoryView | null;
-  demoKeyframes: DemoKeyframe[];
-  replayExport: ReplayExportView | null;
   frontendSnapshots: FrontendSnapshotListItem[];
   busyAction: string;
   error: string;
@@ -56,10 +52,7 @@ export interface DebateContextValue {
   }) => Promise<boolean>;
 
   loadMemory: () => Promise<boolean>;
-  loadDemoKeyframes: () => Promise<boolean>;
-  exportReplayJson: () => Promise<boolean>;
   exportGraphGexf: (round?: number) => Promise<Blob | null>;
-  loadReplayBundle: () => Promise<boolean>;
 
   saveFrontendSnapshot: (
     label?: string,

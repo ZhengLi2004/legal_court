@@ -215,55 +215,6 @@ export interface TeamFlowTurn {
   raw?: unknown;
 }
 
-export interface DebugBundleView {
-  sessionId: string;
-  round: number;
-  turnUid: string;
-  status: string;
-  lastError: string;
-
-  snapshotSummary: {
-    phase: string;
-    nodeCount: number;
-    edgeCount: number;
-    claimCount: number;
-    conflictCount: number;
-  };
-
-  recentEvents: TimelineEvent[];
-  latestTurnArtifact?: TurnArtifact;
-  generatedAt: string;
-  raw?: unknown;
-}
-
-export interface DemoKeyframe {
-  sessionId: string;
-  event: string;
-  reason: string;
-  round: number;
-  turnUid: string;
-  ts: number;
-  data?: unknown;
-  raw?: unknown;
-}
-
-export interface DemoRunResult {
-  sessionId: string;
-  status: string;
-  stepsExecuted: number;
-  endedBy: string;
-  keyframes: DemoKeyframe[];
-  raw?: unknown;
-}
-
-export interface ReplayExportView {
-  sessionId: string;
-  eventCount: number;
-  artifactCount: number;
-  snapshotCount: number;
-  raw?: unknown;
-}
-
 export interface FrontendSnapshotListItem {
   snapshotId: string;
   label: string;
@@ -351,33 +302,6 @@ export interface InsightAdapter {
     options?: { turnUid?: string; limit?: number },
   ): Promise<TurnArtifact[]>;
 
-  getDebugBundle(
-    sessionId: string,
-    options?: {
-      eventLimit?: number;
-      includeSnapshot?: boolean;
-      includeArtifact?: boolean;
-    },
-  ): Promise<DebugBundleView>;
-
-  runDemo(
-    sessionId: string,
-    options?: {
-      maxSteps?: number;
-      autoAdjudicate?: boolean;
-      captureKeyframes?: boolean;
-    },
-  ): Promise<DemoRunResult>;
-
-  getDemoKeyframes(sessionId: string): Promise<DemoKeyframe[]>;
-
-  setFailureSimulation(
-    sessionId: string,
-    kind: "es_unavailable" | "llm_timeout",
-    enabled: boolean,
-  ): Promise<{ sessionId: string; failureSimulation: Record<string, boolean> }>;
-
-  exportReplayJson(sessionId: string): Promise<ReplayExportView>;
   exportGraphGexf(sessionId: string, round?: number): Promise<Blob>;
 }
 

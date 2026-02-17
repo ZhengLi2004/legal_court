@@ -11,12 +11,10 @@ import { createCompatAdapter } from "../../compat";
 
 import type {
   DebateSnapshot,
-  DemoKeyframe,
   FrontendSnapshotListItem,
   GraphDiffView,
   GraphView,
   MemoryView,
-  ReplayExportView,
   SnapshotIndexItem,
   TeamFlowTurn,
   TimelineEvent,
@@ -58,11 +56,6 @@ export function DebateProvider({ children }: { children: ReactNode }) {
   const [snapshotIndex, setSnapshotIndex] = useState<SnapshotIndexItem[]>([]);
   const [turnArtifacts, setTurnArtifacts] = useState<TurnArtifact[]>([]);
   const [memoryView, setMemoryView] = useState<MemoryView | null>(null);
-  const [demoKeyframes, setDemoKeyframes] = useState<DemoKeyframe[]>([]);
-
-  const [replayExport, setReplayExport] = useState<ReplayExportView | null>(
-    null,
-  );
 
   const [frontendSnapshots, setFrontendSnapshots] = useState<
     FrontendSnapshotListItem[]
@@ -539,38 +532,6 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     }
   }, [adapter, sessionId]);
 
-  const loadDemoKeyframes = useCallback(async (): Promise<boolean> => {
-    if (!sessionId) {
-      return false;
-    }
-
-    try {
-      const rows = await adapter.insight.getDemoKeyframes(sessionId);
-      setDemoKeyframes(rows);
-      return true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      return false;
-    }
-  }, [adapter, sessionId]);
-
-  const exportReplayJson = useCallback(async (): Promise<boolean> => {
-    if (!sessionId) {
-      return false;
-    }
-
-    try {
-      const row = await adapter.insight.exportReplayJson(sessionId);
-      setReplayExport(row);
-      return true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      return false;
-    }
-  }, [adapter, sessionId]);
-
   const exportGraphGexf = useCallback(
     async (round?: number): Promise<Blob | null> => {
       if (!sessionId) {
@@ -587,31 +548,6 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     },
     [adapter, sessionId],
   );
-
-  const loadReplayBundle = useCallback(async (): Promise<boolean> => {
-    if (!sessionId) {
-      return false;
-    }
-
-    const results = await Promise.all([
-      loadSnapshots(),
-      loadTurnArtifacts({ limit: 80 }),
-      loadTeamflowStream(80),
-      loadDemoKeyframes(),
-      loadTimeline(120),
-      loadMemory(),
-    ]);
-
-    return results.every(Boolean);
-  }, [
-    loadDemoKeyframes,
-    loadMemory,
-    loadSnapshots,
-    loadTeamflowStream,
-    loadTimeline,
-    loadTurnArtifacts,
-    sessionId,
-  ]);
 
   const listFrontendSnapshots = useCallback(
     async (limit = 20): Promise<boolean> => {
@@ -774,8 +710,6 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       setSnapshotIndex([]);
       setTurnArtifacts([]);
       setMemoryView(null);
-      setDemoKeyframes([]);
-      setReplayExport(null);
       setStreamStatus("idle");
       lastSeqRef.current = 0;
       wsLiveRef.current = false;
@@ -805,10 +739,8 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       loadTurnArtifacts({ limit: 80 }),
       loadTeamflowStream(80),
       loadMemory(),
-      loadDemoKeyframes(),
     ]);
   }, [
-    loadDemoKeyframes,
     loadMemory,
     loadSnapshots,
     loadTeamflowStream,
@@ -959,8 +891,6 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       snapshotIndex,
       turnArtifacts,
       memoryView,
-      demoKeyframes,
-      replayExport,
       frontendSnapshots,
       busyAction,
       error,
@@ -979,10 +909,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       loadSnapshots,
       loadTurnArtifacts,
       loadMemory,
-      loadDemoKeyframes,
-      exportReplayJson,
       exportGraphGexf,
-      loadReplayBundle,
       saveFrontendSnapshot,
       importFrontendSnapshotBundle,
       listFrontendSnapshots,
@@ -995,23 +922,19 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       busyAction,
       clearError,
       createSession,
-      demoKeyframes,
       error,
       exportGraphGexf,
-      exportReplayJson,
       frontendSnapshots,
       graphDiff,
       graphView,
       importFrontendSnapshotBundle,
       listFrontendSnapshots,
       listSessions,
-      loadDemoKeyframes,
       loadFrontendSnapshot,
       loadGraph,
       loadGraphAtRound,
       loadGraphDiff,
       loadMemory,
-      loadReplayBundle,
       loadSnapshots,
       loadTimeline,
       loadTeamflowStream,
@@ -1019,7 +942,6 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       memoryView,
       previousSnapshot,
       refreshSnapshot,
-      replayExport,
       saveFrontendSnapshot,
       selectSession,
       sessionId,

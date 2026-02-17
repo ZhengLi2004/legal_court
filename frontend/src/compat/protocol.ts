@@ -1,19 +1,15 @@
 import type {
   MemoryCaseSnapshot,
   MemoryInsightItem,
-  DemoKeyframe,
-  DemoRunResult,
   DebateMetrics,
   DebatePhase,
   DebateSnapshot,
-  DebugBundleView,
   GraphDiffView,
   GraphEdge,
   GraphNode,
   GraphView,
   MemoryView,
   TaskLayerGraph,
-  ReplayExportView,
   FrontendSnapshotListItem,
   FrontendSnapshotLoadResult,
   SnapshotIndexItem,
@@ -832,133 +828,6 @@ export function normalizeTeamflowStream(raw: unknown): TeamFlowTurn[] {
       raw: item,
     };
   });
-}
-
-export function normalizeDebugBundle(
-  raw: unknown,
-  fallbackSessionId = "",
-): DebugBundleView {
-  const payload = unwrapPayload(raw);
-  const summary = asRecord(payload.snapshot_summary ?? payload.snapshotSummary);
-
-  const artifactRaw =
-    payload.latest_turn_artifact ?? payload.latestTurnArtifact;
-
-  const artifactList = artifactRaw !== undefined ? [artifactRaw] : [];
-  const normalizedArtifact = normalizeTurnArtifacts(artifactList)[0];
-
-  return {
-    sessionId: asString(
-      payload.session_id ?? payload.sessionId,
-      fallbackSessionId,
-    ),
-    round: asNumber(payload.round_idx ?? payload.round),
-    turnUid: asString(payload.turn_uid ?? payload.turnUid),
-    status: asString(payload.status, "UNKNOWN"),
-    lastError: asString(payload.last_error ?? payload.lastError),
-    snapshotSummary: {
-      phase: asString(summary.phase, "UNKNOWN"),
-      nodeCount: asNumber(summary.node_count ?? summary.nodeCount),
-      edgeCount: asNumber(summary.edge_count ?? summary.edgeCount),
-      claimCount: asNumber(summary.claim_count ?? summary.claimCount),
-      conflictCount: asNumber(summary.conflict_count ?? summary.conflictCount),
-    },
-    recentEvents: normalizeTimeline(
-      payload.recent_events ?? payload.events ?? [],
-    ),
-    latestTurnArtifact: normalizedArtifact,
-    generatedAt: asString(payload.generated_at ?? payload.generatedAt),
-    raw,
-  };
-}
-
-export function normalizeDemoKeyframes(raw: unknown): DemoKeyframe[] {
-  const payload = unwrapPayload(raw);
-  const list = payload.items ?? payload.keyframes ?? raw;
-
-  if (!Array.isArray(list)) {
-    return [];
-  }
-
-  return list.map((item) => {
-    const row = asRecord(item);
-
-    return {
-      sessionId: asString(row.session_id ?? row.sessionId),
-      event: asString(row.event, "event"),
-      reason: asString(row.reason, ""),
-      round: asNumber(row.round_idx ?? row.round),
-      turnUid: asString(row.turn_uid ?? row.turnUid),
-      ts: asNumber(row.ts_ms ?? row.ts, Date.now()),
-      data: row.data,
-      raw: item,
-    };
-  });
-}
-
-export function normalizeDemoRunResult(
-  raw: unknown,
-  fallbackSessionId = "",
-): DemoRunResult {
-  const payload = unwrapPayload(raw);
-  const session = asRecord(payload.session);
-  const summary = asRecord(payload.demo_summary ?? payload.summary);
-
-  const keyframes = normalizeDemoKeyframes(
-    payload.keyframes ?? payload.items ?? [],
-  );
-
-  return {
-    sessionId: asString(
-      session.session_id ?? payload.session_id ?? payload.sessionId,
-      fallbackSessionId,
-    ),
-    status: asString(session.status ?? payload.status, "UNKNOWN"),
-    stepsExecuted: asNumber(
-      summary.steps_executed ?? summary.stepsExecuted ?? payload.steps_executed,
-    ),
-    endedBy: asString(
-      summary.ended_by ?? summary.endedBy ?? payload.ended_by,
-      "unknown",
-    ),
-    keyframes,
-    raw,
-  };
-}
-
-export function normalizeReplayExport(
-  raw: unknown,
-  fallbackSessionId = "",
-): ReplayExportView {
-  const payload = unwrapPayload(raw);
-  const session = asRecord(payload.session);
-  const metadata = asRecord(payload.metadata);
-  const events = payload.events;
-  const artifacts = payload.turn_artifacts ?? payload.turnArtifacts;
-  const snapshots = payload.snapshots ?? payload.snapshot_list;
-
-  const eventCount = Array.isArray(events)
-    ? events.length
-    : asNumber(metadata.event_count ?? metadata.eventCount, 0);
-
-  const artifactCount = Array.isArray(artifacts)
-    ? artifacts.length
-    : asNumber(metadata.artifact_count ?? metadata.artifactCount, 0);
-
-  const snapshotCount = Array.isArray(snapshots)
-    ? snapshots.length
-    : asNumber(metadata.snapshot_count ?? metadata.snapshotCount, 0);
-
-  return {
-    sessionId: asString(
-      session.session_id ?? payload.session_id ?? payload.sessionId,
-      fallbackSessionId,
-    ),
-    eventCount,
-    artifactCount,
-    snapshotCount,
-    raw,
-  };
 }
 
 export function normalizeFrontendSnapshotItem(

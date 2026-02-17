@@ -1,9 +1,5 @@
 import {
-  normalizeDebugBundle,
-  normalizeDemoKeyframes,
-  normalizeDemoRunResult,
   normalizeMemory,
-  normalizeReplayExport,
   normalizeTeamflowStream,
   normalizeTimeline,
   normalizeTurnArtifacts,
@@ -13,12 +9,8 @@ import { withQuery } from "../client";
 import type { CompatClient } from "../client";
 
 import type {
-  DemoKeyframe,
-  DemoRunResult,
-  DebugBundleView,
   InsightAdapter,
   MemoryView,
-  ReplayExportView,
   SessionAdapter,
   TeamFlowTurn,
   TimelineEvent,
@@ -209,146 +201,6 @@ export class InsightDomainAdapter implements InsightAdapter {
     ]);
 
     return normalizeTurnArtifacts(raw);
-  }
-
-  async getDebugBundle(
-    sessionId: string,
-    options: {
-      eventLimit?: number;
-      includeSnapshot?: boolean;
-      includeArtifact?: boolean;
-    } = {},
-  ): Promise<DebugBundleView> {
-    const eventLimit = options.eventLimit ?? 20;
-    const includeSnapshot = options.includeSnapshot ?? true;
-    const includeArtifact = options.includeArtifact ?? true;
-
-    const path = withQuery(`/api/v1/sessions/${sessionId}/debug-bundle`, {
-      event_limit: eventLimit,
-      include_snapshot: includeSnapshot ? 1 : 0,
-      include_artifact: includeArtifact ? 1 : 0,
-    });
-
-    try {
-      const raw = await this.client.callWithCandidates([
-        { method: "GET", path },
-      ]);
-
-      return normalizeDebugBundle(raw, sessionId);
-    } catch {
-      const [snapshot, timeline, artifacts] = await Promise.all([
-        this.sessionAdapter.getSnapshot(sessionId),
-        this.getTimeline(sessionId, eventLimit),
-        includeArtifact
-          ? this.getTurnArtifacts(sessionId, { limit: 1 })
-          : Promise.resolve([]),
-      ]);
-
-      return normalizeDebugBundle(
-        {
-          session_id: sessionId,
-          round_idx: snapshot.round,
-          turn_uid: timeline[timeline.length - 1]?.turnUid ?? "",
-          status: snapshot.phase,
-          last_error: "",
-          snapshot_summary: {
-            phase: snapshot.phase,
-            node_count: snapshot.metrics.arguments,
-            edge_count: snapshot.metrics.attacks + snapshot.metrics.supports,
-            claim_count: 0,
-            conflict_count: snapshot.metrics.attacks,
-          },
-          recent_events: timeline,
-          latest_turn_artifact: artifacts[0]?.raw ?? artifacts[0],
-          generated_at: new Date().toISOString(),
-        },
-        sessionId,
-      );
-    }
-  }
-
-  async runDemo(
-    sessionId: string,
-    options: {
-      maxSteps?: number;
-      autoAdjudicate?: boolean;
-      captureKeyframes?: boolean;
-    } = {},
-  ): Promise<DemoRunResult> {
-    const raw = await this.client.callWithCandidates([
-      {
-        method: "POST",
-        path: `/api/v1/sessions/${sessionId}/demo/run`,
-        body: {
-          max_steps: options.maxSteps ?? 20,
-          auto_adjudicate: options.autoAdjudicate ?? true,
-          capture_keyframes: options.captureKeyframes ?? true,
-        },
-      },
-    ]);
-
-    return normalizeDemoRunResult(raw, sessionId);
-  }
-
-  async getDemoKeyframes(sessionId: string): Promise<DemoKeyframe[]> {
-    const raw = await this.client.callWithCandidates([
-      {
-        method: "GET",
-        path: `/api/v1/sessions/${sessionId}/demo/keyframes`,
-      },
-    ]);
-
-    return normalizeDemoKeyframes(raw);
-  }
-
-  async setFailureSimulation(
-    sessionId: string,
-    kind: "es_unavailable" | "llm_timeout",
-    enabled: boolean,
-  ): Promise<{
-    sessionId: string;
-    failureSimulation: Record<string, boolean>;
-  }> {
-    const raw = await this.client.callWithCandidates([
-      {
-        method: "POST",
-        path: `/api/v1/sessions/${sessionId}/simulate/failure`,
-        body: { kind, enabled },
-      },
-    ]);
-
-    const row =
-      raw !== null && typeof raw === "object"
-        ? (raw as Record<string, unknown>)
-        : {};
-
-    const failureRaw = row.failure_simulation;
-
-    const failureSimulation =
-      failureRaw !== null && typeof failureRaw === "object"
-        ? (failureRaw as Record<string, boolean>)
-        : {};
-
-    return {
-      sessionId:
-        typeof row.session_id === "string"
-          ? row.session_id
-          : typeof row.sessionId === "string"
-            ? row.sessionId
-            : sessionId,
-      failureSimulation,
-    };
-  }
-
-  async exportReplayJson(sessionId: string): Promise<ReplayExportView> {
-    const raw = await this.client.callWithCandidates([
-      {
-        method: "GET",
-        path: `/api/v1/sessions/${sessionId}/export/replay.json`,
-      },
-    ]);
-
-    return normalizeReplayExport(raw, sessionId);
   }
 
   async exportGraphGexf(sessionId: string, round?: number): Promise<Blob> {
