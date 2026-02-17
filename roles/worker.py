@@ -174,10 +174,6 @@ class FactWorker(BaseWorker):
         Returns:
             A `Message` containing a `WorkerReport` in JSON format.
         """
-        logger.info(
-            f"{self.name} is acting (Plan -> Parallel Search -> Rerank -> Analyze)..."
-        )
-
         result = self._parse_instruction()
 
         if isinstance(result, Message):
@@ -188,7 +184,6 @@ class FactWorker(BaseWorker):
         try:
             formulate_action = FormulateSearchQueries(llm=self.llm)
             queries = await formulate_action.run(instruction.intent)
-            logger.info(f"[{self.name}] Formulated {len(queries)} queries: {queries}")
             search_tasks = [self.es_tool.search_cases_raw(q, top_k=3) for q in queries]
             search_results_list = await asyncio.gather(*search_tasks)
 
@@ -214,7 +209,6 @@ class FactWorker(BaseWorker):
                 )
 
             formatted_context = self._format_hits(final_top_hits)
-            logger.info(f"[{self.name}] Reranked Top-3 Results Selected.")
             analyze_action = AnalyzeSearchResults(llm=self.llm)
 
             advice = await analyze_action.run(
@@ -287,10 +281,6 @@ class LawWorker(BaseWorker):
         Returns:
             A `Message` containing a `WorkerReport` in JSON format.
         """
-        logger.info(
-            f"{self.name} is acting (Plan -> Parallel Search -> Rerank -> Inject -> Analyze)..."
-        )
-
         result = self._parse_instruction()
 
         if isinstance(result, Message):
@@ -314,7 +304,6 @@ class LawWorker(BaseWorker):
                 instruction.intent, prompt_template=DECOMPOSE_LAW_INTENT_PROMPT
             )
 
-            logger.info(f"[{self.name}] Formulated {len(queries)} queries: {queries}")
             search_tasks = [self.es_tool.search_laws_raw(q, top_k=3) for q in queries]
             search_results_list = await asyncio.gather(*search_tasks)
 
@@ -354,14 +343,13 @@ class LawWorker(BaseWorker):
                     f"{i + 1}. [Sim: {score:.4f}] {content[:100]}...\n"
                 )
 
-            injection_log = self.graph_tool.inject_law_nodes(law_contents_for_injection)
+            self.graph_tool.inject_law_nodes(law_contents_for_injection)
 
             if self.legal_system and self.graph_tool.current_graph:
                 self.legal_system.inject_jurisprudential_context(
                     self.graph_tool.current_graph
                 )
 
-            logger.info(f"[{self.name}] Injection Log: {injection_log}")
             analyze_action = AnalyzeSearchResults(llm=self.llm)
 
             analysis = await analyze_action.run(
@@ -434,7 +422,6 @@ class RecallWorker(BaseWorker):
         Returns:
             A `Message` containing a `WorkerReport` in JSON format.
         """
-        logger.info(f"{self.name} is acting (Project -> Strategize)...")
         result = self._parse_instruction()
 
         if isinstance(result, Message):

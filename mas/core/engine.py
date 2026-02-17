@@ -193,7 +193,6 @@ class DebateEngine:
             self.prev_stats["claim_nodes"] = self._count_claim_nodes()
             self.prev_stats["conflict_edges"] = 0
             graph_tool.set_current_graph(self.graph)
-            logger.info(">>> [System] Injecting immutable facts...")
             fact_count = 0
             fact_ids = []
 
@@ -212,8 +211,6 @@ class DebateEngine:
             if fact_ids:
                 self.graph.touch_nodes(fact_ids, step_index=0)
 
-            logger.info(f">>> [System] Injected {fact_count} fact nodes.")
-            logger.info(">>> [System] Injecting root claims...")
             claim_ids = []
 
             for claim_statement in init_res.root_claim_actions:
@@ -230,15 +227,8 @@ class DebateEngine:
             if claim_ids:
                 self.graph.touch_nodes(claim_ids, step_index=0)
 
-            logger.info(f">>> [System] Injected {len(claim_ids)} root claim nodes.")
             self.prev_stats["claim_nodes"] = self._count_claim_nodes()
             self.graph.refresh_context(current_step=0)
-
-            logger.info(
-                f">>> [System] Graph refreshed. "
-                f"Nodes: {self.graph.graph.number_of_nodes()}, "
-                f"Edges: {self.graph.graph.number_of_edges()}"
-            )
 
             self.p_team = DebateTeam(
                 "plaintiff",
@@ -280,7 +270,6 @@ class DebateEngine:
             )
 
             self.transcript.append(init_narrative)
-            logger.info(f">>> [Transcript Updated]:\n{init_narrative}")
 
             self.last_step_log = {
                 "turn": "Setup",
@@ -290,11 +279,6 @@ class DebateEngine:
 
             initial_snapshot = self._create_snapshot(0, "Setup")
             self.round_snapshots.append(initial_snapshot)
-
-            logger.info(
-                f">>> [Snapshot] Initial snapshot saved. "
-                f"Total snapshots: {len(self.round_snapshots)}"
-            )
 
             self._notify_state_change(
                 "setup_complete",
@@ -854,11 +838,9 @@ class DebateEngine:
         """Close any open persistent connections."""
         if self.fact_es:
             await self.fact_es.close()
-            logger.info("[Engine] FactEsTool connection closed.")
 
         if self.law_es:
             await self.law_es.close()
-            logger.info("[Engine] LawEsTool connection closed.")
 
     async def step(self):
         """Execute a single turn of the debate."""
@@ -889,18 +871,10 @@ class DebateEngine:
                 if self.round_idx == 0:
                     self.round_idx = 1
 
-                logger.info(
-                    f"\n>>> [Engine] Round {self.round_idx}, Plaintiff's Turn..."
-                )
-
                 team_to_run = self.p_team
                 next_turn = Turn.DEFENDANT
 
             else:
-                logger.info(
-                    f"\n>>> [Engine] Round {self.round_idx}, Defendant's Turn..."
-                )
-
                 team_to_run = self.d_team
                 next_turn = Turn.PLAINTIFF
 
@@ -909,18 +883,12 @@ class DebateEngine:
             narrative_text = ""
 
             if executed_actions:
-                logger.info(
-                    f">>> [Narrator] Generating transcript for "
-                    f"{len(executed_actions)} actions..."
-                )
-
                 narrative_text = await self.narrator.generate_narrative(
                     actions=executed_actions, graph=self.graph, turn=turn_name_str
                 )
 
                 if narrative_text:
                     self.transcript.append(narrative_text)
-                    logger.info(f">>> [Transcript Updated]:\n{narrative_text}")
 
                     self._notify_state_change(
                         "transcript_update",
@@ -929,9 +897,6 @@ class DebateEngine:
                             "turn": turn_name_str,
                         },
                     )
-
-            else:
-                logger.info(">>> [Narrator] No actions executed this turn.")
 
             delta_phi = self._calculate_convergence()
             self.convergence_history.append(delta_phi)
@@ -1007,11 +972,6 @@ class DebateEngine:
             turn_snapshot = self._create_snapshot(self.round_idx, turn_name_str)
             self.round_snapshots.append(turn_snapshot)
 
-            logger.info(
-                f">>> [Snapshot] Round {self.round_idx} ({turn_name_str}) saved. "
-                f"Total: {len(self.round_snapshots)}"
-            )
-
             self._notify_state_change(
                 "snapshot_saved",
                 {
@@ -1028,15 +988,10 @@ class DebateEngine:
 
     async def adjudicate(self):
         """Execute the adjudication process."""
-        logger.info(">>> [Engine] Running Pre-Adjudication Garbage Collection...")
         removed_count = self.graph.garbage_collect()
 
         if removed_count > 0:
-            logger.info(f"✅ [GC] Cleaned {removed_count} isolated nodes.")
             self.last_step_log["convergence"]["gc_removed"] = removed_count
-
-        else:
-            logger.info("✅ [GC] Graph is clean. No nodes removed.")
 
         self._notify_state_change("adjudication_start", None)
 
@@ -1048,8 +1003,6 @@ class DebateEngine:
             self.graph,
             transcript=self.transcript,
         )
-
-        logger.info(f">>> [Engine] root_claims_status: {self.root_claims_status}")
 
         self.last_step_log["adjudication_result"] = {
             "document": self.judgment_document,

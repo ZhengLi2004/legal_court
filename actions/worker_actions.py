@@ -168,10 +168,6 @@ class ProjectAndAnalyze(Action):
             analogous historical arguments, or an explanatory message if
             no relevant history is found.
         """
-        logger.info(
-            f"Running historical projection retrieval (cached) for intent: {query[:50]}..."
-        )
-
         current_step = legal_system.step_counter
         focus_node_ids = current_graph._calculate_focus_nodes(current_step)
         tactical_subgraph = current_graph.get_subgraph(focus_node_ids)
@@ -211,8 +207,6 @@ class ProjectAndAnalyze(Action):
 
         if "未找到" in historical_context_text or not historical_context_text.strip():
             return "在预加载的历史案例中，未找到与当前锚点结构相似的论点路径。"
-
-        logger.info("Successfully retrieved historical context text from cache.")
 
         prompt = ANALYZE_RECALL_PROMPT.format(
             user_query=query,

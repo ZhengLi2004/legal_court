@@ -10,8 +10,6 @@ GUI is not available.
 
 import asyncio
 
-from metagpt.logs import logger
-
 from mas.config import SystemConfig
 from mas.core.engine import DebateEngine
 
@@ -31,7 +29,6 @@ async def run_experiment():
         of the root claims.
     6.  Ensures that all resources (like database connections) are closed properly.
     """
-    logger.info(">>> Starting Experiment Run...")
     engine = DebateEngine(config=SystemConfig(), judge_config={})
 
     try:

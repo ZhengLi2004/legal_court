@@ -89,13 +89,6 @@ class LLMJudge(BaseJudge):
             graph_context=payload["graph_context"],
         )
 
-        logger.info(
-            "[Judge] Prompt assembled. graph_chars={} roots={}",
-            payload["graph_chars"],
-            payload["root_count"],
-        )
-
-        logger.info(">>> [Judge] Generating Judgment Document...")
         return self.judge_llm([Message(role="user", content=prompt)])
 
     def _build_adjudication_input(self, graph: ShadowGraph) -> Dict[str, Any]:
@@ -207,9 +200,5 @@ class LLMJudge(BaseJudge):
 
             else:
                 root_claims_status[claim_id] = NodeStatus.HYPOTHETICAL
-
-                logger.debug(
-                    f"[Judge-Extract] Unclear status for {claim_id}: {response}"
-                )
 
         return root_claims_status

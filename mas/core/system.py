@@ -249,17 +249,8 @@ class LegalSystem:
             links_to_create = active_ids.intersection(insight_peers)
 
             if links_to_create:
-                logger.info(
-                    f"[Topology] Linking new case {case_id} to {len(links_to_create)} existing cases in TaskLayer."
-                )
-
                 for old_id in links_to_create:
                     self.memory.task_layer.add_link(case_id, old_id)
-
-            else:
-                logger.info(
-                    f"[Topology] New case {case_id} added as isolated node in strategy cluster."
-                )
 
             self.insights.update_insight_topology(
                 target_insight.content, self.memory.task_layer

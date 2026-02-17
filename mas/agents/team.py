@@ -205,7 +205,6 @@ class DebateTeam:
 
         while step_count < self.max_internal_steps:
             step_count += 1
-            logger.debug(f"[{self.side}] Internal Step {step_count}")
 
             self._notify_state_change(
                 "internal_step",
@@ -243,16 +242,9 @@ class DebateTeam:
                         "ROUTED_TO_PUSH",
                     ]
                 ):
-                    logger.info(
-                        f"[{self.side}] Controller routing/plan update received: {content}"
-                    )
-
                     self._notify_state_change("plan_progress", {"content": content})
 
                 else:
-                    logger.warning(
-                        f"[{self.side}] Action failed. Controller will retry."
-                    )
                     self._notify_state_change("retry", {"reason": "execution_failure"})
 
                 continue
@@ -282,20 +274,12 @@ class DebateTeam:
                         raise ValueError("batch_instructions must be a list")
 
                     if not instructions_list:
-                        logger.info(
-                            f"[{self.side}] No workers needed. Triggering ingest."
-                        )
-
                         self.controller.ingest_results([])
                         continue
 
                     tasks = []
                     worker_names = []
                     dispatch_times: List[float] = []
-
-                    logger.info(
-                        f"[{self.side}] Dispatching {len(instructions_list)} parallel tasks..."
-                    )
 
                     for item in instructions_list:
                         if not isinstance(item, dict):
@@ -330,6 +314,7 @@ class DebateTeam:
                     if tasks:
                         results = await asyncio.gather(*tasks)
                         results_payload = []
+                        batch_durations_ms: List[int] = []
 
                         for i, res_msg in enumerate(results):
                             w_name = worker_names[i]
@@ -355,10 +340,19 @@ class DebateTeam:
                                 (time.perf_counter() - dispatch_times[i]) * 1000
                             )
 
+                            batch_durations_ms.append(int(report_row["duration_ms"]))
                             worker_reports_raw.append(report_row)
 
+                        avg_ms = (
+                            int(sum(batch_durations_ms) / len(batch_durations_ms))
+                            if batch_durations_ms
+                            else 0
+                        )
+
+                        max_ms = max(batch_durations_ms) if batch_durations_ms else 0
+
                         logger.info(
-                            f"[{self.side}] Workers finished. Calling ingest_results()."
+                            f"[{self.side}] Worker batch completed: workers={len(results_payload)}, avg_ms={avg_ms}, max_ms={max_ms}"
                         )
 
                         self.controller.ingest_results(results_payload)

@@ -2,8 +2,6 @@
 
 from typing import Dict, Set
 
-from metagpt.logs import logger
-
 from ..core.graph import EdgeType, NodeStatus, NodeType, ShadowGraph
 
 
@@ -148,7 +146,6 @@ class BackPropagator:
         Returns:
             The same graph instance with updated node statuses.
         """
-        logger.info("[BackPropagator] Starting root-status pre-propagation...")
         nx_graph = graph.graph
 
         if reset_first:
@@ -198,15 +195,10 @@ class BackPropagator:
                 validated_set.add(str(pred_id))
                 queue.append(str(pred_id))
 
-        defeated_count = self._propagate_defeated_from_validated(
+        self._propagate_defeated_from_validated(
             nx_graph=nx_graph,
             validated_set=validated_set,
             skip_defeat_for_fact_law=skip_defeat_for_fact_law,
-        )
-
-        logger.info(
-            f"[BackPropagator] Pre-propagation done: "
-            f"validated={len(validated_set)} defeated={defeated_count}"
         )
 
         return graph

@@ -149,7 +149,6 @@ class GraphNarrator:
             return f"（{turn} 方本轮未产生有效逻辑陈述）"
 
         raw_text = "\n".join(raw_sentences)
-        logger.debug(f"[Narrator] Raw Logic:\n{raw_text}")
 
         prompt = NARRATOR_POLISH_PROMPT.format(
             turn="原告" if turn == "plaintiff" else "被告", raw_sentences=raw_text

@@ -129,7 +129,6 @@ class ArgumentController(Role):
 
     def reset_turn_state(self):
         """Reset the controller's state at the beginning of a new turn."""
-        logger.info(f"[{self.name}] Resetting turn state (Buffer & Errors cleared).")
         self.pipeline_step = ControllerPipelineStep.IDLE
         self.investigation_buffer = {}
         self.latest_summary = ""
@@ -157,10 +156,6 @@ class ArgumentController(Role):
             results_list: A list of dictionaries, where each dictionary contains
                 the 'worker' name and 'content' of their report.
         """
-        logger.info(
-            f"[{self.name}] Ingesting {len(results_list)} worker results via direct call."
-        )
-
         try:
             for item in results_list:
                 worker_name = item.get("worker", "")
@@ -201,7 +196,6 @@ class ArgumentController(Role):
         finally:
             self._generate_and_memorize_summary()
             self.pipeline_step = ControllerPipelineStep.PLAN
-            logger.info(f"[{self.name}] State transitioned to PLAN.")
 
     async def _act(self) -> Message:
         """Execute the main logic for the controller, driven by a state machine.
@@ -226,23 +220,14 @@ class ArgumentController(Role):
                 ControllerPipelineStep.IDLE,
                 ControllerPipelineStep.DONE,
             ]:
-                logger.info(
-                    f"[{self.name}] Received START signal. Starting Assessment."
-                )
-
                 self.pipeline_step = ControllerPipelineStep.ASSESS_NEEDS
 
             elif self.pipeline_step != ControllerPipelineStep.ASSESS_NEEDS:
-                logger.info(f"[{self.name}] Force Restart triggered.")
                 self.pipeline_step = ControllerPipelineStep.ASSESS_NEEDS
 
         graph_context = self.graph_tool.current_graph.latest_context
 
         if self.pipeline_step == ControllerPipelineStep.ASSESS_NEEDS:
-            logger.info(
-                f"[{self.name}] Parallelly Assessing Needs (Fact, Law, Recall)..."
-            )
-
             for key in ["Fact", "Law", "Recall"]:
                 if key not in self.investigation_buffer:
                     self.investigation_buffer[key] = "（未评估）"
@@ -294,7 +279,7 @@ class ArgumentController(Role):
 
             if req_fact.need:
                 if not req_fact.intent:
-                    logger.error(
+                    logger.warning(
                         f"[{self.name}] Fact Need is True but Intent is missing! Aborting instruction generation for FactWorker."
                     )
 
@@ -319,7 +304,7 @@ class ArgumentController(Role):
 
             if req_law.need:
                 if not req_law.intent:
-                    logger.error(
+                    logger.warning(
                         f"[{self.name}] Law Need is True but Intent is missing! Aborting instruction generation for LawWorker."
                     )
 
@@ -344,7 +329,7 @@ class ArgumentController(Role):
 
             if req_recall.need:
                 if not req_recall.intent:
-                    logger.error(
+                    logger.warning(
                         f"[{self.name}] Recall Need is True but Intent is missing! Aborting instruction generation for RecallWorker."
                     )
 
@@ -368,10 +353,6 @@ class ArgumentController(Role):
                 self.investigation_buffer["Recall"] = f"✅ [无案例借鉴]: {reasoning}"
 
             if not instructions:
-                logger.info(
-                    f"[{self.name}] No workers needed. Generating summary and jumping to PLAN."
-                )
-
                 self._generate_and_memorize_summary()
                 self.pipeline_step = ControllerPipelineStep.PLAN
                 self.last_batch_instructions = []
@@ -429,21 +410,26 @@ class ArgumentController(Role):
             except ValueError as e:
                 route_step = "plan"
                 route_reason = f"Router payload invalid: {e}"
-                logger.warning(f"[{self.name}] {route_reason}")
 
             if route_step == "push":
                 if self.push_ready and self._validated_actions_for_push:
                     self.last_execution_log = f"ROUTED_TO_PUSH: {route_reason or '模型选择直接执行已验证动作。'}"
+
+                    self._log_plan_summary(
+                        attempt=self.plan_attempt,
+                        route_step="push",
+                        route_reason=route_reason,
+                        status="routed_to_push",
+                        action_count=len(self._validated_actions_for_push),
+                        error_count=0,
+                    )
+
                     self.pipeline_step = ControllerPipelineStep.PUSH
 
                     return Message(
                         content="EXECUTION_FAILURE_RETRY: ROUTED_TO_PUSH",
                         role=self.profile,
                     )
-
-                logger.info(
-                    f"[{self.name}] Router chose PUSH but no validated actions exist. Fallback to PLAN."
-                )
 
                 self.last_execution_log = (
                     "ROUTED_TO_PUSH_BUT_NO_VALIDATED_PLAN: fallback to PLAN."
@@ -464,11 +450,6 @@ class ArgumentController(Role):
                 )
 
             self.plan_attempt += 1
-
-            logger.info(
-                f"[{self.name}] Planning Actions... (Attempt {self.plan_attempt}/{self.max_plan_attempts})"
-            )
-
             feedback_section = self._build_plan_feedback()
             id_list_str = self.graph_tool.current_graph.get_simple_id_list()
             plan_tool = PlanTool(llm=self.llm)
@@ -617,6 +598,15 @@ class ArgumentController(Role):
                     ],
                 )
 
+                self._log_plan_summary(
+                    attempt=self.plan_attempt,
+                    route_step=route_step,
+                    route_reason=route_reason,
+                    status="validation_failed",
+                    action_count=len(self.last_parsed_actions),
+                    error_count=len(validation_errors),
+                )
+
                 if self.plan_attempt >= self.max_plan_attempts:
                     limit_msg = "PLAN_RETRY_LIMIT_EXCEEDED: validation failed after max attempts."
                     self.pipeline_step = ControllerPipelineStep.DONE
@@ -649,6 +639,15 @@ class ArgumentController(Role):
                 sandbox_actions=[
                     item.model_dump(exclude_none=True) for item in parsed_actions
                 ],
+            )
+
+            self._log_plan_summary(
+                attempt=self.plan_attempt,
+                route_step=route_step,
+                route_reason=route_reason,
+                status="validated",
+                action_count=len(parsed_actions),
+                error_count=0,
             )
 
             return Message(
@@ -799,10 +798,6 @@ class ArgumentController(Role):
             self.latest_summary = summary_text
             self.rc.memory.add(Message(content=summary_text, role="System"))
 
-            logger.info(
-                f"[{self.name}] Memorized investigation summary (Length: {len(summary_text)})"
-            )
-
         except Exception as e:
             logger.error(f"[{self.name}] Failed to memorize summary: {e}")
 
@@ -830,7 +825,6 @@ class ArgumentController(Role):
             return ResourceRequirement.model_validate(payload)
 
         except Exception as e:
-            logger.warning(f"[{self.name}] Parse Error: {e}. Defaulting to NEED=False.")
             return ResourceRequirement(need=False, reasoning=f"Parse Error: {e}")
 
     def _record_tool_call_error(self, stage: str, error: Exception) -> str:
@@ -887,6 +881,30 @@ class ArgumentController(Role):
         safe_limit = max(1, int(limit))
         recent = self.action_cache[-safe_limit:]
         return json.dumps(recent, ensure_ascii=False, indent=2)
+
+    def _log_plan_summary(
+        self,
+        *,
+        attempt: int,
+        route_step: str,
+        route_reason: str,
+        status: str,
+        action_count: int,
+        error_count: int,
+    ):
+        """Emit one compact plan-summary log for each meaningful plan outcome."""
+        route_text = (route_reason or "").strip() or "n/a"
+
+        logger.info(
+            "[{}] PLAN_SUMMARY attempt={} route={} status={} actions={} errors={} reason={}",
+            self.name,
+            int(attempt),
+            str(route_step),
+            str(status),
+            int(action_count),
+            int(error_count),
+            route_text,
+        )
 
     def _append_action_cache(
         self,
