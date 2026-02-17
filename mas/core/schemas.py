@@ -107,6 +107,11 @@ AGENT_ACTION_SCHEMA_DESC = """
     - `metadata.reason_brief` (string): 动作的简要推理链，格式建议为
       `争点:...;依据:...;动作理由:...`。必须简洁，不要展开冗长思维过程。
 
+    **辩论策略约束**:
+    - 动作组合应同时覆盖 `SUPPORT` 与 `CONFLICT`，避免单边输出。
+    - 围绕我方关键主张构建可采纳子集，并补齐必要防御。
+    - 目标是提升我方在首选扩展竞争中的可采纳优势。
+
     **【重要】规则按 `action_type` 定义**:
 
     1.  **当 `action_type` 是 "cite_fact" 或 "cite_law" (引用证据/法条)**:

@@ -6,7 +6,7 @@ operations and ensures that agent intentions are translated into valid graph
 modifications.
 """
 
-from typing import List, Union
+from typing import List, Tuple, Union
 
 from mas.analysis.executor import GraphExecutor
 from mas.core.graph import NodeType, ShadowGraph
@@ -67,22 +67,53 @@ class GraphTool:
             A string indicating the result of the execution, either "EXECUTED"
             with logs or "REJECT" with an error message.
         """
+        return await self.apply_actions(agent_id=agent_id, actions=actions)
+
+    def _normalize_actions(
+        self, actions: Union[AgentAction, List[AgentAction]]
+    ) -> List[AgentAction]:
+        """Normalize one or many actions into a validated list."""
+        if isinstance(actions, AgentAction):
+            return [actions]
+
+        if isinstance(actions, list) and all(
+            isinstance(a, AgentAction) for a in actions
+        ):
+            return actions
+
+        raise ValueError("无效的动作格式。")
+
+    def validate_actions(
+        self, actions: Union[AgentAction, List[AgentAction]]
+    ) -> Tuple[bool, List[str]]:
+        """Validate actions against graph constraints without applying them."""
+        try:
+            if not self.current_graph:
+                return False, ["当前图谱上下文未设置。"]
+
+            actions_list = self._normalize_actions(actions)
+            executor = GraphExecutor(
+                self.current_graph, matcher=self.system.dedup_matcher
+            )
+            errors = executor.validate_batch(actions_list)
+
+            if errors:
+                return False, errors
+
+            return True, []
+
+        except Exception as e:
+            return False, [f"GraphTool 校验异常: {str(e)}"]
+
+    async def apply_actions(
+        self, agent_id: str, actions: Union[AgentAction, List[AgentAction]]
+    ) -> str:
+        """Apply validated actions to graph state."""
         try:
             if not self.current_graph:
                 return "REJECT: 当前图谱上下文未设置。"
 
-            actions_list: List[AgentAction] = []
-
-            if isinstance(actions, AgentAction):
-                actions_list.append(actions)
-
-            elif isinstance(actions, list) and all(
-                isinstance(a, AgentAction) for a in actions
-            ):
-                actions_list = actions
-
-            else:
-                return "REJECT: 无效的动作格式。"
+            actions_list = self._normalize_actions(actions)
 
             logs = self.system.execute_action(
                 graph=self.current_graph, agent_id=agent_id, actions=actions_list
@@ -96,6 +127,9 @@ class GraphTool:
                 return f"REJECT: 执行操作时发生错误: {'; '.join(error_logs)}"
 
             return "EXECUTED: 操作成功。\n日志:\n" + "\n".join(logs)
+
+        except ValueError as e:
+            return f"REJECT: {str(e)}"
 
         except Exception as e:
             return f"REJECT: GraphTool 处理意图时发生异常: {str(e)}"

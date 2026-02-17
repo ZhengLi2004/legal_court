@@ -5,15 +5,17 @@ routing. They do not rely on JSON text extraction and do not fall back to
 legacy JSON-only prompting.
 """
 
-from typing import Any, Dict, List
+import asyncio
+from typing import Any, Dict, List, Tuple
 
 from metagpt.actions import Action
 
-from mas.core.schemas import AGENT_ACTION_SCHEMA_DESC
+from mas.core.schemas import AGENT_ACTION_SCHEMA_DESC, AgentAction
 from prompts.common_prompts import (
     ASSESS_FACT_NEEDS_PROMPT,
     ASSESS_LAW_NEEDS_PROMPT,
     ASSESS_RECALL_NEEDS_PROMPT,
+    CHOOSE_PLAN_OR_PUSH_PROMPT,
     VERIFY_AND_DECIDE_PROMPT,
 )
 
@@ -103,6 +105,25 @@ _VERIFY_AND_DECIDE_TOOL = {
         "name": "verify_and_decide",
         "description": "Return finalized graph-operation actions for this turn.",
         "parameters": _AGENT_ACTION_LIST_SCHEMA,
+    },
+}
+
+_PLAN_OR_PUSH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "next_step": {"type": "string", "enum": ["plan", "push"]},
+        "reason": {"type": "string"},
+    },
+    "required": ["next_step", "reason"],
+    "additionalProperties": False,
+}
+
+_CHOOSE_PLAN_OR_PUSH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "choose_plan_or_push",
+        "description": "Choose whether to continue planning or push validated actions.",
+        "parameters": _PLAN_OR_PUSH_SCHEMA,
     },
 }
 
@@ -305,6 +326,159 @@ class VerifyAndDecide(Action):
         actions = payload.get("actions", [])
 
         if not isinstance(actions, list):
-            raise ValueError("`verify_and_decide` tool arguments must include list `actions`.")
+            raise ValueError(
+                "`verify_and_decide` tool arguments must include list `actions`."
+            )
 
         return actions
+
+
+class ChoosePlanOrPush(Action):
+    """Route controller next step between plan and push."""
+
+    name: str = "ChoosePlanOrPush"
+
+    async def run(
+        self,
+        role_name: str,
+        worker_advice: str,
+        graph_context: str,
+        action_cache_context: str,
+        has_validated_plan: bool,
+        plan_attempt: int,
+        max_plan_attempts: int,
+        recent_errors: str = "",
+    ) -> Dict[str, Any]:
+        """Decide next step for controller loop."""
+        prompt = CHOOSE_PLAN_OR_PUSH_PROMPT.format(
+            role_name=role_name,
+            worker_advice=worker_advice,
+            graph_context=graph_context,
+            action_cache_context=action_cache_context,
+            has_validated_plan=has_validated_plan,
+            plan_attempt=plan_attempt,
+            max_plan_attempts=max_plan_attempts,
+            recent_errors=recent_errors or "（无）",
+        )
+
+        result = await self.llm.aask_tool_call(
+            prompt=prompt,
+            tools=[_CHOOSE_PLAN_OR_PUSH_TOOL],
+            tool_choice="choose_plan_or_push",
+            temperature=0.2,
+        )
+
+        payload = result.arguments
+        next_step = str(payload.get("next_step", "plan")).strip().lower()
+        reason = str(payload.get("reason", "")).strip()
+
+        if next_step not in {"plan", "push"}:
+            raise ValueError(
+                "`choose_plan_or_push` must return next_step in {plan,push}."
+            )
+
+        return {"next_step": next_step, "reason": reason}
+
+
+class PlanTool(Action):
+    """Plan tool: assess needs, synthesize worker advice, and validate JSON actions."""
+
+    name: str = "PlanTool"
+
+    async def assess_needs(
+        self, role_name: str, persona: object, graph_context: str
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """Run parallel requirement assessment for fact/law/recall."""
+        fact_task = AssessFactNeeds(llm=self.llm).run(role_name, persona, graph_context)
+        law_task = AssessLawNeeds(llm=self.llm).run(role_name, persona, graph_context)
+
+        recall_task = AssessRecallNeeds(llm=self.llm).run(
+            role_name, persona, graph_context
+        )
+
+        return await asyncio.gather(fact_task, law_task, recall_task)
+
+    async def build_actions(
+        self,
+        role_name: str,
+        worker_advice: str,
+        graph_context: str,
+        focus: str,
+        id_inventory: str,
+        feedback: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Generate candidate actions via strict tool-calling."""
+        return await VerifyAndDecide(llm=self.llm).run(
+            role_name=role_name,
+            worker_advice=worker_advice,
+            graph_context=graph_context,
+            focus=focus,
+            id_inventory=id_inventory,
+            feedback=feedback,
+        )
+
+    def validate_json_actions(
+        self, graph_tool: Any, raw_actions: List[Dict[str, Any]]
+    ) -> Tuple[bool, List[AgentAction], List[str]]:
+        """Validate JSON action payload with schema + static graph constraints."""
+        try:
+            parsed_actions = [AgentAction.model_validate(item) for item in raw_actions]
+
+        except Exception as exc:
+            return False, [], [f"Action Validation Failed: {exc}"]
+
+        is_valid, errors = graph_tool.validate_actions(parsed_actions)
+
+        if not is_valid:
+            return False, parsed_actions, list(errors)
+
+        return True, parsed_actions, []
+
+    async def run(
+        self,
+        role_name: str,
+        graph_tool: Any,
+        worker_advice: str,
+        graph_context: str,
+        focus: str,
+        id_inventory: str,
+        feedback: str = "",
+    ) -> Dict[str, Any]:
+        """Build and validate candidate actions for push stage."""
+        raw_actions = await self.build_actions(
+            role_name=role_name,
+            worker_advice=worker_advice,
+            graph_context=graph_context,
+            focus=focus,
+            id_inventory=id_inventory,
+            feedback=feedback,
+        )
+
+        validated, parsed_actions, errors = self.validate_json_actions(
+            graph_tool=graph_tool,
+            raw_actions=raw_actions,
+        )
+
+        return {
+            "validated": validated,
+            "raw_actions": raw_actions,
+            "parsed_actions": [
+                item.model_dump(exclude_none=True) for item in parsed_actions
+            ],
+            "validation_errors": errors,
+            "sandbox_actions": [
+                item.model_dump(exclude_none=True) for item in parsed_actions
+            ],
+        }
+
+
+class PushTool(Action):
+    """Push tool: apply validated actions to the debate graph."""
+
+    name: str = "PushTool"
+
+    async def run(
+        self, role_name: str, graph_tool: Any, actions: List[AgentAction]
+    ) -> str:
+        """Execute validated actions and return graph execution logs."""
+        return await graph_tool.apply_actions(agent_id=role_name, actions=actions)

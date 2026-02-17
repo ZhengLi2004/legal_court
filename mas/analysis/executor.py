@@ -303,13 +303,7 @@ class GraphExecutor:
                 during execution.
         """
         logs = []
-        validation_errors = []
-
-        for i, action in enumerate(actions_batch):
-            error = self._validate_action_static(action, i)
-
-            if error:
-                validation_errors.append(error)
+        validation_errors = self.validate_batch(actions_batch)
 
         if validation_errors:
             error_summary = "\n".join(validation_errors)
@@ -396,3 +390,22 @@ class GraphExecutor:
         except Exception as e:
             self.graph.graph = original_nx_graph
             raise ValueError(f"运行时执行错误 (已回滚): {str(e)}")
+
+    def validate_batch(self, actions_batch: List[AgentAction]) -> List[str]:
+        """Validate a batch of actions without mutating graph state.
+
+        Args:
+            actions_batch: Candidate actions to validate.
+
+        Returns:
+            A list of validation error messages. Empty means pass.
+        """
+        validation_errors: List[str] = []
+
+        for i, action in enumerate(actions_batch):
+            error = self._validate_action_static(action, i)
+
+            if error:
+                validation_errors.append(error)
+
+        return validation_errors

@@ -956,6 +956,23 @@ class SessionManager:
             )
 
             execution_logs = str(item.get("execution_logs", "")).strip()
+
+            action_cache = (
+                item.get("action_cache", [])
+                if isinstance(item.get("action_cache"), list)
+                else []
+            )
+
+            plan_attempts_used = self._as_non_negative_int(
+                item.get("plan_attempts_used"),
+                0,
+            )
+
+            push_attempts_used = self._as_non_negative_int(
+                item.get("push_attempts_used"),
+                0,
+            )
+
             decision_lines: List[str] = []
 
             if decision_raw:
@@ -980,6 +997,18 @@ class SessionManager:
 
                 if log_preview:
                     decision_lines.append(f"执行日志：{log_preview}")
+
+            if plan_attempts_used > 0 or push_attempts_used > 0:
+                decision_lines.append(
+                    f"Plan/PUSH 统计：plan={plan_attempts_used}, push={push_attempts_used}"
+                )
+
+            if action_cache:
+                latest_cache = action_cache[-1]
+                latest_text = self._stringify_compact(latest_cache)
+
+                if latest_text:
+                    decision_lines.append(f"最新动作 Cache：{latest_text}")
 
             has_decision = len(decision_lines) > 0
 

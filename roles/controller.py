@@ -8,7 +8,6 @@ their findings, and ultimately deciding on the concrete actions to take on the
 debate graph.
 """
 
-import asyncio
 import json
 import time
 from enum import Enum, auto
@@ -22,6 +21,9 @@ from actions.controller_actions import (
     AssessFactNeeds,
     AssessLawNeeds,
     AssessRecallNeeds,
+    ChoosePlanOrPush,
+    PlanTool,
+    PushTool,
     VerifyAndDecide,
 )
 from mas.core.schemas import (
@@ -42,7 +44,8 @@ class ControllerPipelineStep(Enum):
     IDLE = auto()
     ASSESS_NEEDS = auto()
     WAIT_FOR_WORKERS = auto()
-    DECIDE = auto()
+    PLAN = auto()
+    PUSH = auto()
     DONE = auto()
 
 
@@ -55,9 +58,9 @@ class ArgumentController(Role):
     2.  It dispatches instructions to the appropriate worker agents.
     3.  `WAIT_FOR_WORKERS`: It waits for the workers to return their findings.
     4.  It ingests the workers' reports into a consolidated summary.
-    5.  `DECIDE`: It uses this summary and the graph context to decide on a final
-        set of `AgentAction`s to modify the graph.
-    6.  It handles feedback from failed actions and can retry its decision.
+    5.  `PLAN`: It generates and validates a JSON action plan.
+    6.  `PUSH`: It executes actions only after plan validation passes.
+    7.  It handles feedback from failed actions and can retry planning.
 
     Attributes:
         persona: The BDI (Belief, Desire, Intention) persona of the agent.
@@ -96,7 +99,15 @@ class ArgumentController(Role):
         self.insights = insights
 
         self.set_actions(
-            [AssessFactNeeds, AssessLawNeeds, AssessRecallNeeds, VerifyAndDecide]
+            [
+                AssessFactNeeds,
+                AssessLawNeeds,
+                AssessRecallNeeds,
+                VerifyAndDecide,
+                ChoosePlanOrPush,
+                PlanTool,
+                PushTool,
+            ]
         )
 
         self.pipeline_step = ControllerPipelineStep.IDLE
@@ -110,6 +121,11 @@ class ArgumentController(Role):
         self.last_execution_log: str = ""
         self.last_batch_instructions: List[Dict[str, Any]] = []
         self.last_assessment: Dict[str, Dict[str, Any]] = {}
+        self.action_cache: List[Dict[str, Any]] = []
+        self.max_plan_attempts: int = 3
+        self.plan_attempt: int = 0
+        self.push_ready: bool = False
+        self._validated_actions_for_push: List[AgentAction] = []
 
     def reset_turn_state(self):
         """Reset the controller's state at the beginning of a new turn."""
@@ -124,14 +140,18 @@ class ArgumentController(Role):
         self.last_execution_log = ""
         self.last_batch_instructions = []
         self.last_assessment = {}
+        self.action_cache = []
+        self.plan_attempt = 0
+        self.push_ready = False
+        self._validated_actions_for_push = []
 
     def ingest_results(self, results_list: List[Dict[str, str]]):
         """Process and store the results from worker agents.
 
         This method is called by the `DebateTeam` after the parallel worker
         tasks have completed. It parses the reports, updates the internal
-        `investigation_buffer`, generates a summary, and advances the
-        pipeline to the `DECIDE` step.
+            `investigation_buffer`, generates a summary, and advances the
+            pipeline to the `PLAN` step.
 
         Args:
             results_list: A list of dictionaries, where each dictionary contains
@@ -180,8 +200,8 @@ class ArgumentController(Role):
 
         finally:
             self._generate_and_memorize_summary()
-            self.pipeline_step = ControllerPipelineStep.DECIDE
-            logger.info(f"[{self.name}] State transitioned to DECIDE.")
+            self.pipeline_step = ControllerPipelineStep.PLAN
+            logger.info(f"[{self.name}] State transitioned to PLAN.")
 
     async def _act(self) -> Message:
         """Execute the main logic for the controller, driven by a state machine.
@@ -227,21 +247,14 @@ class ArgumentController(Role):
                 if key not in self.investigation_buffer:
                     self.investigation_buffer[key] = "（未评估）"
 
-            fact_task = AssessFactNeeds(llm=self.llm).run(
-                self.name, self.persona, graph_context
-            )
-
-            law_task = AssessLawNeeds(llm=self.llm).run(
-                self.name, self.persona, graph_context
-            )
-
-            recall_task = AssessRecallNeeds(llm=self.llm).run(
-                self.name, self.persona, graph_context
-            )
+            plan_tool = PlanTool(llm=self.llm)
 
             try:
-                results = await asyncio.gather(fact_task, law_task, recall_task)
-                fact_payload, law_payload, recall_payload = results
+                (
+                    fact_payload,
+                    law_payload,
+                    recall_payload,
+                ) = await plan_tool.assess_needs(self.name, self.persona, graph_context)
 
             except ToolCallContractError as e:
                 detail = self._record_tool_call_error(stage="assess_needs", error=e)
@@ -356,11 +369,11 @@ class ArgumentController(Role):
 
             if not instructions:
                 logger.info(
-                    f"[{self.name}] No workers needed. Generating summary and jumping to DECIDE."
+                    f"[{self.name}] No workers needed. Generating summary and jumping to PLAN."
                 )
 
                 self._generate_and_memorize_summary()
-                self.pipeline_step = ControllerPipelineStep.DECIDE
+                self.pipeline_step = ControllerPipelineStep.PLAN
                 self.last_batch_instructions = []
 
                 return Message(
@@ -375,42 +388,118 @@ class ArgumentController(Role):
         elif self.pipeline_step == ControllerPipelineStep.WAIT_FOR_WORKERS:
             return Message(content="WAITING_FOR_PARALLEL_WORKERS", role=self.profile)
 
-        elif self.pipeline_step == ControllerPipelineStep.DECIDE:
-            logger.info(
-                f"[{self.name}] Finalizing Decision... (Error History: {len(self.recent_errors)})"
-            )
-
-            feedback_section = ""
-
-            if self.recent_errors:
-                error_log_str = "\n".join(self.recent_errors)
-
-                feedback_section = (
-                    f"【上一轮执行反馈】\n"
-                    f"请根据以下报错信息修正图谱操作函数参数（检查 ID 是否存在、类型是否匹配），并同步修正对应动作的 metadata.reason_brief：\n"
-                    f"{error_log_str}\n"
-                    f"请确保动作与理由一致。"
-                )
-
+        elif self.pipeline_step == ControllerPipelineStep.PLAN:
             current_advice = self.latest_summary or "（本轮无额外信息）"
-            action = VerifyAndDecide(llm=self.llm)
-            id_list_str = self.graph_tool.current_graph.get_simple_id_list()
+            route_reason = ""
+            route_step = "plan"
+            route_tool = ChoosePlanOrPush(llm=self.llm)
 
             try:
-                decision_payload = await action.run(
-                    self.name,
-                    current_advice,
-                    graph_context,
-                    self.persona.initial_strategy,
-                    feedback=feedback_section,
+                route_payload = await route_tool.run(
+                    role_name=self.name,
+                    worker_advice=current_advice,
+                    graph_context=graph_context,
+                    action_cache_context=self._build_action_cache_context(limit=5),
+                    has_validated_plan=(
+                        self.push_ready and bool(self._validated_actions_for_push)
+                    ),
+                    plan_attempt=self.plan_attempt,
+                    max_plan_attempts=self.max_plan_attempts,
+                    recent_errors=(
+                        "\n".join(self.recent_errors)
+                        if self.recent_errors
+                        else "（无）"
+                    ),
+                )
+                route_step = str(route_payload.get("next_step", "plan")).strip().lower()
+                route_reason = str(route_payload.get("reason", "")).strip()
+
+            except ToolCallContractError as e:
+                detail = self._record_tool_call_error(
+                    stage="route_plan_or_push", error=e
+                )
+
+                self.last_execution_log = detail
+
+                return Message(
+                    content="EXECUTION_FAILURE_RETRY: TOOL_CALL_ERROR",
+                    role=self.profile,
+                )
+
+            except ValueError as e:
+                route_step = "plan"
+                route_reason = f"Router payload invalid: {e}"
+                logger.warning(f"[{self.name}] {route_reason}")
+
+            if route_step == "push":
+                if self.push_ready and self._validated_actions_for_push:
+                    self.last_execution_log = f"ROUTED_TO_PUSH: {route_reason or '模型选择直接执行已验证动作。'}"
+                    self.pipeline_step = ControllerPipelineStep.PUSH
+
+                    return Message(
+                        content="EXECUTION_FAILURE_RETRY: ROUTED_TO_PUSH",
+                        role=self.profile,
+                    )
+
+                logger.info(
+                    f"[{self.name}] Router chose PUSH but no validated actions exist. Fallback to PLAN."
+                )
+
+                self.last_execution_log = (
+                    "ROUTED_TO_PUSH_BUT_NO_VALIDATED_PLAN: fallback to PLAN."
+                )
+
+            else:
+                self.last_execution_log = (
+                    f"ROUTED_TO_PLAN: {route_reason or '模型选择继续规划。'}"
+                )
+
+            if self.plan_attempt >= self.max_plan_attempts:
+                limit_msg = f"PLAN_RETRY_LIMIT_EXCEEDED: max_plan_attempts={self.max_plan_attempts}"
+                self.last_execution_log = limit_msg
+                self.pipeline_step = ControllerPipelineStep.DONE
+
+                return Message(
+                    content=f"Action Completed: {limit_msg}", role=self.profile
+                )
+
+            self.plan_attempt += 1
+
+            logger.info(
+                f"[{self.name}] Planning Actions... (Attempt {self.plan_attempt}/{self.max_plan_attempts})"
+            )
+
+            feedback_section = self._build_plan_feedback()
+            id_list_str = self.graph_tool.current_graph.get_simple_id_list()
+            plan_tool = PlanTool(llm=self.llm)
+
+            try:
+                plan_payload = await plan_tool.run(
+                    role_name=self.name,
+                    graph_tool=self.graph_tool,
+                    worker_advice=current_advice,
+                    graph_context=graph_context,
+                    focus=self.persona.initial_strategy,
                     id_inventory=id_list_str,
+                    feedback=feedback_section,
                 )
 
             except ToolCallContractError as e:
-                detail = self._record_tool_call_error(stage="decide", error=e)
+                detail = self._record_tool_call_error(stage="plan", error=e)
                 logger.warning(f"[{self.name}] Tool-call contract error: {detail}")
                 self.last_parsed_actions = []
                 self.last_execution_log = detail
+
+                self._append_action_cache(
+                    attempt=self.plan_attempt,
+                    stage="plan",
+                    status="validation_failed",
+                    decision_raw="",
+                    parsed_actions=[],
+                    validation_errors=[detail],
+                    push_error=None,
+                    sandbox_actions=[],
+                )
 
                 return Message(
                     content="EXECUTION_FAILURE_RETRY: TOOL_CALL_ERROR",
@@ -433,31 +522,77 @@ class ArgumentController(Role):
                         "ts_ms": int(time.time() * 1000),
                     }
                 )
+                self._append_action_cache(
+                    attempt=self.plan_attempt,
+                    stage="plan",
+                    status="validation_failed",
+                    decision_raw="",
+                    parsed_actions=[],
+                    validation_errors=[detailed_error],
+                    push_error=None,
+                    sandbox_actions=[],
+                )
 
                 return Message(
                     content="EXECUTION_FAILURE_RETRY: ACTION_PAYLOAD_ERROR",
                     role=self.profile,
                 )
 
-            self.last_decision_raw = json.dumps(decision_payload, ensure_ascii=False)
+            raw_actions = plan_payload.get("raw_actions", [])
+            parsed_actions_payload = plan_payload.get("parsed_actions", [])
+            sandbox_actions_payload = plan_payload.get("sandbox_actions", [])
+            validation_errors = plan_payload.get("validation_errors", [])
+            validated = bool(plan_payload.get("validated", False))
 
-            try:
-                parsed_actions = [
-                    AgentAction.model_validate(item) for item in decision_payload
-                ]
+            if not isinstance(raw_actions, list):
+                raw_actions = []
 
-            except Exception as e:
-                error_msg = f"Action Validation Failed: {e}"
-                logger.warning(f"[{self.name}] {error_msg}")
-                self.last_parsed_actions = []
-                self.last_execution_log = error_msg
+            if not isinstance(parsed_actions_payload, list):
+                parsed_actions_payload = []
+
+            if not isinstance(sandbox_actions_payload, list):
+                sandbox_actions_payload = []
+
+            if not isinstance(validation_errors, list):
+                validation_errors = [str(validation_errors)]
+
+            self.last_decision_raw = json.dumps(raw_actions, ensure_ascii=False)
+
+            self.last_parsed_actions = [
+                item for item in parsed_actions_payload if isinstance(item, dict)
+            ]
+
+            parsed_actions: List[AgentAction] = []
+
+            if validated:
+                try:
+                    parsed_actions = [
+                        AgentAction.model_validate(item)
+                        for item in sandbox_actions_payload
+                    ]
+
+                except Exception as e:
+                    validated = False
+                    validation_errors.append(f"Action Validation Failed: {e}")
+
+            if not validated:
+                error_text = "\n".join(
+                    [str(item) for item in validation_errors]
+                ).strip()
+
+                if not error_text:
+                    error_text = "Action Validation Failed: 未提供有效的校验错误详情。"
+
+                self.last_execution_log = error_text
 
                 detailed_error = (
-                    f"[参数校验错误]: {error_msg}\n"
+                    f"[参数校验错误]: {error_text}\n"
                     f"[你的原始输出]: \n{self.last_decision_raw}\n"
                 )
 
                 self.recent_errors = [detailed_error]
+                self.push_ready = False
+                self._validated_actions_for_push = []
 
                 self.error_history.append(
                     {
@@ -467,23 +602,108 @@ class ArgumentController(Role):
                     }
                 )
 
+                self._append_action_cache(
+                    attempt=self.plan_attempt,
+                    stage="plan",
+                    status="validation_failed",
+                    decision_raw=self.last_decision_raw,
+                    parsed_actions=self.last_parsed_actions,
+                    validation_errors=[str(item) for item in validation_errors],
+                    push_error=None,
+                    sandbox_actions=[
+                        item
+                        for item in sandbox_actions_payload
+                        if isinstance(item, dict)
+                    ],
+                )
+
+                if self.plan_attempt >= self.max_plan_attempts:
+                    limit_msg = "PLAN_RETRY_LIMIT_EXCEEDED: validation failed after max attempts."
+                    self.pipeline_step = ControllerPipelineStep.DONE
+
+                    return Message(
+                        content=f"Action Completed: {limit_msg}",
+                        role=self.profile,
+                    )
+
+                self.pipeline_step = ControllerPipelineStep.PLAN
+
                 return Message(
                     content="EXECUTION_FAILURE_RETRY: ACTION_VALIDATION_ERROR",
                     role=self.profile,
                 )
 
-            self.last_parsed_actions = [
-                item.model_dump(exclude_none=True) for item in parsed_actions
-            ]
+            self.push_ready = True
+            self._validated_actions_for_push = parsed_actions
+            self.pipeline_step = ControllerPipelineStep.PLAN
+            self.last_execution_log = f"PLAN_VALIDATED: attempt={self.plan_attempt}"
 
-            exec_msg = await self.graph_tool.process_intent(self.name, parsed_actions)
+            self._append_action_cache(
+                attempt=self.plan_attempt,
+                stage="plan",
+                status="validated",
+                decision_raw=self.last_decision_raw,
+                parsed_actions=self.last_parsed_actions,
+                validation_errors=[],
+                push_error=None,
+                sandbox_actions=[
+                    item.model_dump(exclude_none=True) for item in parsed_actions
+                ],
+            )
+
+            return Message(
+                content="EXECUTION_FAILURE_RETRY: PLAN_VALIDATED",
+                role=self.profile,
+            )
+
+        elif self.pipeline_step == ControllerPipelineStep.PUSH:
+            if not self.push_ready or not self._validated_actions_for_push:
+                detail = "Push blocked: validation gate did not pass."
+                self.recent_errors = [detail]
+                self.last_execution_log = detail
+
+                self.error_history.append(
+                    {
+                        "kind": "push_permission_denied",
+                        "detail": detail,
+                        "ts_ms": int(time.time() * 1000),
+                    }
+                )
+
+                self._append_action_cache(
+                    attempt=self.plan_attempt,
+                    stage="push",
+                    status="push_failed",
+                    decision_raw=self.last_decision_raw,
+                    parsed_actions=self.last_parsed_actions,
+                    validation_errors=[],
+                    push_error=detail,
+                    sandbox_actions=[
+                        item.model_dump(exclude_none=True)
+                        for item in self._validated_actions_for_push
+                    ],
+                )
+
+                self.pipeline_step = ControllerPipelineStep.PLAN
+
+                return Message(
+                    content="EXECUTION_FAILURE_RETRY: PUSH_PERMISSION_DENIED",
+                    role=self.profile,
+                )
+
+            push_tool = PushTool(llm=self.llm)
+
+            exec_msg = await push_tool.run(
+                role_name=self.name,
+                graph_tool=self.graph_tool,
+                actions=self._validated_actions_for_push,
+            )
+
             self.last_execution_log = exec_msg
 
             if "REJECT" in exec_msg or "Error" in exec_msg:
                 logger.warning(f"[{self.name}] Action Execution Failed: {exec_msg}")
-
                 detailed_error = f"[系统报错]: {exec_msg}\n[你的原始输出]: \n{self.last_decision_raw}\n"
-
                 self.recent_errors = [detailed_error]
 
                 self.error_history.append(
@@ -494,13 +714,58 @@ class ArgumentController(Role):
                     }
                 )
 
+                self._append_action_cache(
+                    attempt=self.plan_attempt,
+                    stage="push",
+                    status="push_failed",
+                    decision_raw=self.last_decision_raw,
+                    parsed_actions=self.last_parsed_actions,
+                    validation_errors=[],
+                    push_error=exec_msg,
+                    sandbox_actions=[
+                        item.model_dump(exclude_none=True)
+                        for item in self._validated_actions_for_push
+                    ],
+                )
+
+                self.push_ready = False
+                self._validated_actions_for_push = []
+
+                if self.plan_attempt >= self.max_plan_attempts:
+                    limit_msg = "PLAN_RETRY_LIMIT_EXCEEDED: push failed after max plan attempts."
+                    self.pipeline_step = ControllerPipelineStep.DONE
+
+                    return Message(
+                        content=f"Action Completed: {limit_msg}",
+                        role=self.profile,
+                    )
+
+                self.pipeline_step = ControllerPipelineStep.PLAN
+
                 return Message(
                     content=f"EXECUTION_FAILURE_RETRY: {exec_msg[:50]}...",
                     role=self.profile,
                 )
 
-            self.last_executed_actions = parsed_actions
+            self.last_executed_actions = list(self._validated_actions_for_push)
+
+            self._append_action_cache(
+                attempt=self.plan_attempt,
+                stage="push",
+                status="pushed",
+                decision_raw=self.last_decision_raw,
+                parsed_actions=self.last_parsed_actions,
+                validation_errors=[],
+                push_error=None,
+                sandbox_actions=[
+                    item.model_dump(exclude_none=True)
+                    for item in self.last_executed_actions
+                ],
+            )
+
             self.pipeline_step = ControllerPipelineStep.DONE
+            self.push_ready = False
+            self._validated_actions_for_push = []
             return Message(content=f"Action Completed: {exec_msg}", role=self.profile)
 
         elif self.pipeline_step == ControllerPipelineStep.DONE:
@@ -591,6 +856,68 @@ class ArgumentController(Role):
         )
 
         return detail
+
+    def _build_plan_feedback(self) -> str:
+        """Build retry feedback text from recent errors and action cache."""
+        blocks: List[str] = []
+
+        if self.recent_errors:
+            blocks.append(
+                "【上一轮执行反馈】\n"
+                "请根据以下报错信息修正图谱操作函数参数（检查 ID 是否存在、类型是否匹配），"
+                "并同步修正对应动作的 metadata.reason_brief：\n"
+                + "\n".join(self.recent_errors)
+            )
+
+        if self.action_cache:
+            latest_cache = self.action_cache[-3:]
+
+            blocks.append(
+                "【动作 Cache（最近3条）】\n"
+                + json.dumps(latest_cache, ensure_ascii=False, indent=2)
+            )
+
+        return "\n\n".join(blocks)
+
+    def _build_action_cache_context(self, limit: int = 5) -> str:
+        """Build compact JSON context from recent action-cache records."""
+        if not self.action_cache:
+            return "[]"
+
+        safe_limit = max(1, int(limit))
+        recent = self.action_cache[-safe_limit:]
+        return json.dumps(recent, ensure_ascii=False, indent=2)
+
+    def _append_action_cache(
+        self,
+        *,
+        attempt: int,
+        stage: str,
+        status: str,
+        decision_raw: str,
+        parsed_actions: List[Dict[str, Any]],
+        validation_errors: List[str],
+        push_error: str | None,
+        sandbox_actions: List[Dict[str, Any]],
+    ):
+        """Append one action cache record for plan/push stage."""
+        self.action_cache.append(
+            {
+                "attempt": int(attempt),
+                "stage": str(stage),
+                "status": str(status),
+                "decision_raw": str(decision_raw or ""),
+                "parsed_actions": [
+                    dict(item) for item in parsed_actions if isinstance(item, dict)
+                ],
+                "validation_errors": [str(item) for item in validation_errors],
+                "push_error": None if push_error is None else str(push_error),
+                "sandbox_actions": [
+                    dict(item) for item in sandbox_actions if isinstance(item, dict)
+                ],
+                "ts_ms": int(time.time() * 1000),
+            }
+        )
 
     def _truncate(self, text: str, length: int) -> str:
         """Truncate a string to a maximum length, adding an ellipsis."""

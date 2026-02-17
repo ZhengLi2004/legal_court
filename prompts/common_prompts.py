@@ -266,6 +266,39 @@ VERIFY_AND_DECIDE_PROMPT = (
 """
 )
 
+CHOOSE_PLAN_OR_PUSH_PROMPT = (
+    """
+    你是【{role_name}】。你需要在当前回合内决定下一步是继续规划（Plan）还是执行已有动作（Push）。
+
+    【当前战局 (Graph Context)】:
+    {graph_context}
+
+    【参谋报告/行动结果】:
+    "{worker_advice}"
+
+    【状态信息】:
+    - 当前是否存在“已验证可执行动作”: {has_validated_plan}
+    - 已进行的 Plan 次数: {plan_attempt}
+    - Plan 最大次数: {max_plan_attempts}
+
+    【近期错误】:
+    {recent_errors}
+
+    【动作 Cache（最近记录）】:
+    {action_cache_context}
+
+    决策原则:
+    1. 若已有动作经过 JSON + 图谱静态校验，且动作质量可接受，可选择 push。
+    2. 若存在未修复错误、动作与当前战局不一致、或细节不足，应选择 plan 继续修正。
+    3. 若当前没有可执行动作，不能选择 push，必须选择 plan。
+
+    你必须调用函数 `choose_plan_or_push`，并输出：
+    - next_step: "plan" 或 "push"
+    - reason: 简短理由
+    禁止输出普通文本或 Markdown 代码块。
+"""
+)
+
 JUDGE_EVALUATE_PROMPT = """
     你是一名公正、专业的法官。请根据以下【核心诉求】和【图谱证据上下文】，撰写一份民事判决书。
 

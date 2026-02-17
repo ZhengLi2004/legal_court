@@ -235,8 +235,26 @@ class DebateTeam:
                 break
 
             if "EXECUTION_FAILURE_RETRY" in content:
-                logger.warning(f"[{self.side}] Action failed. Controller will retry.")
-                self._notify_state_change("retry", {"reason": "execution_failure"})
+                if any(
+                    marker in content
+                    for marker in [
+                        "PLAN_READY_FOR_PUSH",
+                        "PLAN_VALIDATED",
+                        "ROUTED_TO_PUSH",
+                    ]
+                ):
+                    logger.info(
+                        f"[{self.side}] Controller routing/plan update received: {content}"
+                    )
+
+                    self._notify_state_change("plan_progress", {"content": content})
+
+                else:
+                    logger.warning(
+                        f"[{self.side}] Action failed. Controller will retry."
+                    )
+                    self._notify_state_change("retry", {"reason": "execution_failure"})
+
                 continue
 
             parsed_payload = None
@@ -391,6 +409,15 @@ class DebateTeam:
             "execution_log": self.controller.last_execution_log,
             "retry_history": list(
                 getattr(self.controller, "error_history", [])[error_history_start:]
+            ),
+            "action_cache": list(getattr(self.controller, "action_cache", [])),
+            "plan_attempts_used": int(getattr(self.controller, "plan_attempt", 0)),
+            "push_attempts_used": len(
+                [
+                    row
+                    for row in getattr(self.controller, "action_cache", [])
+                    if isinstance(row, dict) and row.get("stage") == "push"
+                ]
             ),
             "narrative_raw_sentences": [
                 str(item.content) for item in self.controller.last_executed_actions
