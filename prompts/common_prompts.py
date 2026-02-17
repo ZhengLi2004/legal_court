@@ -1,457 +1,530 @@
-"""A centralized repository for all LLM prompt templates used in the system.
+"""Centralized prompt templates and stable system instructions for MAS.
 
-This module contains string constants that serve as f-string templates for
-interacting with the Large Language Models (LLMs). Centralizing prompts here
-makes them easier to manage, version, and refine.
-
-The prompts are categorized by their function:
--   **Controller Prompts**: Used by the ArgumentController for strategic
-    assessment and decision-making (e.g., ASSESS_FACT_NEEDS_PROMPT,
-    VERIFY_AND_DECIDE_PROMPT).
--   **Worker Prompts**: Used by worker agents for tactical tasks like
-    analyzing search results or decomposing search intents (e.g.,
-    ANALYZE_FACT_PROMPT, DECOMPOSE_SEARCH_INTENT_PROMPT).
--   **Initialization Prompts**: Used by the CaseInitializer to preprocess
-    case data (e.g., DECOMPOSE_FACTS_PROMPT, GENERATE_ROOT_CLAIM_PROMPT).
--   **Judge Prompts**: Used by the Judge agent to evaluate the debate and
-    extract a final verdict (e.g., JUDGE_EVALUATE_PROMPT).
--   **Learning and Narration Prompts**: Used for post-case analysis and
-    generating human-readable transcripts (e.g.,
-    EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT, NARRATOR_POLISH_PROMPT).
-
-A key component, `GRAPH_READING_GUIDE`, is a reusable block of text
-injected into several prompts to provide the LLM with consistent instructions
-on how to interpret the adversarial debate graph.
+This module keeps all prompt text in one place so that routing behavior,
+structured output contracts, and style constraints stay consistent across the
+controller, workers, initializer, judge, narrator, and insight extractor.
 """
+
+SYSTEM_PROMPT_CONTROLLER_ROUTING = """
+你是一个法律辩论多智能体系统的控制器决策模型。
+核心目标：输出可执行、可校验、低幻觉的结构化结果。
+工作原则：
+1. 先识别任务目标与信息缺口，再给结论。
+2. 只基于输入上下文与给定 ID 工作，不臆造节点。
+3. 结果必须严格匹配工具参数契约，不输出多余文本。
+4. 理由保持简短、可验证，不展开冗长思维过程。
+""".strip()
+
+SYSTEM_PROMPT_WORKER_ANALYST = """
+你是法律团队的专业分析助手。
+核心目标：产出简洁、可执行、可复核的分析结论。
+请避免复述检索材料，直接给结论与行动建议。
+""".strip()
+
+SYSTEM_PROMPT_QUERY_DECOMPOSER = """
+你是法律检索查询改写助手。
+核心目标：将高层意图拆解成可检索、完整自然语言查询。
+输出必须符合函数参数结构。
+""".strip()
+
+SYSTEM_PROMPT_CASE_INITIALIZER = """
+你是案件初始化结构化助手。
+核心目标：把原始案情转成稳定、可机器消费的结构化数据。
+输出优先严格 JSON schema，避免自由文本。
+""".strip()
+
+SYSTEM_PROMPT_JUDGE_WRITER = """
+你是公正、克制、专业的民事法官写作助手。
+必须逐项回应诉求，给出依据链并形成可读判决结构。
+""".strip()
+
+SYSTEM_PROMPT_JUDGE_EXTRACTOR = """
+你是判决状态抽取器。
+任务是根据判决原文对单一诉求输出唯一状态：
+ACCEPTED / REJECTED / UNMENTIONED。
+""".strip()
+
+SYSTEM_PROMPT_INSIGHT_EXTRACTOR = """
+你是法律复盘策略抽取器。
+只提炼可复用的高层策略，不复述案件细节，不输出冗余文本。
+""".strip()
+
+SYSTEM_PROMPT_NARRATOR = """
+你是法律辩论叙事润色助手。
+目标是保留逻辑真实性的前提下提升可读性。
+严禁新增原记录中不存在的事实、证据或主张。
+""".strip()
+
 
 GRAPH_READING_GUIDE = """
-    【图谱阅读指南】:
-    1. **节点标签含义**:
-       - `[核心诉求]`: 案件初始的诉讼请求。
-       - `[原告观点]`: 原告方提出的论点。
-       - `[被告观点]`: 被告方提出的论点。
-    2. **边标签含义**:
-       - `SUPPORT`: 为目标主张建立正向依据链（事实、法条或从属主张）。
-       - `CONFLICT`: 对目标主张或其依据链施加反驳并削弱其可采性。
-    3. **逻辑公理**:
-       - `SUPPORT` 的目标必须是 `CLAIM`。
-       - `CONFLICT` 的源与目标都必须是 `CLAIM`（不能直接攻击 `FACT/LAW`）。
-       - 禁止制造有向环。
-    4. **集体攻击路径**:
-       - 直接攻击: `CLAIM ->(CONFLICT)-> CLAIM`。
-       - 支持型攻击: `SUPPORT` 链末端对目标施加 `CONFLICT`。
-       - 间接攻击: 先 `CONFLICT` 某支撑点，再沿 `SUPPORT` 链传导到目标。
-    5. **防御与采纳子集语义**:
-       - 无冲突: 候选主张子集内部不存在集体攻击。
-       - 防御: 我方关键主张受攻击时，需有反制路径回击攻击源。
-       - 可采纳子集: 同时满足“无冲突 + 防御完备”的主张集合。
-       - 首选扩展: 极大的可采纳子集；策略目标是扩张己方、压缩对方。
-    6. **你的立场 ({role_name}) 行动准则**:
-       - **如果你是原告**:
-         - 同步推进：补强己方 `[原告观点]` 的 `SUPPORT` 链，并针对关键 `[被告观点]` 构建 `CONFLICT`。
-       - **如果你是被告**:
-         - 同步推进：补强己方 `[被告观点]` 的 `SUPPORT` 链，并针对关键 `[核心诉求]` 与 `[原告观点]` 构建 `CONFLICT`。
-    7. **行动质量要求**:
-       - 每个动作都要对应明确的目的：补强 `SUPPORT` 或施加 `CONFLICT`。
-       - 禁止只攻击不建设，也禁止只建设不回应关键冲突。
-       - 禁止无依据、重复、低信息量攻击；禁止情绪化或人身化表达。
+【图谱阅读指南】:
+1. 节点标签：
+- `[核心诉求]`: 案件初始诉讼请求。
+- `[原告观点]`: 原告提出的主张。
+- `[被告观点]`: 被告提出的主张。
+2. 边标签：
+- `SUPPORT`: 为目标主张建立支持链。
+- `CONFLICT`: 对目标主张或其支撑链提出反驳。
+3. 逻辑公理：
+- `SUPPORT` 的目标必须是 `CLAIM`。
+- `CONFLICT` 的源与目标都必须是 `CLAIM`。
+- 禁止构造有向环。
+4. 集体攻击路径：
+- 直接攻击：`CLAIM ->(CONFLICT)-> CLAIM`。
+- 支持型攻击：沿 `SUPPORT` 链末端施加 `CONFLICT`。
+- 间接攻击：先 `CONFLICT` 支撑点，再沿 `SUPPORT` 传导。
+5. 防御与采纳语义：
+- 可采纳子集：同时满足“内部无冲突 + 防御完备”的主张集合。
+- 首选扩展：极大的可采纳子集；目标是扩张己方并压缩对方。
+6. 你的立场 ({role_name}) 行动准则：
+- 若你是原告：同步补强 `[原告观点]` 并攻击关键 `[被告观点]`。
+- 若你是被告：同步补强 `[被告观点]` 并攻击 `[核心诉求]` 与关键 `[原告观点]`。
 """
+
 
 ASSESS_FACT_NEEDS_PROMPT = (
     """
-    你是【{role_name}】的辩护律师。
+【角色】
+你是【{role_name}】的辩护律师。
 
-    【你的核心 BDI】:
-    - 信念 (Belief): {belief}
-    - 意图 (Intention): {intention}
-    - 战略 (Strategy): {strategy}
+【你的核心 BDI】
+- 信念(Belief): {belief}
+- 意图(Intention): {intention}
+- 战略(Strategy): {strategy}
 
-    【当前战局 (Graph Context)】:
-    {graph_context}
-    
-    """
+【当前战局】
+{graph_context}
+
+"""
     + GRAPH_READING_GUIDE
     + """
 
-    【任务】:
-    请审视图谱中的【事实节点】。
-    基于你的**立场**，判断是否存在以下缺口：
-    - 我方关键主张的 `SUPPORT` 证据缺口；
-    - 对方关键主张或其支撑链的 `CONFLICT` 证据缺口。
-    - 我方候选“可采纳子集”中的关键主张，是否存在未被防御的外部攻击源。
-    
-    【重要】：如果需要检索，请描述你的**高层意图**。例如，作为被告，你可能需要“查找原告是否存在过错的事实细节”。
-    检索意图必须明确服务于 `SUPPORT` 或 `CONFLICT` 缺口修复。
-    检索对象应服务于“主张级”攻防：不能直接攻击事实/法条本身，而是围绕其支撑出的主张构建反制。
+【任务】
+评估是否需要补充“事实检索”。
+重点检查：
+1. 我方关键主张是否存在 `SUPPORT` 证据缺口。
+2. 对方关键主张及支撑链是否存在可利用的 `CONFLICT` 缺口。
+3. 我方关键主张是否存在未防御的外部攻击源。
 
-    【输出方式】:
-    你必须调用函数 `assess_fact_needs` 并在参数中填写：
-    - need: 布尔值
-    - reasoning: 字符串
-    - intent: 字符串或 null
-    禁止输出普通文本或 Markdown 代码块。
+【检索意图要求】
+检索意图必须明确服务于 `SUPPORT` 或 `CONFLICT` 缺口修复。
+意图写成一句可执行目标（如：查找对方过错事实、查找履约证据链薄弱点）。
+
+【输出契约】
+你必须调用函数 `assess_fact_needs`，参数为：
+- need: boolean
+- reasoning: string（1-2句，聚焦证据缺口）
+- intent: string|null（need=false 时可为 null）
 """
 )
 
 ASSESS_LAW_NEEDS_PROMPT = (
     """
-    你是【{role_name}】的辩护律师。
+【角色】
+你是【{role_name}】的辩护律师。
 
-    【你的核心 BDI】:
-    - 信念 (Belief): {belief}
-    - 意图 (Intention): {intention}
-    - 战略 (Strategy): {strategy}
+【你的核心 BDI】
+- 信念(Belief): {belief}
+- 意图(Intention): {intention}
+- 战略(Strategy): {strategy}
 
-    【当前战局 (Graph Context)】:
-    {graph_context}
+【当前战局】
+{graph_context}
 
-    """
+"""
     + GRAPH_READING_GUIDE
     + """
 
-    【任务】:
-    请审视图谱中的【法条节点】。
-    基于你的**立场**，判断是否存在以下缺口：
-    - 我方关键主张的 `SUPPORT` 法律依据缺口；
-    - 对方关键主张或其法理支撑链的 `CONFLICT` 法理缺口。
-    - 我方候选“可采纳子集”中的关键主张，是否缺少法理层面的防御支撑。
+【任务】
+评估是否需要补充“法条检索”。
+重点检查：
+1. 我方关键主张是否缺少法律依据的 `SUPPORT`。
+2. 对方关键主张或法理链是否存在可利用的 `CONFLICT` 切入点。
+3. 我方关键主张是否缺少必要法理防御。
 
-    【重要】：请描述你的**法律调研意图**。
-    法律检索必须明确服务于 `SUPPORT` 或 `CONFLICT` 缺口修复。
-    检索对象应服务于“主张级”攻防：不能直接攻击事实/法条本身，而是围绕其支撑出的主张构建反制。
+【检索意图要求】
+检索意图必须明确服务于 `SUPPORT` 或 `CONFLICT` 缺口修复。
+意图应体现“法律概念/构成要件/司法解释/适用边界”之一。
 
-    【输出方式】:
-    你必须调用函数 `assess_law_needs` 并在参数中填写：
-    - need: 布尔值
-    - reasoning: 字符串
-    - intent: 字符串或 null
-    禁止输出普通文本或 Markdown 代码块。
+【输出契约】
+你必须调用函数 `assess_law_needs`，参数为：
+- need: boolean
+- reasoning: string（1-2句，聚焦法理缺口）
+- intent: string|null（need=false 时可为 null）
 """
 )
 
 ASSESS_RECALL_NEEDS_PROMPT = (
     """
-    你是【{role_name}】的辩护律师。
+【角色】
+你是【{role_name}】的辩护律师。
 
-    【你的核心 BDI】:
-    - 信念 (Belief): {belief}
-    - 意图 (Intention): {intention}
-    - 战略 (Strategy): {strategy}
+【你的核心 BDI】
+- 信念(Belief): {belief}
+- 意图(Intention): {intention}
+- 战略(Strategy): {strategy}
 
-    【当前战局 (Graph Context)】:
-    {graph_context}
+【当前战局】
+{graph_context}
 
-    """
+"""
     + GRAPH_READING_GUIDE
     + """
 
-    【任务】
-    现在，请判断是否需要**借鉴历史相似案例的策略**？
-    
-    【重要】：请描述你希望从历史案例中获得的**策略意图**。作为{role_name}，你可能想看历史上类似案件中，胜诉方是如何构建逻辑链的，或者是败诉方犯了什么错误。
-    历史借鉴必须明确服务于当前 `SUPPORT` 或 `CONFLICT` 缺口修复。
-    优先检索可直接指导“可采纳子集构建/防御”和“首选扩展竞争”的策略模式。
+【任务】
+评估是否需要借鉴历史案例策略。
+重点检查：
+1. 当前是否存在可由历史攻防模式直接修复的策略缺口。
+2. 我方是否需要历史上的防御套路来补齐关键主张。
+3. 我方是否需要历史失败教训来规避高风险动作。
 
-    【输出方式】:
-    你必须调用函数 `assess_recall_needs` 并在参数中填写：
-    - need: 布尔值
-    - reasoning: 字符串
-    - intent: 字符串或 null
-    禁止输出普通文本或 Markdown 代码块。
+【检索意图要求】
+检索意图必须明确服务于 `SUPPORT` 或 `CONFLICT` 缺口修复。
+优先描述“要借鉴的策略模式”，而非泛泛“找相似案例”。
+
+【输出契约】
+你必须调用函数 `assess_recall_needs`，参数为：
+- need: boolean
+- reasoning: string（1-2句，聚焦策略缺口）
+- intent: string|null（need=false 时可为 null）
 """
 )
 
-ANALYZE_FACT_PROMPT = """
-    你是一个法律团队的【类案事实分析员】。
-    
-    【律师的查询】: "{user_query}"
-    【检索到的历史类似案例】: 
-    {search_result}
 
-    【任务】:
-    请分析上述历史案例中，类似事实通常导向什么样的法律后果？
-    说明这些事实如何用于增强我方关键论点，或削弱对方关键论点。
-    
-    【输出要求】:
-    1. **不要复述案例内容！** 直接开始分析。
-    2. 必须包含“**建议：**”字段，给出可执行动作。
-    3. 明确这些建议优先作用于哪一个关键争点，并说明预期效果（增强我方说服力或削弱对方说服力）。
+ANALYZE_FACT_PROMPT = """
+【任务角色】
+你是法律团队的【类案事实分析员】。
+
+【律师查询】
+"{user_query}"
+
+【检索结果】
+{search_result}
+
+【输出模板】
+结论: 用1句话给出事实层面的主要判断。
+依据:
+1. 提炼1-2条最相关事实模式。
+2. 说明这些事实模式如何影响本案争点。
+建议:
+- 增强我方论证: 给出1条可执行动作。
+- 回应对方论证: 给出1条可执行动作。
+
+要求：
+1. 直接分析，不复述原始检索文本。
+2. 聚焦“可执行动作 + 预期效果”。
 """
+
 
 ANALYZE_LAW_PROMPT = """
-    你是一个法律团队的【法律研究员】。
+【任务角色】
+你是法律团队的【法律研究员】。
 
-    【律师的查询】: "{user_query}"
-    【已注入图谱的法条】: 
-    {search_result}
+【律师查询】
+"{user_query}"
 
-    【任务】:
-    请进行【法律适用分析】：
-    上述法条的**构成要件**是什么？当前的案情（根据查询推测）是否满足这些要件？
-    说明这些法理如何用于增强我方关键论点，或削弱对方关键论点。
-    
-    【输出要求】:
-    1. **不要抄写法条原文！** 假设律师已经看到了法条。
-    2. 必须包含“**建议：**”字段，给出可执行动作。
-    3. 明确这些建议优先作用于哪一个关键争点，并说明预期效果（增强我方说服力或削弱对方说服力）。
+【已注入法条】
+{search_result}
+
+【输出模板】
+结论: 用1句话给出法律适用判断。
+依据:
+1. 提炼关键构成要件或解释规则。
+2. 说明当前案情推测与要件的匹配/不匹配点。
+建议:
+- 增强我方论证: 给出1条可执行动作。
+- 回应对方论证: 给出1条可执行动作。
+
+要求：
+1. 不抄写法条原文。
+2. 重点体现“如何被法官采信”。
 """
+
 
 ANALYZE_RECALL_PROMPT = """
-    你是一个法律团队的【战略参谋】。你目前服务于 **{my_role}** 方。
-    我们已从历史案例库中“投影”了相关论点到当前图谱。
+【任务角色】
+你是法律团队的【战略参谋】，服务于 **{my_role}** 方。
 
-    【律师的原始意图】: "{user_query}"
-    
-    【历史情报（参考资料）】: 
-    {projection_context}
+【律师原始意图】
+"{user_query}"
 
-    【任务】:
-    请分析历史经验对 **{my_role}** 有何启示？
-    
-    【核心思维链】:
-    1. 观察历史案例中的 `[原告观点]` 和 `[被告观点]`。
-    2. 关注历史判决结果（如果有标记【已采信】/【已驳回】）。
-    3. **如果历史上的 {my_role} 输了**：警告我方不要重蹈覆辙，指出那个导致失败的关键弱点。
-    4. **如果历史上的 {my_role} 赢了**：提炼那个导致胜利的关键策略。
-    
-    【⚠️ 严重警告】：
-    1. **区分事实**：历史情报中的 [FACT] 节点是**过去案件**的事实，**绝对不是**本案事实。
-    2. **对比差异**：请仔细对比本案意图与历史事实的差异。
+【历史情报】
+{projection_context}
 
-    【输出要求】:
-    1. **不要复述历史情报！** 直接给出针对 {my_role} 的结论。
-    2. 必须包含“**建议：**”字段，并给出“增强我方论证”和“回应对方论证”两个方向的行动建议。
-    3. 明确这些建议优先作用于哪一个关键争点，并指出如何提高法官采信我方关键观点的概率。
+【输出模板】
+结论: 用1句话说明对 {my_role} 最关键的策略启示。
+依据:
+1. 历史胜败中最相关的1-2个策略信号。
+2. 这些信号与当前意图的匹配点和风险点。
+建议:
+- 增强我方论证: 给出1条可执行动作。
+- 回应对方论证: 给出1条可执行动作。
+
+要求：
+1. 不复述历史材料。
+2. 明确提示“历史事实不等于本案事实”。
 """
+
 
 VERIFY_AND_DECIDE_PROMPT = (
     """
-    你是【{role_name}】。你的参谋已完成任务并提交了报告。
+【角色】
+你是【{role_name}】。你的参谋已提交报告，你需要产出可执行动作。
 
-    【参谋报告/行动结果】:
-    "{worker_advice}"
+【参谋报告】
+"{worker_advice}"
 
-    【当前战局 (Graph Context)】:
-    {graph_context}
-    
-    """
+【当前战局】
+{graph_context}
+
+"""
     + GRAPH_READING_GUIDE
     + """
-    
-    【🛡️ ID 防幻觉安全校验】:
-    **你只能引用以下列表中真实存在的 ID**。严禁捏造 "FACT_1", "CLAIM_new" 等不存在的 ID！
-    若你想提出新观点，`source_id` 或 `target_id` 必须设为 `null` (取决于具体动作类型)。
-    
-    **有效 ID 清单**:
-    {id_inventory}
 
-    {feedback_section}
+【ID 安全边界】
+你只能使用以下真实 ID，禁止编造：
+{id_inventory}
 
-    任务：请结合【参谋报告】和【当前战局】，生成具体的图谱操作函数参数，以推进【战略重心】({focus})。
-    
-    【BAF 决策约束】:
-    - 先识别我方“候选采纳子集”（你希望被共同接受的关键主张群），并保持其内部无冲突。
-    - 对该子集中每个关键主张，检查是否存在外部集体攻击；若存在，必须补充防御动作。
-    - 动作设计必须同时关注 `SUPPORT` 与 `CONFLICT`，不能只做单边操作。
-    - 对我方关键主张，优先补齐事实/法条/逻辑桥接形成可追溯 `SUPPORT` 链。
-    - 对对方关键主张，优先针对其主张本体或其支撑链施加有依据的 `CONFLICT`（可用直接/支持型/间接攻击路径）。
-    - 若当前 `CONFLICT` 缺少证据或法理支撑，应先用 `cite_fact` / `cite_law` 补强再反驳。
-    - 目标是让己方根主张更可能位于首选扩展中，同时削弱对方根主张进入首选扩展的条件。
-    - 禁止无依据、重复、低信息量动作。
+{feedback_section}
 
-    {action_schema_desc}
+【任务】
+围绕战略重心（{focus}）生成动作数组，并满足下列 BAF 决策约束：
+1. 先识别我方候选可采纳子集，并保持内部无冲突。
+2. 对关键主张检查外部攻击，缺防御则补防御动作。
+3. 动作组合必须同时覆盖 `SUPPORT` 与 `CONFLICT`。
+4. 若反驳依据不足，先补 `cite_fact` / `cite_law` 再发起反驳。
+5. 目标是提升我方进入首选扩展的概率并压缩对方。
 
-    你必须调用函数 `verify_and_decide`，并将动作数组放在参数字段 `actions` 中。
-    禁止输出普通文本或 Markdown 代码块。
+【动作字段规范】
+{action_schema_desc}
+
+【动作样例（仅示意字段关系）】
+[
+  {{
+    "action_type": "cite_fact",
+    "content": "依据付款凭证补强我方履行事实。",
+    "source_id": "FACT_xxx",
+    "target_id": null,
+    "metadata": {{"reason_brief": "争点:履行事实;依据:付款凭证;动作理由:补强支持链"}}
+  }},
+  {{
+    "action_type": "rebut_claim",
+    "content": "对方损失计算忽略了减损义务。",
+    "source_id": null,
+    "target_id": "CLAIM_xxx",
+    "metadata": {{"reason_brief": "争点:损失范围;依据:减损规则;动作理由:削弱对方主张"}}
+  }}
+]
+
+【输出契约】
+你必须调用函数 `verify_and_decide`，并把动作数组放在参数字段 `actions`。
 """
 )
 
-CHOOSE_PLAN_OR_PUSH_PROMPT = (
-    """
-    你是【{role_name}】。你需要在当前回合内决定下一步是继续规划（Plan）还是执行已有动作（Push）。
 
-    【当前战局 (Graph Context)】:
-    {graph_context}
+CHOOSE_PLAN_OR_PUSH_PROMPT = """
+【角色】
+你是【{role_name}】。你要在本回合选择继续规划（plan）或执行（push）。
 
-    【参谋报告/行动结果】:
-    "{worker_advice}"
+【当前战局】
+{graph_context}
 
-    【状态信息】:
-    - 当前是否存在“已验证可执行动作”: {has_validated_plan}
-    - 已进行的 Plan 次数: {plan_attempt}
-    - Plan 最大次数: {max_plan_attempts}
+【参谋报告】
+"{worker_advice}"
 
-    【近期错误】:
-    {recent_errors}
+【状态】
+- 已有可执行动作: {has_validated_plan}
+- 已进行 Plan 次数: {plan_attempt}
+- Plan 最大次数: {max_plan_attempts}
 
-    【动作 Cache（最近记录）】:
-    {action_cache_context}
+【近期错误】
+{recent_errors}
 
-    决策原则:
-    1. 若已有动作经过 JSON + 图谱静态校验，且动作质量可接受，可选择 push。
-    2. 若存在未修复错误、动作与当前战局不一致、或细节不足，应选择 plan 继续修正。
-    3. 若当前没有可执行动作，不能选择 push，必须选择 plan。
+【动作 Cache】
+{action_cache_context}
 
-    你必须调用函数 `choose_plan_or_push`，并输出：
-    - next_step: "plan" 或 "push"
-    - reason: 简短理由
-    禁止输出普通文本或 Markdown 代码块。
+【决策规则】
+1. 有通过 JSON+图谱静态校验的动作且质量可接受 -> 可选 push。
+2. 有未修复错误或动作与战局不一致 -> 选择 plan。
+3. 没有可执行动作 -> 必须 plan。
+
+【输出契约】
+你必须调用函数 `choose_plan_or_push`，参数为：
+- next_step: "plan" | "push"
+- reason: string（一句话）
 """
-)
+
 
 JUDGE_EVALUATE_PROMPT = """
-    你是一名公正、专业的法官。请根据以下【核心诉求】和【图谱证据上下文】，撰写一份民事判决书。
+请根据以下信息撰写民事判决分析。
 
-    【核心诉求】:
-    {issue_list}
+【核心诉求】
+{issue_list}
 
-    【图谱证据上下文（主要裁判依据）】:
-    {graph_context}
+【图谱证据上下文】
+{graph_context}
 
-    【裁判要求】:
-    1. 必须逐项回应核心诉求，并给出采纳或驳回结论。
-    2. 每项结论都要引用图谱中的关键证据链条（支持与冲突关系）。
-    """
+【写作要求】
+1. 逐项回应每个诉求，明确写“采纳/驳回”。
+2. 每项结论都给出主要依据链（事实、法条、论证冲突点）。
+3. 语言保持法院文书风格，结论清晰可执行。
+"""
+
 
 JUDGE_EXTRACT_VERDICT_PROMPT = """
-    以下是一份法官撰写的法律分析报告：
-    ---
-    {judgment_document}
-    ---
-    请根据这份报告的原文内容，判断以下原告诉求是否被法官明确地采纳（ACCEPTED）或驳回（REJECTED）。
-    如果报告中明确提到了该诉求并对其做出了“采纳”或“驳回”的判断，请给出相应的状态。
-    如果报告中没有明确提及或判断，请输出“UNMENTIONED”。
-    
-    原告诉求 ID: {claim_id}
-    原告诉求内容: {claim_content}
-    
-    请输出一个 JSON 对象，字段如下：
-    {{
-        "status": "ACCEPTED" | "REJECTED" | "UNMENTIONED"
-    }}
-    """
+请根据判决原文，判断以下诉求状态。
+
+【判决原文】
+{judgment_document}
+
+【诉求信息】
+- ID: {claim_id}
+- 内容: {claim_content}
+
+【判定标准】
+- ACCEPTED: 明确写出采纳/支持该诉求。
+- REJECTED: 明确写出驳回/不支持该诉求。
+- UNMENTIONED: 未明确判断。
+
+仅返回与原文一致的状态。
+"""
+
 
 EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT = """
-    你是一个法律复盘专家。请根据以下的【庭审笔录】和【判决结果】，提炼出导致胜诉（或败诉方致死原因）的关键辩论策略。
+请基于以下材料提炼一个可复用的高层诉讼策略。
 
-    【判决结果 (诉求采信状态)】:
-    {claims_status}
+【案件背景】
+{case_context}
 
-    【庭审笔录】:
-    {transcript}
+【判决结果（诉求采信状态）】
+{claims_status}
 
-    【任务】:
-    1. 判断哪一方（原告/被告）在辩论中占据了上风或取得了关键胜利。
-    2. 提炼其核心策略（如引用了特定司法解释、切断了因果关系链等）。
+【庭审笔录】
+{transcript}
 
-    【输出格式要求 (严格遵守)】:
-    SIDE: [PLAINTIFF | DEFENDANT]
-    CONTENT: [一句话的高度抽象策略]
+【任务】
+1. 判断策略主要适用于哪一方：PLAINTIFF / DEFENDANT / COMMON。
+2. 输出一句可复用策略，不包含具体当事人或案号细节。
+3. 重点提炼“为什么该策略有效/失效”。
 
-    示例：
-    SIDE: DEFENDANT
-    CONTENT: 针对民间借贷纠纷，若无直接转账凭证，应重点攻击对方证据链的完整性。
+请按 schema 输出，不要输出额外文本。
 """
+
 
 FORCE_ACTION_PROMPT = """
-    你已经消耗了所有思考轮次。现在进入【强制行动阶段】。
-    
-    【当前战局】:
-    {latest_context}
-    
-    【任务】请生成有效的图谱操作 JSON。
-    
-    {agent_action_schema_desc}
-    """
+你已耗尽规划轮次，进入强制行动阶段。
+
+【当前战局】
+{latest_context}
+
+【任务】
+立即生成可执行图谱动作参数，优先最小可行闭环：
+1. 至少1个补强动作；
+2. 至少1个回应动作；
+3. 避免重复低信息动作。
+
+{agent_action_schema_desc}
+"""
+
 
 DECOMPOSE_FACTS_PROMPT = """
-    你是一个数据预处理助手。请将以下【审理查明】的法律事实文本，拆解为多个独立的、原子的事实描述。
+你是数据预处理助手。
 
-    每个事实应该包含时间、地点、人物或关键行为。
+【输入】
+{text}
 
-    【审理查明】：
-    {text}
+【任务】
+将文本拆分为多个“原子事实陈述”，每条尽量包含时间、主体、行为或结果。
 
-    请直接输出一个编号列表，每个条目是一个独立的事实描述。
+【输出要求】
+1. 仅输出 JSON 数组，每个元素是一条事实字符串。
+2. 不输出编号列表，不输出额外解释。
+3. 每条事实尽量独立且不重复。
+"""
 
-    例如：
-    1. 2023年5月1日，张三与李四签订合同
-    2. ...
-
-    不要输出任何其他内容或 Markdown 标记外的文字。
-    """
 
 GENERATE_ROOT_CLAIM_PROMPT = """
-    基于案由【{cause}】和以下事实，请提炼出原告的所有核心法律诉求。
-    诉求应具体明确（如，要求被告偿还本金XX元）。
+基于案由【{cause}】与事实信息，提炼原告核心法律诉求。
 
-    【事实】：
-    {facts}
+【事实】
+{facts}
 
-    请直接输出一个 JSON 字符串数组，每个元素是一个诉求的文本描述。
-    不要输出任何其他内容。
-    """
+【输出要求】
+1. 仅输出 JSON 字符串数组。
+2. 每条诉求都应具体、可裁判、可执行。
+3. 不输出任何额外文本。
+"""
+
 
 GENERATE_PERSONA_PROMPT = """
-    基于案由【{cause}】和事实，请为【{role_cn}】构建 BDI 画像和初始策略。
+基于案由【{cause}】和事实，请为【{role_cn}】构建 BDI 画像。
 
-    【事实】：
-    {facts}
+【事实】
+{facts}
 
-    请严格按照以下 JSON 格式输出（不要输出 Markdown 标记）：
-    {{
-        "belief": "简述信念...",
-        "desire": "简述愿望...",
-        "intention": "简述风格/意图...",
-        "strategy": "简述初始冷启动策略..."
-    }}
+【输出要求】
+仅输出 JSON 对象，字段固定为：
+{{
+  "belief": "...",
+  "desire": "...",
+  "intention": "...",
+  "strategy": "..."
+}}
 """
+
 
 NARRATOR_POLISH_PROMPT = """
-    你是一个法律文书润色专家。
-    以下是本轮辩论中【{turn}】方的**原始逻辑操作记录**。这些句子是程序根据图谱操作自动生成的，虽然逻辑准确但略显生硬。
+你是法律文书润色专家。
 
-    请将其润色为一段**流畅、自然、有力**的辩论陈述。
+【发言方】
+{turn}
 
-    【原始逻辑记录】:
-    {raw_sentences}
+【原始逻辑记录】
+{raw_sentences}
 
-    【润色要求】:
-    1. **角色带入**：请以客观叙述视角（如“原告指出...”、“被告反驳称...”）或第一人称视角（“我方认为...”）进行重写，保持统一。
-    2. **逻辑衔接**：使用“首先”、“其次”、“鉴于”、“因此”、“对此”等连接词，将离散的句子串联成严密的逻辑流。
-    3. **绝对忠实**：**严禁**编造原始记录中不存在的证据或观点，**严禁**修改引用的原文内容。
-    4. **输出格式**：直接输出润色后的段落，不要包含任何前言后语。
+【任务】
+将原始记录改写为一段流畅、连贯、具有说服力的辩论陈述。
+
+【硬性要求】
+1. 保持原始逻辑与证据关系，不新增事实。
+2. 使用连接词增强连贯性（如：首先、其次、鉴于、因此）。
+3. 直接输出改写后的段落，不要前言后语。
 """
+
 
 DECOMPOSE_SEARCH_INTENT_PROMPT = """
-    你是一个专业的法律检索专家。
-    【任务】：将律师的高层意图（Intent）拆解为 2-3 个具体的自然语言查询句，用于在案例库中进行语义检索。
+你是专业法律检索专家。
 
-    【律师意图】："{intent}"
+【律师高层意图】
+"{intent}"
 
-    【要求】：
-    1. **必须是完整的自然语言问句或陈述句**，严禁使用关键词堆砌（如 "合同 违约 赔偿" ❌）。
-    2. **多角度拆解**：
-       - 角度1：侧重核心事实相似性（如：“类似[具体事实]的判决案例”）
-       - 角度2：侧重法律争议焦点（如：“关于[争议点]的法律适用情形”）
-    3. 你必须调用函数 `formulate_search_queries`，并将查询数组填入参数字段 `queries`。
-    4. 禁止输出普通文本或 Markdown 代码块。
+【任务】
+将该意图拆解为 2-3 条用于案例库语义检索的自然语言查询。
+
+【质量标准】
+1. 每条必须是完整自然语言句子。
+2. 至少覆盖两个角度：事实相似性、争议焦点。
+3. 避免关键词堆砌。
+
+【输出契约】
+调用函数 `formulate_search_queries`，参数字段 `queries` 为字符串数组。
 """
 
+
 DECOMPOSE_LAW_INTENT_PROMPT = """
-    你是一个专业的法律检索专家。
-    【任务】：将律师的高层意图（Intent）拆解为 2-3 个具体的自然语言查询句，用于在**法条数据库**（Statutes Library）中检索。
+你是专业法律检索专家。
 
-    【律师意图】："{intent}"
+【律师高层意图】
+"{intent}"
 
-    【要求】：
-    1. **查询句应侧重于法律规定、构成要件、司法解释**。
-    2. 避免使用“......的案例”这种表述，而是用“......的法律规定”或“......的认定标准”。
-    3. 多角度拆解：
-       - 角度1：核心法律概念定义（如：“不可抗力的法律定义”）
-       - 角度2：具体适用情形与后果（如：“因天气原因导致违约的免责条款规定”）
+【任务】
+将该意图拆解为 2-3 条用于法条库检索的自然语言查询。
 
-    【输出方式】：
-    你必须调用函数 `formulate_search_queries`，并将查询数组填入参数字段 `queries`。
-    禁止输出普通文本或 Markdown 代码块。
+【质量标准】
+1. 重点覆盖：法律定义、构成要件、适用边界或法律后果。
+2. 避免“找案例”表述，改为“找法律规定/认定标准”。
+3. 每条都应可直接用于检索。
+
+【输出契约】
+调用函数 `formulate_search_queries`，参数字段 `queries` 为字符串数组。
 """

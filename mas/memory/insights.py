@@ -12,12 +12,29 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Tuple
 
-from prompts.common_prompts import EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT
+from prompts.common_prompts import (
+    EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT,
+    SYSTEM_PROMPT_INSIGHT_EXTRACTOR,
+)
 from tools.embedding import cosine_similarity, file_lock
 from tools.llm import GPTChat, Message
 from tools.matcher import SemanticMatcher
 
 from ..config import SystemConfig
+
+_INSIGHT_EXTRACTION_SCHEMA = {
+    "name": "adversarial_insight",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "side": {"type": "string", "enum": ["PLAINTIFF", "DEFENDANT", "COMMON"]},
+            "content": {"type": "string"},
+        },
+        "required": ["side", "content"],
+        "additionalProperties": False,
+    },
+}
 
 
 class InsightSide(str, Enum):
@@ -153,6 +170,36 @@ class InsightsManager:
             emb = self.matcher.embedding_func.embed_query(inst.content)
             self._insight_index.append((emb, inst))
 
+    @staticmethod
+    def _parse_legacy_insight_text(raw_text: str) -> Tuple["InsightSide", str]:
+        """Fallback parser for historical free-text insight outputs."""
+        content = (raw_text or "").strip()
+        side = InsightSide.COMMON
+        upper_text = content.upper()
+
+        if "SIDE: PLAINTIFF" in upper_text:
+            side = InsightSide.PLAINTIFF
+
+            content = content.replace("SIDE: PLAINTIFF", "").replace(
+                "SIDE: plaintiff", ""
+            )
+
+        elif "SIDE: DEFENDANT" in upper_text:
+            side = InsightSide.DEFENDANT
+
+            content = content.replace("SIDE: DEFENDANT", "").replace(
+                "SIDE: defendant", ""
+            )
+
+        content = (
+            content.replace("CONTENT:", "")
+            .replace("策略：", "")
+            .replace("Insight:", "")
+            .strip()
+        )
+
+        return side, content
+
     def extract_adversarial_insights(
         self,
         case_id: str,
@@ -189,30 +236,39 @@ class InsightsManager:
             transcript=transcript_text[:15000],  # Truncate for context window
         )
 
-        response = self.llm([Message(role="user", content=prompt)])
-        content = response.strip()
         side = InsightSide.COMMON
+        content = ""
 
-        if "SIDE: PLAINTIFF" in content.upper():
-            side = InsightSide.PLAINTIFF
-
-            content = content.replace("SIDE: PLAINTIFF", "").replace(
-                "SIDE: plaintiff", ""
+        try:
+            data = self.llm.ask_json_schema(
+                messages=[
+                    Message(role="system", content=SYSTEM_PROMPT_INSIGHT_EXTRACTOR),
+                    Message(role="user", content=prompt),
+                ],
+                schema=_INSIGHT_EXTRACTION_SCHEMA,
             )
 
-        elif "SIDE: DEFENDANT" in content.upper():
-            side = InsightSide.DEFENDANT
+            side_raw = str(data.get("side", "COMMON")).upper().strip()
+            content = str(data.get("content", "")).strip()
 
-            content = content.replace("SIDE: DEFENDANT", "").replace(
-                "SIDE: defendant", ""
+            try:
+                side = InsightSide(side_raw)
+
+            except ValueError:
+                side = InsightSide.COMMON
+
+        except Exception:
+            legacy_response = self.llm(
+                [
+                    Message(role="system", content=SYSTEM_PROMPT_INSIGHT_EXTRACTOR),
+                    Message(role="user", content=prompt),
+                ]
             )
 
-        content = (
-            content.replace("CONTENT:", "")
-            .replace("策略：", "")
-            .replace("Insight:", "")
-            .strip()
-        )
+            side, content = self._parse_legacy_insight_text(legacy_response)
+
+        if not content:
+            content = "围绕证据链完整性构建攻防，并针对关键薄弱点形成可执行反制。"
 
         candidates = [(str(i), inst.content) for i, inst in enumerate(self.insights)]
         match_idx_str = self.matcher.find_match(content, candidates)

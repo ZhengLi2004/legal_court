@@ -18,6 +18,8 @@ from mas.core.system import LegalSystem
 from prompts.common_prompts import (
     ANALYZE_RECALL_PROMPT,
     DECOMPOSE_SEARCH_INTENT_PROMPT,
+    SYSTEM_PROMPT_QUERY_DECOMPOSER,
+    SYSTEM_PROMPT_WORKER_ANALYST,
 )
 from tools.embedding import cosine_similarity
 
@@ -74,7 +76,11 @@ class AnalyzeSearchResults(Action):
             search_result=search_result,
         )
 
-        return await self.llm.aask(prompt, temperature=0.5)
+        return await self.llm.aask(
+            prompt,
+            system_msgs=[SYSTEM_PROMPT_WORKER_ANALYST],
+            temperature=0.4,
+        )
 
 
 class FormulateSearchQueries(Action):
@@ -112,8 +118,10 @@ class FormulateSearchQueries(Action):
                 prompt=prompt,
                 tools=[_FORMULATE_SEARCH_QUERIES_TOOL],
                 tool_choice="formulate_search_queries",
-                temperature=0.5,
+                system_msgs=[SYSTEM_PROMPT_QUERY_DECOMPOSER],
+                temperature=0.4,
             )
+
             payload = result.arguments
             queries = payload.get("queries", [])
 
@@ -214,4 +222,8 @@ class ProjectAndAnalyze(Action):
             my_role=my_role,
         )
 
-        return await self.llm.aask(prompt, temperature=0.5)
+        return await self.llm.aask(
+            prompt,
+            system_msgs=[SYSTEM_PROMPT_WORKER_ANALYST],
+            temperature=0.4,
+        )

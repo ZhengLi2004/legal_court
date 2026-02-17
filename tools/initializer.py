@@ -16,8 +16,18 @@ from prompts.common_prompts import (
     DECOMPOSE_FACTS_PROMPT,
     GENERATE_PERSONA_PROMPT,
     GENERATE_ROOT_CLAIM_PROMPT,
+    SYSTEM_PROMPT_CASE_INITIALIZER,
 )
 from tools.llm import GPTChat, Message
+
+_FACT_STATEMENTS_SCHEMA = {
+    "name": "fact_statements",
+    "strict": True,
+    "schema": {
+        "type": "array",
+        "items": {"type": "string"},
+    },
+}
 
 _ROOT_CLAIMS_SCHEMA = {
     "name": "root_claim_actions",
@@ -153,14 +163,44 @@ class CaseInitializer:
     async def _decompose_facts(self, text: str) -> List[str]:
         """Use an LLM to break down a block of text into atomic fact statements."""
         prompt = DECOMPOSE_FACTS_PROMPT.format(text=text)
-        response = self.llm([Message(role="user", content=prompt)])
+
+        try:
+            facts = await self.llm.aask_json_schema(
+                prompt,
+                schema=_FACT_STATEMENTS_SCHEMA,
+                system_msgs=[SYSTEM_PROMPT_CASE_INITIALIZER],
+            )
+
+            if not isinstance(facts, list) or not all(
+                isinstance(item, str) for item in facts
+            ):
+                raise ValueError("LLM did not return a JSON array of strings.")
+
+            normalized = [item.strip() for item in facts if item and item.strip()]
+
+            if not normalized:
+                raise ValueError("LLM returned empty fact list.")
+
+            return normalized
+
+        except Exception as e:
+            logger.warning(
+                f"Fact JSON-schema decomposition failed, fallback to numbered parsing: {e}"
+            )
+
+        fallback_messages = [
+            Message(role="system", content=SYSTEM_PROMPT_CASE_INITIALIZER),
+            Message(role="user", content=prompt),
+        ]
+
+        response = self.llm(fallback_messages)
 
         try:
             return await self._parse_numbered_list_to_agent_actions(response)
 
         except Exception as e:
             logger.error(
-                f"Error parsing decomposed facts from numbered list: {e}\nResponse: {response}"
+                f"Error parsing decomposed facts from fallback numbered list: {e}\nResponse: {response}"
             )
 
             return []
@@ -173,7 +213,7 @@ class CaseInitializer:
             claims_list = await self.llm.aask_json_schema(
                 prompt,
                 schema=_ROOT_CLAIMS_SCHEMA,
-                temperature=0.1,
+                system_msgs=[SYSTEM_PROMPT_CASE_INITIALIZER],
             )
 
             if not isinstance(claims_list, list) or not all(
@@ -201,6 +241,7 @@ class CaseInitializer:
             data = await self.llm.aask_json_schema(
                 prompt,
                 schema=_PERSONA_SCHEMA,
+                system_msgs=[SYSTEM_PROMPT_CASE_INITIALIZER],
                 temperature=0.7,
             )
 

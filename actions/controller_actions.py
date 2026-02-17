@@ -16,6 +16,7 @@ from prompts.common_prompts import (
     ASSESS_LAW_NEEDS_PROMPT,
     ASSESS_RECALL_NEEDS_PROMPT,
     CHOOSE_PLAN_OR_PUSH_PROMPT,
+    SYSTEM_PROMPT_CONTROLLER_ROUTING,
     VERIFY_AND_DECIDE_PROMPT,
 )
 
@@ -165,7 +166,8 @@ class AssessFactNeeds(Action):
             prompt=prompt,
             tools=[_ASSESS_FACT_NEEDS_TOOL],
             tool_choice="assess_fact_needs",
-            temperature=0.5,
+            system_msgs=[SYSTEM_PROMPT_CONTROLLER_ROUTING],
+            temperature=0.4,
         )
 
         return result.arguments
@@ -208,7 +210,8 @@ class AssessLawNeeds(Action):
             prompt=prompt,
             tools=[_ASSESS_LAW_NEEDS_TOOL],
             tool_choice="assess_law_needs",
-            temperature=0.5,
+            system_msgs=[SYSTEM_PROMPT_CONTROLLER_ROUTING],
+            temperature=0.4,
         )
 
         return result.arguments
@@ -251,7 +254,8 @@ class AssessRecallNeeds(Action):
             prompt=prompt,
             tools=[_ASSESS_RECALL_NEEDS_TOOL],
             tool_choice="assess_recall_needs",
-            temperature=0.5,
+            system_msgs=[SYSTEM_PROMPT_CONTROLLER_ROUTING],
+            temperature=0.4,
         )
 
         return result.arguments
@@ -319,7 +323,8 @@ class VerifyAndDecide(Action):
             prompt=prompt,
             tools=[_VERIFY_AND_DECIDE_TOOL],
             tool_choice="verify_and_decide",
-            temperature=0.5,
+            system_msgs=[SYSTEM_PROMPT_CONTROLLER_ROUTING],
+            temperature=0.4,
         )
 
         payload = result.arguments
@@ -365,7 +370,7 @@ class ChoosePlanOrPush(Action):
             prompt=prompt,
             tools=[_CHOOSE_PLAN_OR_PUSH_TOOL],
             tool_choice="choose_plan_or_push",
-            temperature=0.2,
+            system_msgs=[SYSTEM_PROMPT_CONTROLLER_ROUTING],
         )
 
         payload = result.arguments

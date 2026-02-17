@@ -6,7 +6,12 @@ from typing import Any, Dict
 
 from metagpt.logs import logger
 
-from prompts.common_prompts import JUDGE_EVALUATE_PROMPT, JUDGE_EXTRACT_VERDICT_PROMPT
+from prompts.common_prompts import (
+    JUDGE_EVALUATE_PROMPT,
+    JUDGE_EXTRACT_VERDICT_PROMPT,
+    SYSTEM_PROMPT_JUDGE_EXTRACTOR,
+    SYSTEM_PROMPT_JUDGE_WRITER,
+)
 from tools.llm import GPTChat, Message
 
 from ..core.graph import NodeStatus, ShadowGraph
@@ -89,7 +94,12 @@ class LLMJudge(BaseJudge):
             graph_context=payload["graph_context"],
         )
 
-        return self.judge_llm([Message(role="user", content=prompt)])
+        return self.judge_llm(
+            [
+                Message(role="system", content=SYSTEM_PROMPT_JUDGE_WRITER),
+                Message(role="user", content=prompt),
+            ]
+        )
 
     def _build_adjudication_input(self, graph: ShadowGraph) -> Dict[str, Any]:
         """Assemble issue list and graph context for the judgment prompt.
@@ -167,7 +177,7 @@ class LLMJudge(BaseJudge):
                 self.extraction_llm.aask_json_schema(
                     extraction_prompt,
                     schema=_VERDICT_STATUS_SCHEMA,
-                    temperature=0.0,
+                    system_msgs=[SYSTEM_PROMPT_JUDGE_EXTRACTOR],
                 )
             )
 
