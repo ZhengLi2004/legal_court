@@ -154,7 +154,7 @@ class LLM(ABC):
         self.client = OpenAI(base_url=self._base_url, api_key=self._api_key)
 
     @abstractmethod
-    def __call__(self, *args, **kwargs) -> str:
+    def __call__(self, *_args, **_kwargs) -> str:
         """Make the LLM instance callable.
 
         This is an abstract method that must be implemented by concrete subclasses.

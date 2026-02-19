@@ -49,8 +49,6 @@ export interface SnapshotIndexItem {
 }
 
 export interface CreateSessionInput {
-  caseId?: string;
-  caseUid?: string;
   caseData?: Record<string, unknown>;
 }
 

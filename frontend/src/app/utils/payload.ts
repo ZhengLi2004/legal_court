@@ -8,22 +8,6 @@ export function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
-export function asNumber(value: unknown, fallback = 0): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return fallback;
-}
-
 export function unwrapPayload(raw: unknown): Record<string, unknown> {
   const outer = asRecord(raw);
   const nested = outer.data ?? outer.snapshot ?? outer.state ?? outer.payload;

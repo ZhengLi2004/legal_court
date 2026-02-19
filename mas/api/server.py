@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response, WebSocket
@@ -25,30 +23,7 @@ class CreateSessionRequest(BaseModel):
     """Request body for creating a new debate session."""
 
     model_config = ConfigDict(extra="forbid")
-    case_id: Optional[str] = Field(default=None)
-    case_uid: Optional[str] = Field(default=None)
     case_data: Optional[Dict[str, Any]] = Field(default=None)
-
-
-class SetupSessionRequest(BaseModel):
-    """Request body for setup endpoint."""
-
-    case_data: Optional[Dict[str, Any]] = Field(default=None)
-
-
-class DemoRunRequest(BaseModel):
-    """Request body for demo run endpoint."""
-
-    max_steps: int = Field(default=20, ge=1, le=500)
-    auto_adjudicate: bool = Field(default=True)
-    capture_keyframes: bool = Field(default=True)
-
-
-class FailureSimulationRequest(BaseModel):
-    """Request body for failure simulation endpoint."""
-
-    kind: str = Field(pattern="^(es_unavailable|llm_timeout)$")
-    enabled: bool = Field(default=True)
 
 
 class SaveFrontendSnapshotRequest(BaseModel):
@@ -69,82 +44,6 @@ class ImportFrontendSnapshotRequest(BaseModel):
     frontend_state: Optional[Dict[str, Any]] = Field(default=None)
 
 
-def _default_case_file() -> Path:
-    """Return the default bundled case dataset path.
-
-    Returns:
-        Absolute path to `data/sampling/cleaned_samples.jsonl`.
-    """
-    return (
-        Path(__file__).resolve().parents[2]
-        / "data"
-        / "sampling"
-        / "cleaned_samples.jsonl"
-    )
-
-
-def _load_cases(limit: int = 200) -> List[Dict[str, Any]]:
-    """Load case rows from the default JSONL file.
-
-    Args:
-        limit: Maximum number of rows to load.
-
-    Returns:
-        Parsed case dictionaries, skipping invalid lines.
-    """
-    path = _default_case_file()
-
-    if not path.exists():
-        return []
-
-    rows: List[Dict[str, Any]] = []
-
-    with path.open("r", encoding="utf-8") as file:
-        for line in file:
-            text = line.strip()
-
-            if not text:
-                continue
-
-            try:
-                payload = json.loads(text)
-
-            except json.JSONDecodeError:
-                continue
-
-            if isinstance(payload, dict):
-                rows.append(payload)
-
-            if len(rows) >= limit:
-                break
-
-    return rows
-
-
-def _case_list_item(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Build a compact case list item for list endpoints.
-
-    Args:
-        row: Raw case dictionary from the dataset.
-
-    Returns:
-        Dictionary with `uid`, `title`, and `cause_summary`.
-    """
-    cause = row.get("cause", [])
-
-    if isinstance(cause, list):
-        cause_summary = " / ".join([str(item) for item in cause[:2]])
-
-    else:
-        cause_summary = str(cause)
-
-    return {
-        "uid": row.get("uid", ""),
-        "title": row.get("title", ""),
-        "cause_summary": cause_summary,
-    }
-
-
 def create_app(
     engine_factory: Optional[Callable[[], Any]] = None,
     case_rows: Optional[List[Dict[str, Any]]] = None,
@@ -153,7 +52,7 @@ def create_app(
 
     Args:
         engine_factory: Optional factory for dependency injection in tests.
-        case_rows: Optional preloaded case rows to bypass file loading.
+        case_rows: Optional in-memory fallback case rows for session bootstrap.
 
     Returns:
         Configured FastAPI application instance.
@@ -169,8 +68,7 @@ def create_app(
     )
 
     manager = SessionManager(engine_factory=engine_factory)
-    cases = case_rows if case_rows is not None else _load_cases()
-    case_index = {str(row.get("uid", "")): row for row in cases if row.get("uid")}
+    default_case_data = case_rows[0] if case_rows else None
 
     @app.get("/")
     async def root() -> Dict[str, str]:
@@ -199,39 +97,6 @@ def create_app(
         """
         return {"status": "ok"}
 
-    @app.get("/api/v1/cases")
-    async def list_cases(
-        limit: int = Query(20, ge=1, le=200), offset: int = Query(0, ge=0)
-    ) -> Dict[str, Any]:
-        """List available case summaries with pagination.
-
-        Args:
-            limit: Page size.
-            offset: Starting offset in the case list.
-
-        Returns:
-            Paginated list payload with total count.
-        """
-        items = cases[offset : offset + limit]
-        return {"items": [_case_list_item(row) for row in items], "total": len(cases)}
-
-    @app.get("/api/v1/cases/{case_uid}")
-    async def get_case(case_uid: str) -> Dict[str, Any]:
-        """Return one full case payload by UID.
-
-        Args:
-            case_uid: Unique case identifier.
-
-        Returns:
-            Dictionary containing the selected case payload.
-        """
-        case_data = case_index.get(case_uid)
-
-        if case_data is None:
-            raise HTTPException(status_code=404, detail="Case not found")
-
-        return {"case": case_data}
-
     @app.post("/api/v1/sessions")
     async def create_session(body: CreateSessionRequest) -> Dict[str, Any]:
         """Create a debate session and auto-run setup.
@@ -242,14 +107,7 @@ def create_app(
         Returns:
             Serialized session snapshot.
         """
-        case_data = body.case_data
-        case_lookup_uid = body.case_uid or body.case_id
-
-        if case_data is None and case_lookup_uid:
-            case_data = case_index.get(case_lookup_uid)
-
-            if case_data is None:
-                raise HTTPException(status_code=404, detail="Case UID not found")
+        case_data = body.case_data if body.case_data is not None else default_case_data
 
         try:
             session = await manager.create_session(
@@ -375,23 +233,6 @@ def create_app(
             "sessions": [snapshot_response(item) for item in manager.list_sessions()]
         }
 
-    @app.get("/api/v1/sessions/{session_id}")
-    async def get_session(session_id: str) -> Dict[str, Any]:
-        """Fetch one active session snapshot.
-
-        Args:
-            session_id: Session identifier.
-
-        Returns:
-            Session snapshot payload.
-        """
-        try:
-            session = manager.get_session(session_id)
-            return snapshot_response(session)
-
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
     @app.get("/api/v1/sessions/{session_id}/snapshot")
     async def get_session_snapshot(session_id: str) -> Dict[str, Any]:
         """Return the latest serializable snapshot for one session.
@@ -408,30 +249,6 @@ def create_app(
 
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @app.post("/api/v1/sessions/{session_id}/setup")
-    async def setup_session(
-        session_id: str, body: Optional[SetupSessionRequest] = None
-    ) -> Dict[str, Any]:
-        """Run setup for an existing session.
-
-        Args:
-            session_id: Session identifier.
-            body: Optional setup payload overriding case data.
-
-        Returns:
-            Updated session snapshot payload.
-        """
-        try:
-            payload = body.case_data if body else None
-            session = await manager.setup_session(session_id, case_data=payload)
-            return snapshot_response(session)
-
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Setup failed: {exc}") from exc
 
     @app.post("/api/v1/sessions/{session_id}/step")
     async def step_session(session_id: str) -> Dict[str, Any]:
@@ -756,137 +573,6 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.get("/api/v1/sessions/{session_id}/debug-bundle")
-    async def get_debug_bundle(
-        session_id: str,
-        event_limit: int = Query(20, ge=1, le=5000),
-        include_snapshot: bool = Query(default=True),
-        include_artifact: bool = Query(default=True),
-    ) -> Dict[str, Any]:
-        """Build a compact debug bundle for diagnostics.
-
-        Args:
-            session_id: Session identifier.
-            event_limit: Maximum number of events to include.
-            include_snapshot: Whether to include full session snapshot.
-            include_artifact: Whether to include latest turn artifacts.
-
-        Returns:
-            Debug payload combining metadata, logs, and optional extras.
-        """
-        try:
-            return manager.build_debug_bundle(
-                session_id=session_id,
-                event_limit=event_limit,
-                include_snapshot=include_snapshot,
-                include_artifact=include_artifact,
-            )
-
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @app.post("/api/v1/sessions/{session_id}/demo/run")
-    async def run_demo(
-        session_id: str,
-        body: Optional[DemoRunRequest] = None,
-    ) -> Dict[str, Any]:
-        """Run a deterministic demo loop for the target session.
-
-        Args:
-            session_id: Session identifier.
-            body: Optional demo-run overrides.
-
-        Returns:
-            Demo execution summary and optional keyframes.
-        """
-        payload = body or DemoRunRequest()
-
-        try:
-            return await manager.run_demo_session(
-                session_id=session_id,
-                max_steps=payload.max_steps,
-                auto_adjudicate=payload.auto_adjudicate,
-                capture_keyframes=payload.capture_keyframes,
-            )
-
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-        except Exception as exc:
-            raise HTTPException(
-                status_code=500, detail=f"Demo run failed: {exc}"
-            ) from exc
-
-    @app.get("/api/v1/sessions/{session_id}/demo/keyframes")
-    async def get_demo_keyframes(session_id: str) -> Dict[str, Any]:
-        """Return keyframes captured during the latest demo run.
-
-        Args:
-            session_id: Session identifier.
-
-        Returns:
-            Keyframe list payload with total count.
-        """
-        try:
-            rows = manager.get_demo_keyframes(session_id=session_id)
-            return {"items": rows, "total": len(rows)}
-
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @app.post("/api/v1/sessions/{session_id}/simulate/failure")
-    async def set_failure_simulation(
-        session_id: str,
-        body: FailureSimulationRequest,
-    ) -> Dict[str, Any]:
-        """Toggle failure simulation flags for testing resilience flows.
-
-        Args:
-            session_id: Session identifier.
-            body: Simulation toggle payload.
-
-        Returns:
-            Updated simulation settings for the session.
-        """
-        try:
-            return manager.set_failure_simulation(
-                session_id=session_id,
-                kind=body.kind,
-                enabled=body.enabled,
-            )
-
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @app.get("/api/v1/sessions/{session_id}/export/replay.json")
-    async def export_replay_json(
-        session_id: str,
-        events_limit: int = Query(5000, ge=1, le=50000),
-        artifacts_limit: int = Query(5000, ge=1, le=50000),
-    ) -> Dict[str, Any]:
-        """Export a replay bundle as JSON payload.
-
-        Args:
-            session_id: Session identifier.
-            events_limit: Maximum number of events in export.
-            artifacts_limit: Maximum number of artifacts in export.
-
-        Returns:
-            Replay export payload.
-        """
-        try:
-            return manager.export_replay_bundle(
-                session_id=session_id,
-                include_events_limit=events_limit,
-                include_artifacts_limit=artifacts_limit,
-            )
-
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
     @app.get("/api/v1/sessions/{session_id}/export/graph.gexf")
     async def export_graph_gexf(
         session_id: str,
@@ -918,23 +604,6 @@ def create_app(
                 media_type="application/gexf+xml",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
-
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @app.delete("/api/v1/sessions/{session_id}", status_code=204)
-    async def delete_session(session_id: str) -> Response:
-        """Delete an in-memory session and close related resources.
-
-        Args:
-            session_id: Session identifier.
-
-        Returns:
-            HTTP 204 response when deletion succeeds.
-        """
-        try:
-            await manager.delete_session(session_id)
-            return Response(status_code=204)
 
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

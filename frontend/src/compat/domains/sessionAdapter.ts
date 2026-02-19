@@ -28,8 +28,6 @@ export class SessionDomainAdapter implements SessionAdapter {
 
   async createSession(input: CreateSessionInput = {}): Promise<DebateSnapshot> {
     const body = {
-      case_id: input.caseId,
-      case_uid: input.caseUid,
       case_data: input.caseData,
     };
 

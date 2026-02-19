@@ -152,10 +152,7 @@ class LegalSystem:
             representatives = []
 
             for strat in all_strategies:
-                reps = self.insights.find_cases_by_insight(
-                    strat, top_k=self.cfg.retrieval.corrective_top_k
-                )
-
+                reps = self.insights.find_cases_by_insight(strat)
                 representatives.extend(reps)
 
             components = self.memory.task_layer.get_subgraph_components(representatives)

@@ -505,9 +505,7 @@ class ShadowGraph:
 
         return "\n".join(final_text_blocks).strip()
 
-    def get_tactical_subgraph(
-        self, focus_nodes: List[str], history_window: int = 1
-    ) -> "ShadowGraph":
+    def get_tactical_subgraph(self, focus_nodes: List[str]) -> "ShadowGraph":
         """Extract a subgraph centered around a set of focus nodes."""
         nodes_to_keep = set()
 

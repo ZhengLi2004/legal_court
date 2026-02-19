@@ -408,15 +408,11 @@ class InsightsManager:
 
         return p_insights, d_insights
 
-    def find_cases_by_insight(
-        self, insight_content: str, memory_retriever: Any = None, top_k: int = 3
-    ) -> List[str]:
+    def find_cases_by_insight(self, insight_content: str) -> List[str]:
         """Find the representative case IDs associated with a given insight.
 
         Args:
             insight_content: The text of the insight to look up.
-            memory_retriever: (Not currently used) For potential future use.
-            top_k: (Not currently used) For potential future use.
 
         Returns:
             A list of representative case IDs for that insight.
