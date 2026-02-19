@@ -88,9 +88,9 @@ class JudgeLLMConfig:
 class ConvergenceConfig:
     """Parameters for the debate convergence detection algorithm."""
 
-    alpha: float = 0.3
-    epsilon: float = 3
-    window_size: int = 3
+    alpha: float = 0.4
+    epsilon: float = 2
+    window_size: int = 4
     min_rounds: int = 2
 
 

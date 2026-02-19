@@ -350,6 +350,14 @@ class DebateEngine:
         delta_phi = (1 - alpha) * delta_v + alpha * delta_e
         return delta_phi
 
+    def _build_convergence_config_payload(self) -> Dict[str, Any]:
+        """Return normalized convergence config values for snapshots/logs."""
+        return {
+            "epsilon": float(self.cfg.convergence.epsilon),
+            "min_rounds": int(self.cfg.convergence.min_rounds),
+            "window_size": int(self.cfg.convergence.window_size),
+        }
+
     def _create_snapshot(self, round_idx: int, turn: str) -> Dict[str, Any]:
         """Create a snapshot of the current debate state.
 
@@ -380,6 +388,11 @@ class DebateEngine:
             for k, v in self.root_claims_status.items()
         }
         graph_stats = self._build_graph_stats(graph_data)
+        convergence_cfg = self._build_convergence_config_payload()
+        convergence_log = self.last_step_log.get("convergence", {})
+
+        if not isinstance(convergence_log, dict):
+            convergence_log = {}
 
         snapshot = {
             "round_idx": round_idx,
@@ -399,6 +412,13 @@ class DebateEngine:
                     "is_converged", False
                 ),
                 "history": list(self.convergence_history),
+                "epsilon": convergence_log.get("epsilon", convergence_cfg["epsilon"]),
+                "min_rounds": convergence_log.get(
+                    "min_rounds", convergence_cfg["min_rounds"]
+                ),
+                "window_size": convergence_log.get(
+                    "window_size", convergence_cfg["window_size"]
+                ),
             },
             "transcript": list(self.transcript),
             "root_claims_status": serializable_claims_status,
@@ -411,6 +431,9 @@ class DebateEngine:
             "action_summary": self.last_step_log.get("action", ""),
             "is_ready_for_adjudication": self.is_ready_for_adjudication,
             "is_finished": self.is_finished,
+            "convergence_epsilon": convergence_cfg["epsilon"],
+            "min_rounds": convergence_cfg["min_rounds"],
+            "window_size": convergence_cfg["window_size"],
         }
 
         return snapshot
@@ -774,6 +797,7 @@ class DebateEngine:
         self.last_step_log["turn"] = snapshot.get("turn", "")
 
         if isinstance(convergence, dict):
+            convergence_cfg = self._build_convergence_config_payload()
             raw_is_converged = convergence.get("is_converged")
 
             if raw_is_converged is None:
@@ -802,6 +826,13 @@ class DebateEngine:
                 "is_converged": is_converged,
                 "gc_removed": self.last_step_log.get("convergence", {}).get(
                     "gc_removed", 0
+                ),
+                "epsilon": convergence.get("epsilon", convergence_cfg["epsilon"]),
+                "min_rounds": convergence.get(
+                    "min_rounds", convergence_cfg["min_rounds"]
+                ),
+                "window_size": convergence.get(
+                    "window_size", convergence_cfg["window_size"]
                 ),
             }
 
@@ -930,13 +961,16 @@ class DebateEngine:
 
             delta_phi = self._calculate_convergence()
             self.convergence_history.append(delta_phi)
-            window = self.cfg.convergence.window_size
+            convergence_cfg = self._build_convergence_config_payload()
+            window = convergence_cfg["window_size"]
             recent_history = self.convergence_history[-window:]
             sma = sum(recent_history) / len(recent_history) if recent_history else 0.0
+            epsilon = convergence_cfg["epsilon"]
+            min_rounds = convergence_cfg["min_rounds"]
 
             logger.info(
                 f"[Convergence] Round {self.round_idx} | "
-                f"ΔΦ: {delta_phi:.4f} | SMA: {sma:.4f}"
+                f"ΔΦ: {delta_phi:.4f} | SMA: {sma:.4f} | ε: {epsilon:.4f}"
             )
 
             self.last_step_log = {
@@ -950,6 +984,9 @@ class DebateEngine:
                     "sma": sma,
                     "is_converged": False,
                     "gc_removed": 0,
+                    "epsilon": epsilon,
+                    "min_rounds": min_rounds,
+                    "window_size": window,
                 },
             }
 
@@ -973,11 +1010,7 @@ class DebateEngine:
                 },
             )
 
-            cond_converged = (
-                self.round_idx >= self.cfg.convergence.min_rounds
-                and sma < self.cfg.convergence.epsilon
-            )
-
+            cond_converged = self.round_idx >= min_rounds and sma < epsilon
             should_adjudicate = cond_converged
 
             if should_adjudicate:
@@ -1122,6 +1155,11 @@ class DebateEngine:
         graph_data = self._build_graph_data()
         graph_stats = self._build_graph_stats(graph_data)
         transcript_rows = list(self.transcript)
+        convergence_cfg = self._build_convergence_config_payload()
+        convergence_log = self.last_step_log.get("convergence", {})
+
+        if not isinstance(convergence_log, dict):
+            convergence_log = {}
 
         serializable_claims_status = {
             k: self._serialize_value(v) for k, v in self.root_claims_status.items()
@@ -1139,6 +1177,25 @@ class DebateEngine:
             "transcript": transcript_rows,
             "full_transcript": transcript_rows,
             "convergence_history": list(self.convergence_history),
+            "convergence": {
+                "delta_phi": convergence_log.get(
+                    "delta_phi",
+                    self.convergence_history[-1] if self.convergence_history else 0.0,
+                ),
+                "sma": convergence_log.get("sma", 0.0),
+                "is_converged": convergence_log.get("is_converged", False),
+                "history": list(self.convergence_history),
+                "epsilon": convergence_log.get("epsilon", convergence_cfg["epsilon"]),
+                "min_rounds": convergence_log.get(
+                    "min_rounds", convergence_cfg["min_rounds"]
+                ),
+                "window_size": convergence_log.get(
+                    "window_size", convergence_cfg["window_size"]
+                ),
+            },
+            "convergence_epsilon": convergence_cfg["epsilon"],
+            "min_rounds": convergence_cfg["min_rounds"],
+            "window_size": convergence_cfg["window_size"],
             "latest_turn_uid": self.latest_turn_uid,
             "turn_artifact_count": len(self.turn_artifacts),
             "graph_data": graph_data,

@@ -40,6 +40,10 @@ async def run_experiment():
         await engine.setup(case_data=case_data)
 
         while not engine.is_finished:
+            if engine.is_ready_for_adjudication:
+                await engine.adjudicate()
+                continue
+
             await engine.step()
             snapshot = engine.get_snapshot()
             log = snapshot.get("last_log", {})
