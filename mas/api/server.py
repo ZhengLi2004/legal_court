@@ -619,37 +619,6 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.get("/api/v1/sessions/{session_id}/events/history")
-    async def get_events_history(
-        session_id: str,
-        limit: int = Query(100, ge=1, le=5000),
-        from_seq: Optional[int] = Query(default=None, ge=1),
-        to_seq: Optional[int] = Query(default=None, ge=1),
-    ) -> Dict[str, Any]:
-        """Compatibility alias for the event-history endpoint.
-
-        Args:
-            session_id: Session identifier.
-            limit: Maximum number of events to return.
-            from_seq: Optional inclusive lower sequence bound.
-            to_seq: Optional inclusive upper sequence bound.
-
-        Returns:
-            Event list payload.
-        """
-        try:
-            events = manager.get_event_history(
-                session_id=session_id,
-                limit=limit,
-                from_seq=from_seq,
-                to_seq=to_seq,
-            )
-
-            return {"events": events}
-
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
     @app.websocket("/api/v1/sessions/{session_id}/events")
     async def stream_events(session_id: str, websocket: WebSocket) -> None:
         """Stream live session events over WebSocket.

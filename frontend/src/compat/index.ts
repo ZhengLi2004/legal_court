@@ -18,7 +18,6 @@ export type {
   InsightAdapter,
   MemoryView,
   MemoryInsightItem,
-  MemoryCaseSnapshot,
   TaskLayerGraph,
   TaskLayerNode,
   TaskLayerEdge,

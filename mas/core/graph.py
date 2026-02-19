@@ -657,18 +657,11 @@ class LegalMessage:
         case_id: The unique identifier for the case.
         case_context: A concise, natural language summary of the case facts.
         shadow_graph: The final state of the `ShadowGraph` after adjudication.
-        task_main: An alias for `case_context`, used for compatibility with
-            certain memory retrieval interfaces.
     """
 
     case_id: str
     case_context: str
     shadow_graph: ShadowGraph = field(default_factory=ShadowGraph)
-    task_main: str = field(init=False)
-
-    def __post_init__(self):
-        """Set the task_main attribute after initialization."""
-        self.task_main = self.case_context
 
     @staticmethod
     def to_dict(msg: "LegalMessage") -> dict:

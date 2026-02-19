@@ -86,7 +86,7 @@ def _edge_identifier(edge: Dict[str, Any], idx: int) -> str:
 
 
 def snapshot_response(session: DebateSession) -> Dict[str, Any]:
-    """Build a session snapshot response with compatibility metrics.
+    """Build a session snapshot response with normalized metrics.
 
     Args:
         session: In-memory session wrapper around a debate engine.
@@ -409,7 +409,6 @@ def _extract_case_fields(row: Any) -> Dict[str, str]:
         getattr(row, "case_context", None)
         or getattr(row, "context", None)
         or getattr(row, "summary", None)
-        or getattr(row, "task_main", None)
         or ""
     )
 
@@ -539,12 +538,7 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
     retrieved_dynamic_case_ids: List[str] = []
     recalled_case_ids: List[str] = []
     recalled_case_count = 0
-    static_history_count = 0
-    dynamic_law_case_count = 0
-    task_layer_node_count = 0
-    task_layer_edge_count = 0
     task_layer_graph: Dict[str, List[Dict[str, Any]]] = {"nodes": [], "edges": []}
-    case_snapshots: List[Dict[str, Any]] = []
 
     if legal_sys is not None:
         referenced_case_ids: Set[str] = set()
@@ -673,8 +667,6 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
             upsert_case_summary(case_id, case_fields["summary"])
             referenced_case_ids.add(case_id)
 
-        static_history_count = len(retrieved_static_case_ids)
-        dynamic_law_case_count = len(retrieved_dynamic_case_ids)
         active_case_ids = set(retrieved_static_case_ids + retrieved_dynamic_case_ids)
 
         if current_case_id:
@@ -956,37 +948,6 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
             "edges": task_edges,
         }
 
-        task_layer_node_count = len(task_layer_graph["nodes"])
-        task_layer_edge_count = len(task_layer_graph["edges"])
-
-    snapshots = _as_list(getattr(engine, "round_snapshots", []))
-
-    for idx, row in enumerate(snapshots):
-        if not isinstance(row, dict):
-            continue
-
-        graph_data = row.get("graph_data", {})
-
-        if isinstance(graph_data, dict):
-            nodes = _as_list(graph_data.get("nodes"))
-            edges = _as_list(graph_data.get("edges"))
-            node_count = len(nodes)
-            edge_count = len(edges)
-
-        else:
-            node_count = 0
-            edge_count = 0
-
-        case_snapshots.append(
-            {
-                "round_idx": int(row.get("round_idx", idx)),
-                "turn": str(row.get("turn", "")),
-                "ts_ms": int(row.get("ts_ms", row.get("timestamp", 0)) or 0),
-                "node_count": node_count,
-                "edge_count": edge_count,
-            }
-        )
-
     insight_items = sorted(
         insight_items,
         key=lambda item: (
@@ -1001,16 +962,7 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
         "insight_items": insight_items,
         "representative_case_ids": representative_case_ids,
         "case_catalog": case_catalog,
-        "retrieved_static_case_ids": retrieved_static_case_ids,
-        "retrieved_dynamic_case_ids": retrieved_dynamic_case_ids,
         "recalled_case_ids": recalled_case_ids,
         "recalled_case_count": recalled_case_count,
-        "static_history_count": static_history_count,
-        "dynamic_law_case_count": dynamic_law_case_count,
-        "task_layer": {
-            "node_count": task_layer_node_count,
-            "edge_count": task_layer_edge_count,
-        },
         "task_layer_graph": task_layer_graph,
-        "case_snapshots": case_snapshots,
     }

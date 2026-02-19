@@ -24,23 +24,8 @@ export function MemoryPage() {
   }, [loadMemory, sessionId]);
 
   const recalledCaseIds = useMemo(() => {
-    if (memoryView?.recalledCaseIds?.length) {
-      return memoryView.recalledCaseIds;
-    }
-
-    return [
-      ...new Set([
-        ...(memoryView?.retrievedStaticCaseIds ?? []),
-        ...(memoryView?.retrievedDynamicCaseIds ?? []),
-        ...(memoryView?.representativeCaseIds ?? []),
-      ]),
-    ];
-  }, [
-    memoryView?.recalledCaseIds,
-    memoryView?.representativeCaseIds,
-    memoryView?.retrievedDynamicCaseIds,
-    memoryView?.retrievedStaticCaseIds,
-  ]);
+    return memoryView?.recalledCaseIds ?? [];
+  }, [memoryView?.recalledCaseIds]);
 
   const recalledRows = useMemo(
     () =>

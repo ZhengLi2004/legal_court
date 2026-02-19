@@ -26,8 +26,8 @@ export class CompatAdapterFacade implements EngineAdapter {
   constructor(options: AdapterOptions = {}) {
     this.client = new CompatClient(options);
     this.session = new SessionDomainAdapter(this.client);
-    this.graph = new GraphDomainAdapter(this.client, this.session);
-    this.insight = new InsightDomainAdapter(this.client, this.session);
+    this.graph = new GraphDomainAdapter(this.client);
+    this.insight = new InsightDomainAdapter(this.client);
   }
 
   get capabilities(): AdapterCapabilities {

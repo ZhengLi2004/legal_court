@@ -7,7 +7,6 @@ import {
   normalizeSnapshotList,
 } from "../protocol";
 
-import { HttpTransportError } from "../httpTransport";
 import { withQuery } from "../client";
 import type { CompatClient } from "../client";
 
@@ -30,97 +29,62 @@ export class SessionDomainAdapter implements SessionAdapter {
   async createSession(input: CreateSessionInput = {}): Promise<DebateSnapshot> {
     const body = {
       case_id: input.caseId,
-      plaintiff_claim: input.plaintiffClaim,
-      defendant_answer: input.defendantAnswer,
+      case_uid: input.caseUid,
+      case_data: input.caseData,
     };
 
-    const raw = await this.client.callWithCandidates([
-      { method: "POST", path: "/api/v1/sessions", body },
-      { method: "POST", path: "/sessions", body },
-      { method: "POST", path: "/engine/init", body },
-      { method: "POST", path: "/engine/create", body },
-    ]);
+    const raw = await this.client.request({
+      method: "POST",
+      path: "/api/v1/sessions",
+      body,
+    });
 
     return normalizeSnapshot(raw);
   }
 
   async step(sessionId: string): Promise<DebateSnapshot> {
-    const raw = await this.client.callWithCandidates([
-      { method: "POST", path: `/api/v1/sessions/${sessionId}/step` },
-      { method: "POST", path: `/sessions/${sessionId}/step` },
-      { method: "POST", path: "/engine/step", body: { session_id: sessionId } },
-    ]);
+    const raw = await this.client.request({
+      method: "POST",
+      path: `/api/v1/sessions/${sessionId}/step`,
+    });
 
     return normalizeSnapshot(raw);
   }
 
   async adjudicate(sessionId: string): Promise<DebateSnapshot> {
-    const raw = await this.client.callWithCandidates([
-      { method: "POST", path: `/api/v1/sessions/${sessionId}/adjudicate` },
-      { method: "POST", path: `/sessions/${sessionId}/adjudicate` },
-      {
-        method: "POST",
-        path: "/engine/adjudicate",
-        body: { session_id: sessionId },
-      },
-    ]);
+    const raw = await this.client.request({
+      method: "POST",
+      path: `/api/v1/sessions/${sessionId}/adjudicate`,
+    });
 
     return normalizeSnapshot(raw);
   }
 
   async getSnapshot(sessionId: string): Promise<DebateSnapshot> {
-    const raw = await this.client.callWithCandidates([
-      { method: "GET", path: `/api/v1/sessions/${sessionId}/snapshot` },
-      { method: "GET", path: `/api/v1/sessions/${sessionId}` },
-      { method: "GET", path: `/sessions/${sessionId}/snapshot` },
-      { method: "GET", path: `/sessions/${sessionId}` },
-      {
-        method: "POST",
-        path: "/engine/snapshot",
-        body: { session_id: sessionId },
-      },
-    ]);
+    const raw = await this.client.request({
+      method: "GET",
+      path: `/api/v1/sessions/${sessionId}/snapshot`,
+    });
 
     return normalizeSnapshot(raw);
   }
 
   async listSessions(): Promise<DebateSnapshot[]> {
-    const raw = await this.client.callWithCandidates([
-      { method: "GET", path: "/api/v1/sessions" },
-      { method: "GET", path: "/sessions" },
-      { method: "GET", path: "/engine/sessions" },
-    ]);
+    const raw = await this.client.request({
+      method: "GET",
+      path: "/api/v1/sessions",
+    });
 
     return normalizeSnapshotList(raw);
   }
 
   async getSnapshots(sessionId: string): Promise<SnapshotIndexItem[]> {
-    try {
-      const raw = await this.client.callWithCandidates([
-        { method: "GET", path: `/api/v1/sessions/${sessionId}/snapshots` },
-      ]);
+    const raw = await this.client.request({
+      method: "GET",
+      path: `/api/v1/sessions/${sessionId}/snapshots`,
+    });
 
-      return normalizeSnapshotIndex(raw);
-    } catch (err) {
-      if (
-        err instanceof HttpTransportError &&
-        (err.status === 404 || err.status === 405)
-      ) {
-        const snapshot = await this.getSnapshot(sessionId);
-
-        return [
-          {
-            round: snapshot.round,
-            turn: "current",
-            ts: Date.now(),
-            nodeCount: snapshot.metrics.arguments,
-            edgeCount: snapshot.metrics.attacks + snapshot.metrics.supports,
-          },
-        ];
-      }
-
-      throw err;
-    }
+    return normalizeSnapshotIndex(raw);
   }
 
   async saveFrontendSnapshot(input: {
@@ -128,17 +92,15 @@ export class SessionDomainAdapter implements SessionAdapter {
     label?: string;
     frontendState?: Record<string, unknown>;
   }): Promise<FrontendSnapshotListItem> {
-    const raw = await this.client.callWithCandidates([
-      {
-        method: "POST",
-        path: "/api/v1/frontend-snapshots",
-        body: {
-          session_id: input.sessionId,
-          label: input.label ?? "",
-          frontend_state: input.frontendState ?? {},
-        },
+    const raw = await this.client.request({
+      method: "POST",
+      path: "/api/v1/frontend-snapshots",
+      body: {
+        session_id: input.sessionId,
+        label: input.label ?? "",
+        frontend_state: input.frontendState ?? {},
       },
-    ]);
+    });
 
     return normalizeFrontendSnapshotItem(raw);
   }
@@ -148,17 +110,15 @@ export class SessionDomainAdapter implements SessionAdapter {
     label?: string;
     frontendState?: Record<string, unknown>;
   }): Promise<FrontendSnapshotListItem> {
-    const raw = await this.client.callWithCandidates([
-      {
-        method: "POST",
-        path: "/api/v1/frontend-snapshots/import",
-        body: {
-          bundle: input.bundle,
-          label: input.label ?? "",
-          frontend_state: input.frontendState ?? {},
-        },
+    const raw = await this.client.request({
+      method: "POST",
+      path: "/api/v1/frontend-snapshots/import",
+      body: {
+        bundle: input.bundle,
+        label: input.label ?? "",
+        frontend_state: input.frontendState ?? {},
       },
-    ]);
+    });
 
     return normalizeFrontendSnapshotItem(raw);
   }
@@ -168,19 +128,17 @@ export class SessionDomainAdapter implements SessionAdapter {
     offset = 0,
   ): Promise<FrontendSnapshotListItem[]> {
     const path = withQuery("/api/v1/frontend-snapshots", { limit, offset });
-    const raw = await this.client.callWithCandidates([{ method: "GET", path }]);
+    const raw = await this.client.request({ method: "GET", path });
     return normalizeFrontendSnapshotList(raw);
   }
 
   async loadFrontendSnapshot(
     snapshotId: string,
   ): Promise<FrontendSnapshotLoadResult> {
-    const raw = await this.client.callWithCandidates([
-      {
-        method: "POST",
-        path: `/api/v1/frontend-snapshots/${snapshotId}/load`,
-      },
-    ]);
+    const raw = await this.client.request({
+      method: "POST",
+      path: `/api/v1/frontend-snapshots/${snapshotId}/load`,
+    });
 
     return normalizeFrontendSnapshotLoadResult(raw);
   }

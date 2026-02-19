@@ -13,7 +13,6 @@ import type {
   InsightAdapter,
   MemoryView,
   GraphView,
-  SessionAdapter,
   TeamFlowTurn,
   TimelineEvent,
   TurnArtifact,
@@ -21,11 +20,9 @@ import type {
 
 export class InsightDomainAdapter implements InsightAdapter {
   private readonly client: CompatClient;
-  private readonly sessionAdapter: SessionAdapter;
 
-  constructor(client: CompatClient, sessionAdapter: SessionAdapter) {
+  constructor(client: CompatClient) {
     this.client = client;
-    this.sessionAdapter = sessionAdapter;
   }
 
   private static buildWebSocketUrl(
@@ -63,17 +60,12 @@ export class InsightDomainAdapter implements InsightAdapter {
   }
 
   async getMemory(sessionId: string): Promise<MemoryView> {
-    try {
-      const raw = await this.client.callWithCandidates([
-        { method: "GET", path: `/api/v1/sessions/${sessionId}/memory` },
-        { method: "GET", path: `/sessions/${sessionId}/memory` },
-      ]);
+    const raw = await this.client.request({
+      method: "GET",
+      path: `/api/v1/sessions/${sessionId}/memory`,
+    });
 
-      return normalizeMemory(raw, sessionId);
-    } catch {
-      const snapshot = await this.sessionAdapter.getSnapshot(sessionId);
-      return normalizeMemory(snapshot.raw ?? {}, sessionId);
-    }
+    return normalizeMemory(raw, sessionId);
   }
 
   async getMemoryCaseGraph(
@@ -82,29 +74,20 @@ export class InsightDomainAdapter implements InsightAdapter {
   ): Promise<GraphView> {
     const encodedCaseId = encodeURIComponent(caseId);
 
-    const raw = await this.client.callWithCandidates([
-      {
-        method: "GET",
-        path: `/api/v1/sessions/${sessionId}/memory/cases/${encodedCaseId}/graph`,
-      },
-    ]);
+    const raw = await this.client.request({
+      method: "GET",
+      path: `/api/v1/sessions/${sessionId}/memory/cases/${encodedCaseId}/graph`,
+    });
 
     return normalizeGraph(raw, sessionId);
   }
 
   async getTimeline(sessionId: string, limit = 100): Promise<TimelineEvent[]> {
-    const v1Path = withQuery(`/api/v1/sessions/${sessionId}/events/history`, {
+    const path = withQuery(`/api/v1/sessions/${sessionId}/events`, {
       limit,
     });
 
-    const basePath = withQuery(`/sessions/${sessionId}/events`, {
-      limit,
-    });
-
-    const raw = await this.client.callWithCandidates([
-      { method: "GET", path: v1Path },
-      { method: "GET", path: basePath },
-    ]);
+    const raw = await this.client.request({ method: "GET", path });
 
     return normalizeTimeline(raw);
   }
@@ -117,7 +100,7 @@ export class InsightDomainAdapter implements InsightAdapter {
       limit,
     });
 
-    const raw = await this.client.callWithCandidates([{ method: "GET", path }]);
+    const raw = await this.client.request({ method: "GET", path });
     return normalizeTeamflowStream(raw);
   }
 
@@ -200,9 +183,7 @@ export class InsightDomainAdapter implements InsightAdapter {
         { limit },
       );
 
-      const raw = await this.client.callWithCandidates([
-        { method: "GET", path: byTurnPath },
-      ]);
+      const raw = await this.client.request({ method: "GET", path: byTurnPath });
 
       return normalizeTurnArtifacts(raw);
     }
@@ -214,9 +195,7 @@ export class InsightDomainAdapter implements InsightAdapter {
       },
     );
 
-    const raw = await this.client.callWithCandidates([
-      { method: "GET", path: listPath },
-    ]);
+    const raw = await this.client.request({ method: "GET", path: listPath });
 
     return normalizeTurnArtifacts(raw);
   }

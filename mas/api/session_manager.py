@@ -1447,7 +1447,7 @@ class SessionManager:
             session: Source session.
 
         Returns:
-            JSON-safe snapshot payload with compatibility fields.
+            JSON-safe snapshot payload.
         """
         base = session.engine.get_serializable_snapshot()
         graph_stats = base.get("graph_stats", {})

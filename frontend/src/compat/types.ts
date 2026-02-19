@@ -50,8 +50,8 @@ export interface SnapshotIndexItem {
 
 export interface CreateSessionInput {
   caseId?: string;
-  plaintiffClaim?: string;
-  defendantAnswer?: string;
+  caseUid?: string;
+  caseData?: Record<string, unknown>;
 }
 
 export interface GraphNode {
@@ -104,16 +104,9 @@ export interface MemoryView {
   insightItems: MemoryInsightItem[];
   representativeCaseIds: string[];
   caseCatalog: Record<string, MemoryCaseCatalogItem>;
-  retrievedStaticCaseIds: string[];
-  retrievedDynamicCaseIds: string[];
   recalledCaseIds: string[];
   recalledCaseCount: number;
-  staticHistoryCount: number;
-  dynamicLawCaseCount: number;
-  taskLayerNodeCount: number;
-  taskLayerEdgeCount: number;
   taskLayerGraph: TaskLayerGraph;
-  caseSnapshots: MemoryCaseSnapshot[];
   raw?: unknown;
 }
 
@@ -154,14 +147,6 @@ export interface MemoryRelatedCase {
 
 export interface MemoryCaseCatalogItem {
   summary: string;
-}
-
-export interface MemoryCaseSnapshot {
-  round: number;
-  turn: string;
-  ts: number;
-  nodeCount: number;
-  edgeCount: number;
 }
 
 export interface TimelineEvent {

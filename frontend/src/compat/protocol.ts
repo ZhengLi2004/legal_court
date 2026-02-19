@@ -1,18 +1,17 @@
 import type {
-  MemoryCaseSnapshot,
-  MemoryInsightItem,
   DebateMetrics,
   DebatePhase,
   DebateSnapshot,
+  FrontendSnapshotListItem,
+  FrontendSnapshotLoadResult,
   GraphDiffView,
   GraphEdge,
   GraphNode,
   GraphView,
+  MemoryInsightItem,
   MemoryView,
-  TaskLayerGraph,
-  FrontendSnapshotListItem,
-  FrontendSnapshotLoadResult,
   SnapshotIndexItem,
+  TaskLayerGraph,
   TeamFlowMessage,
   TeamFlowTurn,
   TimelineEvent,
@@ -64,11 +63,11 @@ function asString(value: unknown, fallback = ""): string {
     return value;
   }
 
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-
-  if (typeof value === "boolean" || typeof value === "bigint") {
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
     return String(value);
   }
 
@@ -87,8 +86,8 @@ function asStringList(value: unknown): string[] {
       }
 
       const row = asRecord(item);
-      const role = asString(row.role, asString(row.speaker, "agent"));
-      const content = asString(row.content, asString(row.text));
+      const role = asString(row.role, "agent");
+      const content = asString(row.content);
       return content ? `[${role}] ${content}` : "";
     })
     .filter(Boolean);
@@ -99,23 +98,7 @@ function asIdList(value: unknown): string[] {
     return [];
   }
 
-  return value
-    .map((item) => {
-      if (typeof item === "string") {
-        return item.trim();
-      }
-
-      if (
-        typeof item === "number" ||
-        typeof item === "boolean" ||
-        typeof item === "bigint"
-      ) {
-        return String(item);
-      }
-
-      return "";
-    })
-    .filter(Boolean);
+  return value.map((item) => asString(item).trim()).filter(Boolean);
 }
 
 function asNumberList(value: unknown): number[] {
@@ -164,11 +147,7 @@ function asTeamflowRole(value: unknown): TeamFlowMessage["role"] {
 function normalizeEdgeType(type: string): string {
   const upper = type.toUpperCase();
 
-  if (upper === "ATTACK") {
-    return "CONFLICT";
-  }
-
-  if (upper === "EDGETYPE.CONFLICT") {
+  if (upper === "ATTACK" || upper === "EDGETYPE.CONFLICT") {
     return "CONFLICT";
   }
 
@@ -186,113 +165,20 @@ function parseNodes(value: unknown): GraphNode[] {
 
   return value.map((item, index) => {
     const row = asRecord(item);
-
-    const id = asString(
-      row.id ?? row.node_id ?? row.nodeId ?? row.uid,
-      `node-${index}`,
-    );
-
-    const type = asString(
-      row.type ?? row.kind ?? row.node_type ?? row.nodeType,
-      "UNKNOWN",
-    );
+    const id = asString(row.id, `node-${index}`);
+    const type = asString(row.type, "UNKNOWN");
 
     return {
       id,
       type,
-      label: asString(row.label ?? row.name ?? row.content, id),
+      label: asString(row.label, id),
       status: asString(row.status) || undefined,
       content: asString(row.content) || undefined,
-      agentId: asString(row.agent_id ?? row.agentId) || undefined,
+      agentId: asString(row.agent_id) || undefined,
       metadata: asMaybeRecord(row.metadata),
       raw: item,
     };
   });
-}
-
-function parseMemoryInsightItems(value: unknown): MemoryInsightItem[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const parseMemoryRelatedCases = (source: unknown) => {
-    if (!Array.isArray(source)) {
-      return [];
-    }
-
-    return source.map((item) => {
-      const row = asRecord(item);
-
-      return {
-        caseId: asString(row.case_id ?? row.caseId),
-        summary: asString(row.summary, "（无摘要）"),
-        sources: asStringList(row.sources),
-      };
-    });
-  };
-
-  return value.map((item) => {
-    const row = asRecord(item);
-    const cases = asStringList(row.cases);
-    const representatives = asStringList(row.representatives);
-
-    const relatedCases = parseMemoryRelatedCases(
-      row.related_cases ?? row.relatedCases,
-    ).filter((entry) => entry.caseId);
-
-    return {
-      content: asString(row.content),
-      side: asString(row.side, "COMMON"),
-      cases,
-      representatives,
-      relatedCases,
-      caseCount: asNumber(row.case_count ?? row.caseCount, cases.length),
-      representativeCount: asNumber(
-        row.representative_count ?? row.representativeCount,
-        representatives.length,
-      ),
-      linkedRound: asNumber(row.linked_round ?? row.linkedRound, 0),
-    };
-  });
-}
-
-function parseMemoryCaseSnapshots(value: unknown): MemoryCaseSnapshot[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.map((item, index) => {
-    const row = asRecord(item);
-
-    return {
-      round: asNumber(row.round_idx ?? row.round, index),
-      turn: asString(row.turn),
-      ts: asNumber(row.ts_ms ?? row.ts, 0),
-      nodeCount: asNumber(row.node_count ?? row.nodeCount, 0),
-      edgeCount: asNumber(row.edge_count ?? row.edgeCount, 0),
-    };
-  });
-}
-
-function parseCaseCatalog(value: unknown): Record<string, { summary: string }> {
-  const source = asRecord(value);
-  const output: Record<string, { summary: string }> = {};
-
-  for (const [caseIdRaw, itemRaw] of Object.entries(source)) {
-    const caseId = asString(caseIdRaw).trim();
-
-    if (!caseId) {
-      continue;
-    }
-
-    const row = asRecord(itemRaw);
-
-    output[caseId] = {
-      summary: asString(row.summary, "（无摘要）"),
-    };
-  }
-
-  return output;
 }
 
 function parseEdges(value: unknown): GraphEdge[] {
@@ -304,35 +190,9 @@ function parseEdges(value: unknown): GraphEdge[] {
 
   for (const [index, item] of value.entries()) {
     const row = asRecord(item);
-
-    const source = asString(
-      row.source ??
-        row.from ??
-        row.u ??
-        row.src ??
-        row.from_id ??
-        row.fromId ??
-        row.source_id ??
-        row.sourceId,
-      "",
-    );
-
-    const target = asString(
-      row.target ??
-        row.to ??
-        row.v ??
-        row.dst ??
-        row.to_id ??
-        row.toId ??
-        row.target_id ??
-        row.targetId,
-      "",
-    );
-
-    const rawType = asString(
-      row.type ?? row.relation ?? row.edge_type ?? row.edgeType ?? row.kind,
-      "SUPPORT",
-    );
+    const source = asString(row.source).trim();
+    const target = asString(row.target).trim();
+    const rawType = asString(row.type, "SUPPORT");
 
     if (!source || !target) {
       continue;
@@ -354,36 +214,94 @@ function parseEdges(value: unknown): GraphEdge[] {
   return edges;
 }
 
-function parseTaskLayerGraph(
-  payload: Record<string, unknown>,
-  taskLayer: Record<string, unknown>,
-): TaskLayerGraph {
-  const source = asRecord(
-    payload.task_layer_graph ??
-      payload.taskLayerGraph ??
-      taskLayer.graph ??
-      taskLayer.task_layer_graph,
-  );
+function parseMemoryInsightItems(value: unknown): MemoryInsightItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
 
+  const parseRelatedCases = (source: unknown) => {
+    if (!Array.isArray(source)) {
+      return [];
+    }
+
+    return source
+      .map((item) => {
+        const row = asRecord(item);
+        const caseId = asString(row.case_id).trim();
+
+        if (!caseId) {
+          return null;
+        }
+
+        return {
+          caseId,
+          summary: asString(row.summary, "（无摘要）"),
+          sources: asStringList(row.sources),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+  };
+
+  return value.map((item) => {
+    const row = asRecord(item);
+    const cases = asStringList(row.cases);
+    const representatives = asStringList(row.representatives);
+
+    return {
+      content: asString(row.content),
+      side: asString(row.side, "COMMON"),
+      cases,
+      representatives,
+      relatedCases: parseRelatedCases(row.related_cases),
+      caseCount: asNumber(row.case_count, cases.length),
+      representativeCount: asNumber(
+        row.representative_count,
+        representatives.length,
+      ),
+      linkedRound: asNumber(row.linked_round, 0),
+    };
+  });
+}
+
+function parseCaseCatalog(value: unknown): Record<string, { summary: string }> {
+  const source = asRecord(value);
+  const output: Record<string, { summary: string }> = {};
+
+  for (const [caseIdRaw, itemRaw] of Object.entries(source)) {
+    const caseId = asString(caseIdRaw).trim();
+
+    if (!caseId) {
+      continue;
+    }
+
+    const row = asRecord(itemRaw);
+    output[caseId] = { summary: asString(row.summary, "（无摘要）") };
+  }
+
+  return output;
+}
+
+function parseTaskLayerGraph(payload: Record<string, unknown>): TaskLayerGraph {
+  const source = asRecord(payload.task_layer_graph);
   const nodeRows = Array.isArray(source.nodes) ? source.nodes : [];
   const edgeRows = Array.isArray(source.edges) ? source.edges : [];
 
   const nodes = nodeRows.map((item, index) => {
     const row = asRecord(item);
-    const id = asString(row.id ?? row.case_id ?? row.caseId, `case-${index}`);
+    const id = asString(row.id, `case-${index}`);
 
     return {
       id,
-      label: asString(row.label ?? row.title ?? row.name, id),
-      kind: asString(row.kind ?? row.type) || undefined,
+      label: asString(row.label, id),
+      kind: asString(row.kind) || undefined,
     };
   });
 
   const edges = edgeRows.map((item, index) => {
     const row = asRecord(item);
-    const sourceId = asString(row.source ?? row.from ?? row.u, "");
-    const targetId = asString(row.target ?? row.to ?? row.v, "");
-    const type = asString(row.type ?? row.kind ?? row.relation, "reference");
+    const sourceId = asString(row.source);
+    const targetId = asString(row.target);
+    const type = asString(row.type, "reference");
 
     return {
       id: asString(row.id, `${sourceId}->${targetId}:${type}:${index}`),
@@ -396,29 +314,26 @@ function parseTaskLayerGraph(
   return { nodes, edges };
 }
 
-export function unwrapPayload(raw: unknown): Record<string, unknown> {
-  const outer = asRecord(raw);
+function requireNonEmptyString(value: string, fieldName: string): string {
+  const text = value.trim();
 
-  const candidate =
-    outer.data ?? outer.snapshot ?? outer.state ?? outer.payload;
-
-  if (candidate !== undefined) {
-    return asRecord(candidate);
+  if (!text) {
+    throw new Error(`ProtocolError: missing required field \`${fieldName}\`.`);
   }
 
-  return outer;
+  return text;
+}
+
+export function unwrapPayload(raw: unknown): Record<string, unknown> {
+  return asRecord(raw);
 }
 
 function derivePhase(payload: Record<string, unknown>): DebatePhase {
-  if (asBoolean(payload.is_finished ?? payload.finished)) {
+  if (asBoolean(payload.is_finished)) {
     return "finished";
   }
 
-  if (
-    asBoolean(
-      payload.is_ready_for_adjudication ?? payload.ready_for_adjudication,
-    )
-  ) {
+  if (asBoolean(payload.is_ready_for_adjudication)) {
     return "ready_for_adjudication";
   }
 
@@ -426,22 +341,15 @@ function derivePhase(payload: Record<string, unknown>): DebatePhase {
     return "error";
   }
 
-  const round = asNumber(payload.current_round ?? payload.round);
-  return round > 0 ? "running" : "idle";
+  return asNumber(payload.current_round, 0) > 0 ? "running" : "idle";
 }
 
 function deriveMetrics(payload: Record<string, unknown>): DebateMetrics {
   const metrics = asRecord(payload.metrics);
   const graphStats = asRecord(payload.graph_stats);
-  const graph = asRecord(payload.graph);
-
-  const nodeCount =
-    asNumber(metrics.arguments, -1) >= 0
-      ? asNumber(metrics.arguments)
-      : asNumber(graphStats.node_count, asNumber(graph.nodes_count, 0));
 
   return {
-    arguments: nodeCount,
+    arguments: asNumber(metrics.arguments, asNumber(graphStats.node_count, 0)),
     attacks: asNumber(
       metrics.attacks,
       asNumber(graphStats.edge_attack_count, 0),
@@ -454,39 +362,19 @@ function deriveMetrics(payload: Record<string, unknown>): DebateMetrics {
 }
 
 function deriveConvergence(payload: Record<string, unknown>) {
-  const lastLog = asRecord(payload.last_log ?? payload.lastLog);
+  const lastLog = asRecord(payload.last_log);
   const convergence = asRecord(lastLog.convergence ?? payload.convergence);
-
-  const historyFromPayload = asNumberList(
-    payload.convergence_history ?? payload.convergenceHistory,
-  );
-
+  const historyFromPayload = asNumberList(payload.convergence_history);
   const historyFromConvergence = asNumberList(convergence.history);
 
   const history =
     historyFromPayload.length > 0 ? historyFromPayload : historyFromConvergence;
 
-  const deltaPhi = asNumber(
-    convergence.delta_phi ?? convergence.deltaPhi ?? history.at(-1),
-    0,
-  );
-
+  const deltaPhi = asNumber(convergence.delta_phi, history.at(-1) ?? 0);
   const sma = asNumber(convergence.sma, deltaPhi);
-
-  const epsilon = asNumber(
-    convergence.epsilon ?? payload.convergence_epsilon ?? payload.epsilon,
-    3,
-  );
-
-  const minRounds = asNumber(
-    convergence.min_rounds ?? convergence.minRounds ?? payload.min_rounds,
-    2,
-  );
-
-  const windowSize = asNumber(
-    convergence.window_size ?? convergence.windowSize ?? payload.window_size,
-    4,
-  );
+  const epsilon = asNumber(convergence.epsilon, 3);
+  const minRounds = asNumber(convergence.min_rounds, 2);
+  const windowSize = asNumber(convergence.window_size, 4);
 
   return {
     deltaPhi,
@@ -509,34 +397,24 @@ function deriveTermination(
   },
 ) {
   const ready = asBoolean(
-    payload.is_ready_for_adjudication ??
-      payload.ready_for_adjudication ??
-      payload.is_finished ??
-      payload.finished,
+    payload.is_ready_for_adjudication ?? payload.is_finished,
   );
 
-  const convergenceInPayload =
+  const hasConvergenceSignal =
     payload.convergence_history !== undefined ||
-    payload.convergenceHistory !== undefined ||
-    asRecord(asRecord(payload.last_log ?? payload.lastLog).convergence).sma !==
-      undefined ||
+    asRecord(asRecord(payload.last_log).convergence).sma !== undefined ||
     asRecord(payload.convergence).sma !== undefined;
 
   const convergenceReached =
-    convergenceInPayload &&
+    hasConvergenceSignal &&
     round >= convergence.minRounds &&
     convergence.sma < convergence.epsilon;
 
-  if (convergenceReached) {
-    return {
-      ready,
-      reason: "convergence" as const,
-    };
-  }
-
   return {
     ready,
-    reason: "unknown" as const,
+    reason: convergenceReached
+      ? ("convergence" as const)
+      : ("unknown" as const),
   };
 }
 
@@ -546,12 +424,12 @@ export function normalizeSnapshot(
 ): DebateSnapshot {
   const payload = unwrapPayload(raw);
 
-  const sessionId = asString(
-    payload.session_id ?? payload.sessionId ?? payload.id,
-    fallbackSessionId,
+  const sessionId = requireNonEmptyString(
+    asString(payload.session_id, fallbackSessionId),
+    "session_id",
   );
 
-  const round = asNumber(payload.current_round ?? payload.round);
+  const round = asNumber(payload.current_round, 0);
   const convergence = deriveConvergence(payload);
   const termination = deriveTermination(payload, round, convergence);
 
@@ -571,36 +449,32 @@ export function normalizeSnapshot(
 
 export function normalizeSnapshotList(raw: unknown): DebateSnapshot[] {
   const payload = unwrapPayload(raw);
-  const listCandidate = payload.sessions ?? payload.items ?? payload.list;
+  const rows = payload.sessions ?? payload.items;
 
-  if (Array.isArray(listCandidate)) {
-    return listCandidate.map((item) => normalizeSnapshot(item));
+  if (!Array.isArray(rows)) {
+    return [];
   }
 
-  if (Array.isArray(raw)) {
-    return raw.map((item) => normalizeSnapshot(item));
-  }
-
-  return [];
+  return rows.map((item) => normalizeSnapshot(item));
 }
 
 export function normalizeSnapshotIndex(raw: unknown): SnapshotIndexItem[] {
   const payload = unwrapPayload(raw);
-  const listCandidate = payload.items ?? payload.snapshots ?? raw;
+  const rows = payload.items;
 
-  if (!Array.isArray(listCandidate)) {
+  if (!Array.isArray(rows)) {
     return [];
   }
 
-  return listCandidate.map((item, index) => {
+  return rows.map((item, index) => {
     const row = asRecord(item);
 
     return {
-      round: asNumber(row.round_idx ?? row.round, index),
+      round: asNumber(row.round_idx, index),
       turn: asString(row.turn, ""),
-      ts: asNumber(row.ts_ms ?? row.ts, 0),
-      nodeCount: asNumber(row.node_count ?? row.nodeCount, 0),
-      edgeCount: asNumber(row.edge_count ?? row.edgeCount, 0),
+      ts: asNumber(row.ts_ms, 0),
+      nodeCount: asNumber(row.node_count, 0),
+      edgeCount: asNumber(row.edge_count, 0),
       raw: item,
     };
   });
@@ -611,29 +485,25 @@ export function normalizeGraph(
   fallbackSessionId = "",
 ): GraphView {
   const payload = unwrapPayload(raw);
-  const graphData = asRecord(payload.graph_data ?? payload.graph);
+  const graphData = asRecord(payload.graph_data);
+  const nodesRaw = graphData.nodes;
+  const edgesRaw = graphData.edges;
 
-  const sessionId = asString(
-    payload.session_id ?? payload.sessionId,
-    fallbackSessionId,
-  );
-
-  const round = asNumber(
-    payload.round_idx ?? payload.current_round ?? payload.round,
-  );
+  if (!Array.isArray(nodesRaw) || !Array.isArray(edgesRaw)) {
+    throw new Error(
+      "ProtocolError: graph_data.nodes/graph_data.edges must be arrays.",
+    );
+  }
 
   return {
-    sessionId,
-    round,
-    nodes: parseNodes(graphData.nodes ?? payload.nodes),
-    edges: parseEdges(
-      graphData.edges ?? graphData.links ?? payload.edges ?? payload.links,
+    sessionId: requireNonEmptyString(
+      asString(payload.session_id, fallbackSessionId),
+      "session_id",
     ),
-    focusNodeIds: asIdList(
-      payload.focus_node_ids ??
-        payload.focusNodeIds ??
-        graphData.focus_node_ids,
-    ),
+    round: asNumber(payload.round_idx, asNumber(payload.current_round, 0)),
+    nodes: parseNodes(nodesRaw),
+    edges: parseEdges(edgesRaw),
+    focusNodeIds: asIdList(payload.focus_node_ids),
     raw,
   };
 }
@@ -645,39 +515,18 @@ export function normalizeGraphDiff(
   toRound: number,
 ): GraphDiffView {
   const payload = unwrapPayload(raw);
-
-  const addedNodeIds = asStringList(
-    payload.added_node_ids ?? payload.addedNodes,
-  );
-
-  const removedNodeIds = asStringList(
-    payload.removed_node_ids ?? payload.removedNodes,
-  );
-
-  const addedEdgeIds = asStringList(
-    payload.added_edge_ids ?? payload.addedEdges,
-  );
-
-  const removedEdgeIds = asStringList(
-    payload.removed_edge_ids ?? payload.removedEdges,
-  );
-
-  const statusChangedNodeIds = asStringList(
-    payload.status_changed_node_ids ?? payload.statusChangedNodeIds,
-  );
-
-  const changedNodeIds = asStringList(
-    payload.changed_node_ids ?? payload.changedNodes,
-  );
-
-  const changedEdgeIds = asStringList(
-    payload.changed_edge_ids ?? payload.changedEdges,
-  );
+  const addedNodeIds = asStringList(payload.added_node_ids);
+  const removedNodeIds = asStringList(payload.removed_node_ids);
+  const addedEdgeIds = asStringList(payload.added_edge_ids);
+  const removedEdgeIds = asStringList(payload.removed_edge_ids);
+  const statusChangedNodeIds = asStringList(payload.status_changed_node_ids);
+  const changedNodeIds = asStringList(payload.changed_node_ids);
+  const changedEdgeIds = asStringList(payload.changed_edge_ids);
 
   return {
-    sessionId: asString(payload.session_id ?? payload.sessionId, sessionId),
-    fromRound: asNumber(payload.from_round ?? payload.fromRound, fromRound),
-    toRound: asNumber(payload.to_round ?? payload.toRound, toRound),
+    sessionId: asString(payload.session_id, sessionId),
+    fromRound: asNumber(payload.from_round, fromRound),
+    toRound: asNumber(payload.to_round, toRound),
     addedNodeIds,
     removedNodeIds,
     addedEdgeIds,
@@ -706,80 +555,51 @@ export function normalizeMemory(
   fallbackSessionId = "",
 ): MemoryView {
   const payload = unwrapPayload(raw);
-  const insights = payload.insights ?? payload.insight_summaries;
-  const taskLayer = asRecord(payload.task_layer);
-  const insightItems = parseMemoryInsightItems(payload.insight_items);
-  const caseSnapshots = parseMemoryCaseSnapshots(payload.case_snapshots);
-  const taskLayerGraph = parseTaskLayerGraph(payload, taskLayer);
+  const insightItemsRaw = payload.insight_items;
+  const recalledCaseIdsRaw = payload.recalled_case_ids;
+  const taskLayerGraphRaw = payload.task_layer_graph;
 
-  const caseCatalog = parseCaseCatalog(
-    payload.case_catalog ?? payload.caseCatalog,
-  );
+  if (!Array.isArray(insightItemsRaw)) {
+    throw new Error(
+      "ProtocolError: memory field `insight_items` must be an array.",
+    );
+  }
 
-  const representativeCaseIds = asIdList(
-    payload.representative_case_ids ?? payload.representativeCaseIds,
-  );
+  if (!Array.isArray(recalledCaseIdsRaw)) {
+    throw new Error(
+      "ProtocolError: memory field `recalled_case_ids` must be an array.",
+    );
+  }
 
-  const retrievedStaticCaseIds = asIdList(
-    payload.retrieved_static_case_ids ?? payload.retrievedStaticCaseIds,
-  );
-
-  const retrievedDynamicCaseIds = asIdList(
-    payload.retrieved_dynamic_case_ids ?? payload.retrievedDynamicCaseIds,
-  );
-
-  const fallbackRecalledCaseIds = [
-    ...new Set([
-      ...retrievedStaticCaseIds,
-      ...retrievedDynamicCaseIds,
-      ...representativeCaseIds,
-    ]),
-  ];
-
-  const recalledCaseIds = asIdList(
-    payload.recalled_case_ids ?? payload.recalledCaseIds,
-  );
+  if (
+    taskLayerGraphRaw === null ||
+    typeof taskLayerGraphRaw !== "object" ||
+    Array.isArray(taskLayerGraphRaw)
+  ) {
+    throw new Error(
+      "ProtocolError: memory field `task_layer_graph` must be an object.",
+    );
+  }
 
   return {
-    sessionId: asString(
-      payload.session_id ?? payload.sessionId,
-      fallbackSessionId,
+    sessionId: requireNonEmptyString(
+      asString(payload.session_id, fallbackSessionId),
+      "session_id",
     ),
-    insightSummaries: asStringList(insights),
-    insightItems,
-    representativeCaseIds,
-    caseCatalog,
-    retrievedStaticCaseIds,
-    retrievedDynamicCaseIds,
-    recalledCaseIds:
-      recalledCaseIds.length > 0 ? recalledCaseIds : fallbackRecalledCaseIds,
-    recalledCaseCount: asNumber(
-      payload.recalled_case_count ?? payload.recalledCaseCount,
-      recalledCaseIds.length > 0
-        ? recalledCaseIds.length
-        : fallbackRecalledCaseIds.length,
-    ),
-    staticHistoryCount: asNumber(
-      payload.static_history_count ?? payload.staticHistoryCount,
-    ),
-    dynamicLawCaseCount: asNumber(
-      payload.dynamic_law_case_count ?? payload.dynamicLawCaseCount,
-    ),
-    taskLayerNodeCount: asNumber(
-      taskLayer.node_count ?? payload.task_layer_node_count,
-    ),
-    taskLayerEdgeCount: asNumber(
-      taskLayer.edge_count ?? payload.task_layer_edge_count,
-    ),
-    taskLayerGraph,
-    caseSnapshots,
+    insightSummaries: asStringList(payload.insight_summaries),
+    insightItems: parseMemoryInsightItems(insightItemsRaw),
+    representativeCaseIds: asIdList(payload.representative_case_ids),
+    caseCatalog: parseCaseCatalog(payload.case_catalog),
+    recalledCaseIds: asIdList(recalledCaseIdsRaw),
+    recalledCaseCount: asNumber(payload.recalled_case_count, 0),
+    taskLayerGraph: parseTaskLayerGraph(payload),
     raw,
   };
 }
 
 export function normalizeTimeline(raw: unknown): TimelineEvent[] {
   const payload = unwrapPayload(raw);
-  const events = payload.events ?? payload.items ?? raw;
+  const events = payload.events ?? payload.items;
 
   if (!Array.isArray(events)) {
     return [];
@@ -787,19 +607,17 @@ export function normalizeTimeline(raw: unknown): TimelineEvent[] {
 
   return events.map((item, index) => {
     const row = asRecord(item);
+    const hasRound = row.round_idx !== undefined;
 
     return {
       seq: asNumber(row.seq, index + 1),
-      ts: asNumber(row.ts_ms ?? row.ts, Date.now()),
-      eventId: asString(row.event_id ?? row.eventId) || undefined,
+      ts: asNumber(row.ts_ms, Date.now()),
+      eventId: asString(row.event_id) || undefined,
       event: asString(row.event, "event"),
       source: asString(row.source, "engine"),
-      roundIdx:
-        row.round_idx !== undefined || row.roundIdx !== undefined
-          ? asNumber(row.round_idx ?? row.roundIdx)
-          : undefined,
-      sessionId: asString(row.session_id ?? row.sessionId) || undefined,
-      turnUid: asString(row.turn_uid ?? row.turnUid) || undefined,
+      roundIdx: hasRound ? asNumber(row.round_idx, 0) : undefined,
+      sessionId: asString(row.session_id) || undefined,
+      turnUid: asString(row.turn_uid) || undefined,
       data: row.data,
     };
   });
@@ -807,48 +625,34 @@ export function normalizeTimeline(raw: unknown): TimelineEvent[] {
 
 export function normalizeTurnArtifacts(raw: unknown): TurnArtifact[] {
   const payload = unwrapPayload(raw);
-  const list = payload.items ?? payload.artifacts ?? raw;
+  const rows = payload.items;
 
-  if (!Array.isArray(list)) {
+  if (!Array.isArray(rows)) {
     return [];
   }
 
-  return list.map((item) => {
+  return rows.map((item) => {
     const row = asRecord(item);
 
     return {
-      turnUid: asString(row.turn_uid ?? row.turnUid),
+      turnUid: asString(row.turn_uid),
       side: asString(row.side, "unknown"),
-      round: asNumber(row.round_idx ?? row.round),
-      controllerAssessment:
-        row.controller_assessment ?? row.controllerAssessment,
-      batchInstructions: row.batch_instructions ?? row.batchInstructions,
-      decisionRaw: asString(row.decision_raw ?? row.decisionRaw),
+      round: asNumber(row.round_idx, 0),
+      controllerAssessment: row.controller_assessment,
+      batchInstructions: row.batch_instructions,
+      decisionRaw: asString(row.decision_raw),
       parsedActions: Array.isArray(row.parsed_actions)
         ? row.parsed_actions
-        : Array.isArray(row.parsedActions)
-          ? row.parsedActions
-          : [],
-      executionLogs: asString(row.execution_logs ?? row.executionLogs),
-      retryHistory: Array.isArray(row.retry_history)
-        ? row.retry_history
-        : Array.isArray(row.retryHistory)
-          ? row.retryHistory
-          : [],
+        : [],
+      executionLogs: asString(row.execution_logs),
+      retryHistory: Array.isArray(row.retry_history) ? row.retry_history : [],
       workerReports: Array.isArray(row.worker_reports)
         ? row.worker_reports
-        : Array.isArray(row.workerReports)
-          ? row.workerReports
-          : [],
-      narrativeRawSentences: Array.isArray(
-        row.narrative_raw_sentences ?? row.narrativeRawSentences,
-      )
-        ? ((row.narrative_raw_sentences ??
-            row.narrativeRawSentences) as unknown[])
         : [],
-      narrativePolished: asString(
-        row.narrative_polished ?? row.narrativePolished,
-      ),
+      narrativeRawSentences: Array.isArray(row.narrative_raw_sentences)
+        ? (row.narrative_raw_sentences as unknown[])
+        : [],
+      narrativePolished: asString(row.narrative_polished),
       raw: item,
     };
   });
@@ -856,24 +660,20 @@ export function normalizeTurnArtifacts(raw: unknown): TurnArtifact[] {
 
 export function normalizeTeamflowStream(raw: unknown): TeamFlowTurn[] {
   const payload = unwrapPayload(raw);
-  const list = payload.items ?? payload.turns ?? raw;
+  const rows = payload.items;
 
-  if (!Array.isArray(list)) {
+  if (!Array.isArray(rows)) {
     return [];
   }
 
-  return list.map((item, index) => {
+  return rows.map((item, index) => {
     const row = asRecord(item);
     const messagesRaw = row.messages;
 
     const messages = Array.isArray(messagesRaw)
       ? messagesRaw.map((messageItem, messageIndex) => {
           const messageRow = asRecord(messageItem);
-          const meta = asMaybeRecord(messageRow.meta);
-          const tsValue = asNumber(
-            messageRow.ts_ms ?? messageRow.ts,
-            Number.NaN,
-          );
+          const tsValue = asNumber(messageRow.ts_ms, Number.NaN);
 
           return {
             id: asString(messageRow.id, `msg-${index + 1}-${messageIndex + 1}`),
@@ -883,7 +683,7 @@ export function normalizeTeamflowStream(raw: unknown): TeamFlowTurn[] {
             title: asString(messageRow.title, "消息"),
             content: asString(messageRow.content),
             ts: Number.isFinite(tsValue) ? tsValue : undefined,
-            meta,
+            meta: asMaybeRecord(messageRow.meta),
             raw: messageItem,
           };
         })
@@ -895,16 +695,13 @@ export function normalizeTeamflowStream(raw: unknown): TeamFlowTurn[] {
       statusRaw === "done" || statusRaw === "retry" ? statusRaw : "partial";
 
     return {
-      turnUid: asString(row.turn_uid ?? row.turnUid, `turn-${index + 1}`),
-      round: asNumber(row.round_idx ?? row.round, index),
+      turnUid: asString(row.turn_uid, `turn-${index + 1}`),
+      round: asNumber(row.round_idx, index),
       side: asString(row.side, "unknown"),
       status,
-      retryCount: asNumber(row.retry_count ?? row.retryCount, 0),
-      workerCount: asNumber(row.worker_count ?? row.workerCount, 0),
-      messageCount: asNumber(
-        row.message_count ?? row.messageCount,
-        messages.length,
-      ),
+      retryCount: asNumber(row.retry_count, 0),
+      workerCount: asNumber(row.worker_count, 0),
+      messageCount: asNumber(row.message_count, messages.length),
       messages,
       raw: item,
     };
@@ -918,31 +715,21 @@ export function normalizeFrontendSnapshotItem(
   const metadata = asRecord(payload.metadata);
 
   return {
-    snapshotId: asString(payload.snapshot_id ?? payload.snapshotId),
+    snapshotId: asString(payload.snapshot_id),
     label: asString(payload.label, "snapshot"),
-    sourceSessionId: asString(
-      payload.source_session_id ?? payload.sourceSessionId,
-      "unknown",
-    ),
-    createdAt: asString(
-      payload.created_at ?? payload.createdAt,
-      new Date(0).toISOString(),
-    ),
+    sourceSessionId: asString(payload.source_session_id, "unknown"),
+    createdAt: asString(payload.created_at, new Date(0).toISOString()),
     eventCount: asNumber(
-      payload.event_count ?? payload.eventCount ?? metadata.event_count,
-      0,
+      payload.event_count,
+      asNumber(metadata.event_count, 0),
     ),
     artifactCount: asNumber(
-      payload.artifact_count ??
-        payload.artifactCount ??
-        metadata.artifact_count,
-      0,
+      payload.artifact_count,
+      asNumber(metadata.artifact_count, 0),
     ),
     snapshotCount: asNumber(
-      payload.snapshot_count ??
-        payload.snapshotCount ??
-        metadata.snapshot_count,
-      0,
+      payload.snapshot_count,
+      asNumber(metadata.snapshot_count, 0),
     ),
     raw,
   };
@@ -952,7 +739,7 @@ export function normalizeFrontendSnapshotList(
   raw: unknown,
 ): FrontendSnapshotListItem[] {
   const payload = unwrapPayload(raw);
-  const rows = payload.items ?? payload.snapshots ?? [];
+  const rows = payload.items;
 
   if (!Array.isArray(rows)) {
     return [];
@@ -966,7 +753,7 @@ export function normalizeFrontendSnapshotLoadResult(
 ): FrontendSnapshotLoadResult {
   const payload = asRecord(raw);
   const snapshot = normalizeFrontendSnapshotItem(payload.snapshot ?? {});
-  const frontendStateRaw = payload.frontend_state ?? payload.frontendState;
+  const frontendStateRaw = payload.frontend_state;
 
   const frontendState =
     frontendStateRaw !== null &&
@@ -976,76 +763,26 @@ export function normalizeFrontendSnapshotLoadResult(
       : {};
 
   const session = asRecord(payload.session);
-  const snapshotPayloadRaw =
-    payload.snapshot_payload ?? payload.snapshotPayload;
-
-  const parsedSessionId = asString(session.session_id ?? session.sessionId, "");
-
+  const parsedSessionId = asString(session.session_id, "");
+  const snapshotPayloadRaw = payload.snapshot_payload;
   const snapshotPayload =
     snapshotPayloadRaw !== undefined
       ? normalizeSnapshot(snapshotPayloadRaw, parsedSessionId)
       : null;
 
-  const resolvedSessionId = parsedSessionId || snapshotPayload?.sessionId || "";
-
   return {
     snapshot,
     frontendState,
     session: {
-      sessionId: resolvedSessionId,
-      status: asString(session.status, "UNKNOWN"),
-      currentRound: asNumber(session.current_round ?? session.currentRound, 0),
-      updatedAt: asString(
-        session.updated_at ?? session.updatedAt,
-        new Date(0).toISOString(),
+      sessionId: requireNonEmptyString(
+        parsedSessionId || snapshotPayload?.sessionId || "",
+        "session.session_id",
       ),
+      status: asString(session.status, "UNKNOWN"),
+      currentRound: asNumber(session.current_round, 0),
+      updatedAt: asString(session.updated_at, new Date(0).toISOString()),
     },
     snapshotPayload,
     raw,
-  };
-}
-
-export function buildLocalGraphDiff(
-  previous: GraphView,
-  current: GraphView,
-  sessionId: string,
-): GraphDiffView {
-  const prevNodeIds = new Set(previous.nodes.map((node) => node.id));
-  const currNodeIds = new Set(current.nodes.map((node) => node.id));
-  const prevEdgeIds = new Set(previous.edges.map((edge) => edge.id));
-  const currEdgeIds = new Set(current.edges.map((edge) => edge.id));
-
-  const previousNodeById = new Map(
-    previous.nodes.map((node) => [node.id, node]),
-  );
-
-  const statusChangedNodeIds: string[] = [];
-
-  for (const node of current.nodes) {
-    const prev = previousNodeById.get(node.id);
-
-    if (prev && (prev.status ?? "") !== (node.status ?? "")) {
-      statusChangedNodeIds.push(node.id);
-    }
-  }
-
-  const addedNodeIds = [...currNodeIds].filter((id) => !prevNodeIds.has(id));
-  const removedNodeIds = [...prevNodeIds].filter((id) => !currNodeIds.has(id));
-  const addedEdgeIds = [...currEdgeIds].filter((id) => !prevEdgeIds.has(id));
-  const removedEdgeIds = [...prevEdgeIds].filter((id) => !currEdgeIds.has(id));
-
-  return {
-    sessionId,
-    fromRound: previous.round,
-    toRound: current.round,
-    addedNodeIds,
-    removedNodeIds,
-    addedEdgeIds,
-    removedEdgeIds,
-    statusChangedNodeIds,
-    changedNodeIds: [
-      ...new Set([...addedNodeIds, ...removedNodeIds, ...statusChangedNodeIds]),
-    ],
-    changedEdgeIds: [...new Set([...addedEdgeIds, ...removedEdgeIds])],
   };
 }

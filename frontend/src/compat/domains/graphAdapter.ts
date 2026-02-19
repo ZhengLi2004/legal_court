@@ -1,41 +1,24 @@
-import {
-  buildLocalGraphDiff,
-  normalizeGraph,
-  normalizeGraphDiff,
-} from "../protocol";
+import { normalizeGraph, normalizeGraphDiff } from "../protocol";
 
 import { withQuery } from "../client";
 import type { CompatClient } from "../client";
 
-import type {
-  GraphAdapter,
-  GraphDiffView,
-  GraphView,
-  SessionAdapter,
-} from "../types";
+import type { GraphAdapter, GraphDiffView, GraphView } from "../types";
 
 export class GraphDomainAdapter implements GraphAdapter {
   private readonly client: CompatClient;
-  private readonly sessionAdapter: SessionAdapter;
 
-  constructor(client: CompatClient, sessionAdapter: SessionAdapter) {
+  constructor(client: CompatClient) {
     this.client = client;
-    this.sessionAdapter = sessionAdapter;
   }
 
   async getGraph(sessionId: string): Promise<GraphView> {
-    try {
-      const raw = await this.client.callWithCandidates([
-        { method: "GET", path: `/api/v1/sessions/${sessionId}/graph` },
-        { method: "GET", path: `/api/v1/sessions/${sessionId}/snapshot` },
-        { method: "GET", path: `/sessions/${sessionId}/graph` },
-      ]);
+    const raw = await this.client.request({
+      method: "GET",
+      path: `/api/v1/sessions/${sessionId}/graph`,
+    });
 
-      return normalizeGraph(raw, sessionId);
-    } catch {
-      const snapshot = await this.sessionAdapter.getSnapshot(sessionId);
-      return normalizeGraph(snapshot.raw ?? snapshot, sessionId);
-    }
+    return normalizeGraph(raw, sessionId);
   }
 
   async getGraphDiff(
@@ -48,41 +31,22 @@ export class GraphDomainAdapter implements GraphAdapter {
       to_round: toRound,
     });
 
-    const basePath = withQuery(`/sessions/${sessionId}/diff`, {
-      from_round: fromRound,
-      to_round: toRound,
+    const raw = await this.client.request({
+      method: "GET",
+      path: v1Path,
     });
 
-    try {
-      const raw = await this.client.callWithCandidates([
-        { method: "GET", path: v1Path },
-        { method: "GET", path: basePath },
-      ]);
-
-      return normalizeGraphDiff(raw, sessionId, fromRound, toRound);
-    } catch {
-      const [fromGraph, toGraph] = await Promise.all([
-        this.getGraphAtRound(sessionId, fromRound),
-        this.getGraphAtRound(sessionId, toRound),
-      ]);
-
-      return buildLocalGraphDiff(fromGraph, toGraph, sessionId);
-    }
+    return normalizeGraphDiff(raw, sessionId, fromRound, toRound);
   }
 
   async getGraphAtRound(sessionId: string, round: number): Promise<GraphView> {
-    const basePath = `/sessions/${sessionId}/snapshots/${round}`;
     const v1Path = `/api/v1/sessions/${sessionId}/snapshots/${round}`;
 
-    try {
-      const raw = await this.client.callWithCandidates([
-        { method: "GET", path: v1Path },
-        { method: "GET", path: basePath },
-      ]);
+    const raw = await this.client.request({
+      method: "GET",
+      path: v1Path,
+    });
 
-      return normalizeGraph(raw, sessionId);
-    } catch {
-      return this.getGraph(sessionId);
-    }
+    return normalizeGraph(raw, sessionId);
   }
 }
