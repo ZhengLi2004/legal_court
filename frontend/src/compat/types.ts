@@ -103,6 +103,11 @@ export interface MemoryView {
   insightSummaries: string[];
   insightItems: MemoryInsightItem[];
   representativeCaseIds: string[];
+  caseCatalog: Record<string, MemoryCaseCatalogItem>;
+  retrievedStaticCaseIds: string[];
+  retrievedDynamicCaseIds: string[];
+  recalledCaseIds: string[];
+  recalledCaseCount: number;
   staticHistoryCount: number;
   dynamicLawCaseCount: number;
   taskLayerNodeCount: number;
@@ -135,9 +140,20 @@ export interface MemoryInsightItem {
   side: string;
   cases: string[];
   representatives: string[];
+  relatedCases: MemoryRelatedCase[];
   caseCount: number;
   representativeCount: number;
   linkedRound: number;
+}
+
+export interface MemoryRelatedCase {
+  caseId: string;
+  summary: string;
+  sources: string[];
+}
+
+export interface MemoryCaseCatalogItem {
+  summary: string;
 }
 
 export interface MemoryCaseSnapshot {
@@ -288,6 +304,7 @@ export interface GraphAdapter {
 
 export interface InsightAdapter {
   getMemory(sessionId: string): Promise<MemoryView>;
+  getMemoryCaseGraph(sessionId: string, caseId: string): Promise<GraphView>;
   getTimeline(sessionId: string, limit?: number): Promise<TimelineEvent[]>;
   getTeamflowStream(sessionId: string, limit?: number): Promise<TeamFlowTurn[]>;
 

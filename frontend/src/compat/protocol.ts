@@ -215,16 +215,37 @@ function parseMemoryInsightItems(value: unknown): MemoryInsightItem[] {
     return [];
   }
 
+  const parseMemoryRelatedCases = (source: unknown) => {
+    if (!Array.isArray(source)) {
+      return [];
+    }
+
+    return source.map((item) => {
+      const row = asRecord(item);
+
+      return {
+        caseId: asString(row.case_id ?? row.caseId),
+        summary: asString(row.summary, "（无摘要）"),
+        sources: asStringList(row.sources),
+      };
+    });
+  };
+
   return value.map((item) => {
     const row = asRecord(item);
     const cases = asStringList(row.cases);
     const representatives = asStringList(row.representatives);
+
+    const relatedCases = parseMemoryRelatedCases(
+      row.related_cases ?? row.relatedCases,
+    ).filter((entry) => entry.caseId);
 
     return {
       content: asString(row.content),
       side: asString(row.side, "COMMON"),
       cases,
       representatives,
+      relatedCases,
       caseCount: asNumber(row.case_count ?? row.caseCount, cases.length),
       representativeCount: asNumber(
         row.representative_count ?? row.representativeCount,
@@ -251,6 +272,27 @@ function parseMemoryCaseSnapshots(value: unknown): MemoryCaseSnapshot[] {
       edgeCount: asNumber(row.edge_count ?? row.edgeCount, 0),
     };
   });
+}
+
+function parseCaseCatalog(value: unknown): Record<string, { summary: string }> {
+  const source = asRecord(value);
+  const output: Record<string, { summary: string }> = {};
+
+  for (const [caseIdRaw, itemRaw] of Object.entries(source)) {
+    const caseId = asString(caseIdRaw).trim();
+
+    if (!caseId) {
+      continue;
+    }
+
+    const row = asRecord(itemRaw);
+
+    output[caseId] = {
+      summary: asString(row.summary, "（无摘要）"),
+    };
+  }
+
+  return output;
 }
 
 function parseEdges(value: unknown): GraphEdge[] {
@@ -670,6 +712,34 @@ export function normalizeMemory(
   const caseSnapshots = parseMemoryCaseSnapshots(payload.case_snapshots);
   const taskLayerGraph = parseTaskLayerGraph(payload, taskLayer);
 
+  const caseCatalog = parseCaseCatalog(
+    payload.case_catalog ?? payload.caseCatalog,
+  );
+
+  const representativeCaseIds = asIdList(
+    payload.representative_case_ids ?? payload.representativeCaseIds,
+  );
+
+  const retrievedStaticCaseIds = asIdList(
+    payload.retrieved_static_case_ids ?? payload.retrievedStaticCaseIds,
+  );
+
+  const retrievedDynamicCaseIds = asIdList(
+    payload.retrieved_dynamic_case_ids ?? payload.retrievedDynamicCaseIds,
+  );
+
+  const fallbackRecalledCaseIds = [
+    ...new Set([
+      ...retrievedStaticCaseIds,
+      ...retrievedDynamicCaseIds,
+      ...representativeCaseIds,
+    ]),
+  ];
+
+  const recalledCaseIds = asIdList(
+    payload.recalled_case_ids ?? payload.recalledCaseIds,
+  );
+
   return {
     sessionId: asString(
       payload.session_id ?? payload.sessionId,
@@ -677,7 +747,18 @@ export function normalizeMemory(
     ),
     insightSummaries: asStringList(insights),
     insightItems,
-    representativeCaseIds: asStringList(payload.representative_case_ids),
+    representativeCaseIds,
+    caseCatalog,
+    retrievedStaticCaseIds,
+    retrievedDynamicCaseIds,
+    recalledCaseIds:
+      recalledCaseIds.length > 0 ? recalledCaseIds : fallbackRecalledCaseIds,
+    recalledCaseCount: asNumber(
+      payload.recalled_case_count ?? payload.recalledCaseCount,
+      recalledCaseIds.length > 0
+        ? recalledCaseIds.length
+        : fallbackRecalledCaseIds.length,
+    ),
     staticHistoryCount: asNumber(
       payload.static_history_count ?? payload.staticHistoryCount,
     ),

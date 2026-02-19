@@ -57,6 +57,9 @@ export function DebateProvider({ children }: { children: ReactNode }) {
   const [turnArtifacts, setTurnArtifacts] = useState<TurnArtifact[]>([]);
   const [memoryView, setMemoryView] = useState<MemoryView | null>(null);
 
+  const [memoryCaseGraphView, setMemoryCaseGraphView] =
+    useState<GraphView | null>(null);
+
   const [frontendSnapshots, setFrontendSnapshots] = useState<
     FrontendSnapshotListItem[]
   >([]);
@@ -251,6 +254,14 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     try {
       const result = await adapter.step(sessionId);
       applySnapshot(result);
+
+      void (async () => {
+        try {
+          const memory = await adapter.insight.getMemory(sessionId);
+          setMemoryView(memory);
+        } catch {}
+      })();
+
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -272,6 +283,21 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     try {
       const result = await adapter.adjudicate(sessionId);
       applySnapshot(result);
+
+      void (async () => {
+        try {
+          const memory = await adapter.insight.getMemory(sessionId);
+          setMemoryView(memory);
+        } catch {}
+      })();
+
+      void (async () => {
+        try {
+          const rows = await adapter.getSnapshots(sessionId);
+          setSnapshotIndex(rows);
+        } catch {}
+      })();
+
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -308,6 +334,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         return true;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        setMemoryCaseGraphView(null);
         setError(message);
         return false;
       }
@@ -532,6 +559,37 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     }
   }, [adapter, sessionId]);
 
+  const loadMemoryCaseGraph = useCallback(
+    async (caseId: string): Promise<boolean> => {
+      if (!sessionId) {
+        return false;
+      }
+
+      const normalizedCaseId = String(caseId || "").trim();
+
+      if (!normalizedCaseId) {
+        setMemoryCaseGraphView(null);
+        return false;
+      }
+
+      try {
+        const graph = await adapter.insight.getMemoryCaseGraph(
+          sessionId,
+          normalizedCaseId,
+        );
+
+        setMemoryCaseGraphView(graph);
+        return true;
+      } catch (err) {
+        setMemoryCaseGraphView(null);
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        return false;
+      }
+    },
+    [adapter, sessionId],
+  );
+
   const exportGraphGexf = useCallback(
     async (round?: number): Promise<Blob | null> => {
       if (!sessionId) {
@@ -710,6 +768,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       setSnapshotIndex([]);
       setTurnArtifacts([]);
       setMemoryView(null);
+      setMemoryCaseGraphView(null);
       setStreamStatus("idle");
       lastSeqRef.current = 0;
       wsLiveRef.current = false;
@@ -891,6 +950,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       snapshotIndex,
       turnArtifacts,
       memoryView,
+      memoryCaseGraphView,
       frontendSnapshots,
       busyAction,
       error,
@@ -909,6 +969,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       loadSnapshots,
       loadTurnArtifacts,
       loadMemory,
+      loadMemoryCaseGraph,
       exportGraphGexf,
       saveFrontendSnapshot,
       importFrontendSnapshotBundle,
@@ -935,11 +996,13 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       loadGraphAtRound,
       loadGraphDiff,
       loadMemory,
+      loadMemoryCaseGraph,
       loadSnapshots,
       loadTimeline,
       loadTeamflowStream,
       loadTurnArtifacts,
       memoryView,
+      memoryCaseGraphView,
       previousSnapshot,
       refreshSnapshot,
       saveFrontendSnapshot,

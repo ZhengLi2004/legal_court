@@ -129,7 +129,6 @@ export function LivePage() {
     busyAction,
     step,
     adjudicate,
-    refreshSnapshot,
     loadGraph,
   } = useDebate();
 
@@ -272,15 +271,6 @@ export function LivePage() {
             type="button"
           >
             发起裁决
-          </button>
-          <button
-            disabled={Boolean(busyAction)}
-            onClick={() => {
-              void refreshSnapshot();
-            }}
-            type="button"
-          >
-            刷新
           </button>
         </div>
 

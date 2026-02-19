@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ForceArgumentGraph } from "../components/ForceArgumentGraph";
 import { TaskLayerGraph } from "../components/TaskLayerGraph";
 import { useDebate } from "../state/useDebate";
 
@@ -7,16 +8,12 @@ export function MemoryPage() {
     sessionId,
     snapshot,
     memoryView,
-    busyAction,
+    memoryCaseGraphView,
     loadMemory,
-    loadGraphAtRound,
+    loadMemoryCaseGraph,
   } = useDebate();
 
-  const [selectedInsight, setSelectedInsight] = useState<string>("");
-
-  const formatSnapshotTs = (ts: number): string => {
-    return Number.isFinite(ts) && ts > 0 ? new Date(ts).toLocaleString() : "-";
-  };
+  const [selectedCaseId, setSelectedCaseId] = useState<string>("");
 
   useEffect(() => {
     if (!sessionId) {
@@ -26,34 +23,87 @@ export function MemoryPage() {
     void loadMemory();
   }, [loadMemory, sessionId]);
 
-  const insightEntries = useMemo(
+  const recalledCaseIds = useMemo(() => {
+    if (memoryView?.recalledCaseIds?.length) {
+      return memoryView.recalledCaseIds;
+    }
+
+    return [
+      ...new Set([
+        ...(memoryView?.retrievedStaticCaseIds ?? []),
+        ...(memoryView?.retrievedDynamicCaseIds ?? []),
+        ...(memoryView?.representativeCaseIds ?? []),
+      ]),
+    ];
+  }, [
+    memoryView?.recalledCaseIds,
+    memoryView?.representativeCaseIds,
+    memoryView?.retrievedDynamicCaseIds,
+    memoryView?.retrievedStaticCaseIds,
+  ]);
+
+  const recalledRows = useMemo(
+    () =>
+      recalledCaseIds.map((caseId, index) => ({
+        caseId,
+        summary:
+          memoryView?.caseCatalog?.[caseId]?.summary || `案例 ${index + 1}`,
+      })),
+    [memoryView?.caseCatalog, recalledCaseIds],
+  );
+
+  const selectedCaseSummary = useMemo(() => {
+    if (!selectedCaseId) {
+      return "";
+    }
+
+    return memoryView?.caseCatalog?.[selectedCaseId]?.summary || "（无摘要）";
+  }, [memoryView?.caseCatalog, selectedCaseId]);
+
+  const insightRows = useMemo(
     () => memoryView?.insightItems ?? [],
     [memoryView?.insightItems],
   );
 
-  const selectedRow = useMemo(
-    () =>
-      insightEntries.find((item) => item.content === selectedInsight) ??
-      insightEntries[0] ??
-      null,
-    [insightEntries, selectedInsight],
-  );
+  const formatInsightSide = (sideRaw: string): string => {
+    const side = String(sideRaw || "").toUpperCase();
 
-  const newInsights = useMemo(
-    () =>
-      insightEntries.filter(
-        (item) => item.linkedRound >= Math.max((snapshot?.round ?? 0) - 1, 0),
-      ),
-    [insightEntries, snapshot?.round],
-  );
+    if (side === "PLAINTIFF") {
+      return "原告";
+    }
 
-  const retainedInsights = useMemo(
-    () =>
-      insightEntries.filter(
-        (item) => !newInsights.some((row) => row.content === item.content),
-      ),
-    [insightEntries, newInsights],
-  );
+    if (side === "DEFENDANT") {
+      return "被告";
+    }
+
+    return "通用";
+  };
+
+  useEffect(() => {
+    if (!recalledRows.length) {
+      setSelectedCaseId("");
+      return;
+    }
+
+    const exists = recalledRows.some((item) => item.caseId === selectedCaseId);
+
+    if (!exists) {
+      setSelectedCaseId(recalledRows[0].caseId);
+    }
+  }, [recalledRows, selectedCaseId]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    if (!selectedCaseId) {
+      void loadMemoryCaseGraph("");
+      return;
+    }
+
+    void loadMemoryCaseGraph(selectedCaseId);
+  }, [loadMemoryCaseGraph, selectedCaseId, sessionId]);
 
   if (!sessionId || !snapshot) {
     return (
@@ -71,156 +121,95 @@ export function MemoryPage() {
 
         <div className="ux-kv">
           <p>
-            <span>静态历史案例</span>
-            <strong>{memoryView?.staticHistoryCount ?? 0}</strong>
-          </p>
+            <span>召回案例</span>
 
-          <p>
-            <span>动态法理案例</span>
-            <strong>{memoryView?.dynamicLawCaseCount ?? 0}</strong>
-          </p>
-
-          <p>
-            <span>代表案例数</span>
-            <strong>{memoryView?.representativeCaseIds.length ?? 0}</strong>
+            <strong>
+              {memoryView?.recalledCaseCount ?? recalledRows.length}
+            </strong>
           </p>
 
           <p>
             <span>洞察条目</span>
-            <strong>{insightEntries.length}</strong>
+            <strong>{insightRows.length}</strong>
           </p>
-        </div>
-
-        <div className="ux-row">
-          <button
-            disabled={Boolean(busyAction)}
-            onClick={() => {
-              void loadMemory();
-            }}
-            type="button"
-          >
-            刷新记忆
-          </button>
         </div>
       </article>
 
       <article className="ux-card">
-        <h2>洞察分组</h2>
+        <h2>洞察列表（{insightRows.length}）</h2>
 
-        <details open>
-          <summary>新洞察（{newInsights.length}）</summary>
-
+        {insightRows.length ? (
           <div className="ux-list">
-            {newInsights.map((item) => (
-              <button
-                className="ux-list-row"
-                key={`new-${item.content}`}
-                onClick={() => setSelectedInsight(item.content)}
-                type="button"
+            {insightRows.map((item) => (
+              <article
+                className="ux-inspector-text"
+                key={`${item.content}-${item.linkedRound}`}
               >
-                <span>{item.side}</span>
-                <span>{item.content}</span>
-                <span>r{item.linkedRound}</span>
-              </button>
+                <strong>{item.content}</strong>
+
+                <div className="ux-kv" style={{ marginTop: "0.45rem" }}>
+                  <p>
+                    <span>侧别</span>
+                    <strong>{formatInsightSide(item.side)}</strong>
+                  </p>
+
+                  <p>
+                    <span>关联案例</span>
+                    <strong>{item.relatedCases.length}</strong>
+                  </p>
+
+                  <p>
+                    <span>关联回合</span>
+
+                    <strong>
+                      {item.linkedRound > 0 ? `r${item.linkedRound}` : "-"}
+                    </strong>
+                  </p>
+                </div>
+              </article>
             ))}
           </div>
-        </details>
-
-        <details>
-          <summary>保留洞察（{retainedInsights.length}）</summary>
-
-          <div className="ux-list">
-            {retainedInsights.map((item) => (
-              <button
-                className="ux-list-row"
-                key={`retained-${item.content}`}
-                onClick={() => setSelectedInsight(item.content)}
-                type="button"
-              >
-                <span>{item.side}</span>
-                <span>{item.content}</span>
-                <span>r{item.linkedRound}</span>
-              </button>
-            ))}
-          </div>
-        </details>
+        ) : (
+          <p className="ux-empty">暂无洞察。</p>
+        )}
       </article>
 
       <TaskLayerGraph memoryView={memoryView} />
 
-      <article className="ux-card">
-        <h2>洞察详情与回放</h2>
-
-        {selectedRow ? (
-          <div className="ux-kv">
-            <p>
-              <span>内容</span>
-              <strong>{selectedRow.content}</strong>
-            </p>
-
-            <p>
-              <span>阵营</span>
-              <strong>{selectedRow.side}</strong>
-            </p>
-
-            <p>
-              <span>关联回合</span>
-              <strong>r{selectedRow.linkedRound}</strong>
-            </p>
-
-            <p>
-              <span>代表案例</span>
-              <strong>{selectedRow.representatives.join(", ") || "-"}</strong>
-            </p>
-
-            <p>
-              <span>候选案例</span>
-              <strong>{selectedRow.cases.join(", ") || "-"}</strong>
-            </p>
-          </div>
-        ) : (
-          <p className="ux-empty">请选择一条洞察查看详情。</p>
-        )}
-
-        <div className="ux-row">
-          <button
-            disabled={!selectedRow}
-            onClick={() => {
-              if (selectedRow) {
-                void loadGraphAtRound(selectedRow.linkedRound);
-              }
-            }}
-            type="button"
-          >
-            跳转到洞察关联回合图
-          </button>
-        </div>
-      </article>
-
       <article className="ux-card ux-card-full">
-        <h2>案例快照时间轴</h2>
+        <h2>案例论证图切换窗口</h2>
 
-        {memoryView?.caseSnapshots.length ? (
-          <div className="ux-list">
-            {memoryView.caseSnapshots.map((item) => (
-              <button
-                className="ux-list-row"
-                key={`case-snapshot-${item.round}-${item.ts}`}
-                onClick={() => {
-                  void loadGraphAtRound(item.round);
-                }}
-                type="button"
-              >
-                <span>r{item.round}</span>
-                <span>{item.turn || "unknown"}</span>
-                <span>{formatSnapshotTs(item.ts)}</span>
-              </button>
+        <label className="ux-field">
+          <span>选择案例</span>
+
+          <select
+            onChange={(event) => setSelectedCaseId(event.target.value)}
+            value={selectedCaseId}
+          >
+            {!recalledRows.length ? <option value="">暂无案例</option> : null}
+
+            {recalledRows.map((item) => (
+              <option key={item.caseId} value={item.caseId}>
+                {item.summary}
+              </option>
             ))}
-          </div>
+          </select>
+        </label>
+
+        {selectedCaseId ? (
+          <p className="ux-note">
+            当前案例：{selectedCaseSummary || "（无摘要）"}
+          </p>
         ) : (
-          <p className="ux-empty">暂无案例快照。</p>
+          <p className="ux-empty">暂无可查看的案例。</p>
         )}
       </article>
+
+      <ForceArgumentGraph
+        cardClassName="ux-card ux-card-full"
+        graph={memoryCaseGraphView}
+        title="案例论证图"
+      />
     </section>
   );
 }

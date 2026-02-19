@@ -158,16 +158,27 @@ class LegalGMemory(MASMemoryBase):
 
         cited_laws_str = "|||".join(current_laws)
 
-        self.collection.add(
-            documents=[message.case_context],
-            metadatas=[
+        payload = {
+            "documents": [message.case_context],
+            "metadatas": [
                 {
                     "graph_json": json.dumps(ShadowGraph.to_dict(message.shadow_graph)),
                     "cited_laws": cited_laws_str,
                 }
             ],
-            ids=[message.case_id],
-        )
+            "ids": [message.case_id],
+        }
+
+        if hasattr(self.collection, "upsert"):
+            self.collection.upsert(**payload)
+
+        else:
+            try:
+                self.collection.add(**payload)
+
+            except Exception:
+                self.collection.delete(ids=[message.case_id])
+                self.collection.add(**payload)
 
     def retrieve_cases_by_law_codes(
         self, law_contents: List[str]

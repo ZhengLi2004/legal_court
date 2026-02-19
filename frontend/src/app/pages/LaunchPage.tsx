@@ -16,7 +16,6 @@ export function LaunchPage({ onGoLive }: LaunchPageProps) {
     selectSession,
     saveFrontendSnapshot,
     importFrontendSnapshotBundle,
-    listFrontendSnapshots,
     loadFrontendSnapshot,
     busyAction,
   } = useDebate();
@@ -94,7 +93,7 @@ export function LaunchPage({ onGoLive }: LaunchPageProps) {
     if (ok) {
       onGoLive();
     } else {
-      setSnapshotMessage("恢复失败，请刷新存档列表后重试。");
+      setSnapshotMessage("恢复失败，请稍后重试。");
     }
   };
 
@@ -190,16 +189,6 @@ export function LaunchPage({ onGoLive }: LaunchPageProps) {
             type="button"
           >
             保存当前会话到磁盘
-          </button>
-
-          <button
-            disabled={Boolean(busyAction)}
-            onClick={() => {
-              void listFrontendSnapshots();
-            }}
-            type="button"
-          >
-            刷新存档列表
           </button>
         </div>
 

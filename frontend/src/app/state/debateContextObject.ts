@@ -29,6 +29,7 @@ export interface DebateContextValue {
   snapshotIndex: SnapshotIndexItem[];
   turnArtifacts: TurnArtifact[];
   memoryView: MemoryView | null;
+  memoryCaseGraphView: GraphView | null;
   frontendSnapshots: FrontendSnapshotListItem[];
   busyAction: string;
   error: string;
@@ -52,6 +53,7 @@ export interface DebateContextValue {
   }) => Promise<boolean>;
 
   loadMemory: () => Promise<boolean>;
+  loadMemoryCaseGraph: (caseId: string) => Promise<boolean>;
   exportGraphGexf: (round?: number) => Promise<Blob | null>;
 
   saveFrontendSnapshot: (

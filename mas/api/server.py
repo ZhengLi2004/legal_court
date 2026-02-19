@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .serializers import (
     graph_diff_response,
     graph_response,
+    memory_case_graph_response,
     memory_response,
     snapshot_response,
 )
@@ -565,6 +566,24 @@ def create_app(
         try:
             session = manager.get_session(session_id)
             return memory_response(session)
+
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/v1/sessions/{session_id}/memory/cases/{case_id}/graph")
+    async def get_memory_case_graph(session_id: str, case_id: str) -> Dict[str, Any]:
+        """Return one historical-case argument graph for memory-page inspection.
+
+        Args:
+            session_id: Session identifier.
+            case_id: Historical case identifier.
+
+        Returns:
+            Graph payload for the selected case.
+        """
+        try:
+            session = manager.get_session(session_id)
+            return memory_case_graph_response(session, case_id)
 
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

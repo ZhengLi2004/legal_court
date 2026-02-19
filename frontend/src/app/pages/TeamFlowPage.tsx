@@ -29,13 +29,8 @@ function statusLabel(status: string): string {
 }
 
 export function TeamFlowPage() {
-  const {
-    sessionId,
-    snapshot,
-    teamflowStream,
-    busyAction,
-    loadTeamflowStream,
-  } = useDebate();
+  const { sessionId, snapshot, teamflowStream, loadTeamflowStream } =
+    useDebate();
 
   const [selectedTurnUid, setSelectedTurnUid] = useState<string>("");
 
@@ -105,18 +100,6 @@ export function TeamFlowPage() {
             <span>当前查看</span>
             <strong>{selectedTurn?.turnUid ?? "-"}</strong>
           </p>
-        </div>
-
-        <div className="ux-row">
-          <button
-            disabled={Boolean(busyAction)}
-            onClick={() => {
-              void loadTeamflowStream(80);
-            }}
-            type="button"
-          >
-            刷新协作流
-          </button>
         </div>
       </article>
 

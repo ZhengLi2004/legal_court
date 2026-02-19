@@ -1,4 +1,5 @@
 import {
+  normalizeGraph,
   normalizeMemory,
   normalizeTeamflowStream,
   normalizeTimeline,
@@ -11,6 +12,7 @@ import type { CompatClient } from "../client";
 import type {
   InsightAdapter,
   MemoryView,
+  GraphView,
   SessionAdapter,
   TeamFlowTurn,
   TimelineEvent,
@@ -72,6 +74,22 @@ export class InsightDomainAdapter implements InsightAdapter {
       const snapshot = await this.sessionAdapter.getSnapshot(sessionId);
       return normalizeMemory(snapshot.raw ?? {}, sessionId);
     }
+  }
+
+  async getMemoryCaseGraph(
+    sessionId: string,
+    caseId: string,
+  ): Promise<GraphView> {
+    const encodedCaseId = encodeURIComponent(caseId);
+
+    const raw = await this.client.callWithCandidates([
+      {
+        method: "GET",
+        path: `/api/v1/sessions/${sessionId}/memory/cases/${encodedCaseId}/graph`,
+      },
+    ]);
+
+    return normalizeGraph(raw, sessionId);
   }
 
   async getTimeline(sessionId: string, limit = 100): Promise<TimelineEvent[]> {

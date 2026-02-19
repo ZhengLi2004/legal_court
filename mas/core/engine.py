@@ -4,6 +4,7 @@ This module defines the `DebateEngine`, the central class that manages the
 entire lifecycle of a legal debate.
 """
 
+import hashlib
 import json
 import time
 from enum import Enum
@@ -62,6 +63,7 @@ class DebateEngine:
         self.d_team: Optional[DebateTeam] = None
         self.graph: Optional[ShadowGraph] = None
         self.raw_facts: str = ""
+        self.current_case_id: str = ""
         self.current_turn: Turn = Turn.PLAINTIFF
         self.round_idx: int = 0
         self.is_finished: bool = False
@@ -81,6 +83,33 @@ class DebateEngine:
         self.narrator: Optional[GraphNarrator] = None
         self.on_state_change: Optional[Callable[[str, Any], None]] = None
         self._is_running: bool = False
+
+    def _resolve_case_id(self, case_data: Dict[str, Any]) -> str:
+        """Resolve a stable case identifier from setup payload.
+
+        Args:
+            case_data: Raw case payload used for engine setup.
+
+        Returns:
+            Non-empty case identifier for post-adjudication learning.
+        """
+        candidate_keys = ("uid", "case_uid", "case_id", "id")
+
+        for key in candidate_keys:
+            candidate = str(case_data.get(key, "")).strip()
+
+            if candidate:
+                return candidate
+
+        title = str(case_data.get("title", "")).strip()
+        fact_finding = str(case_data.get("fact_finding", "")).strip()
+        digest_src = f"{title}\n{fact_finding}".strip()
+
+        if not digest_src:
+            digest_src = str(time.time_ns())
+
+        digest = hashlib.sha1(digest_src.encode("utf-8")).hexdigest()[:12]
+        return f"case_{digest}"
 
     def set_state_callback(self, callback: Callable[[str, Any], None]):
         """Set a callback for state changes.
@@ -173,6 +202,7 @@ class DebateEngine:
                 raise ValueError("Either case_data_path or case_data must be provided.")
 
             self.raw_facts = case_data.get("fact_finding", "")
+            self.current_case_id = self._resolve_case_id(case_data)
             self.turn_artifacts = []
             self.latest_turn_uid = ""
             cause = case_data.get("cause", ["未知案由"])
@@ -1014,6 +1044,39 @@ class DebateEngine:
             "document_length": len(self.judgment_document),
         }
 
+        learning_case_id = self.current_case_id.strip()
+
+        if not learning_case_id:
+            learning_case_id = f"case_{int(time.time() * 1000)}"
+
+        learning_result = {
+            "case_id": learning_case_id,
+            "success": False,
+            "error": "",
+        }
+
+        try:
+            self.legal_sys.learn(
+                context=self.raw_facts,
+                current_graph=self.graph,
+                root_claims_status=self.root_claims_status,
+                case_id=learning_case_id,
+                transcript=list(self.transcript),
+            )
+
+            learning_result["success"] = True
+
+        except Exception as exc:
+            learning_result["error"] = str(exc)
+
+            logger.warning(
+                "[Engine] post-adjudication learning failed for case {}: {}",
+                learning_case_id,
+                exc,
+            )
+
+        self.last_step_log["learning_result"] = learning_result
+        self._notify_state_change("learning_complete", learning_result)
         self.is_finished = True
         self.is_ready_for_adjudication = False
 

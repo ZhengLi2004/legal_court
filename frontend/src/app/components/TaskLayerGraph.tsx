@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as echarts from "echarts";
 import type { EChartsOption, EChartsType } from "echarts";
 import type { MemoryView } from "../../compat";
@@ -11,19 +11,23 @@ interface TaskLayerGraphProps {
 
 function normalizeKind(
   kindRaw?: string,
-): "current" | "representative" | "related" | "other" {
+): "current" | "retrieved" | "topology" | "other" {
   const value = (kindRaw ?? "").toLowerCase();
 
   if (value.includes("current")) {
     return "current";
   }
 
-  if (value.includes("representative")) {
-    return "representative";
+  if (value.includes("static") || value.includes("dynamic")) {
+    return "retrieved";
   }
 
-  if (value.includes("related")) {
-    return "related";
+  if (value.includes("topology") || value.includes("reference")) {
+    return "topology";
+  }
+
+  if (value.includes("case")) {
+    return "topology";
   }
 
   return "other";
@@ -31,13 +35,30 @@ function normalizeKind(
 
 const NODE_COLOR_BY_KIND: Record<string, string> = {
   current: "#3b82f6",
-  representative: "#16a34a",
-  related: "#f59e0b",
+  retrieved: "#16a34a",
+  topology: "#0ea5e9",
   other: "#64748b",
 };
 
+function formatNodeKind(kindRaw?: string): string {
+  const normalized = normalizeKind(kindRaw);
+
+  if (normalized === "current") {
+    return "当前案件";
+  }
+
+  if (normalized === "retrieved") {
+    return "自动召回";
+  }
+
+  if (normalized === "topology") {
+    return "拓扑关联";
+  }
+
+  return "案例节点";
+}
+
 export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
-  const [selectedId, setSelectedId] = useState<string>("");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<EChartsType | null>(null);
 
@@ -46,12 +67,21 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
       return null;
     }
 
-    const nodes = memoryView.taskLayerGraph.nodes.map((node) => ({
-      id: String(node.id),
-      label: node.label || node.id,
-      kind: node.kind ?? "case",
-      kindGroup: normalizeKind(node.kind),
-    }));
+    const nodes = memoryView.taskLayerGraph.nodes.map((node, index) => {
+      const rawId = String(node.id);
+
+      const summary =
+        node.label ||
+        memoryView.caseCatalog[rawId]?.summary ||
+        `案例 ${index + 1}`;
+
+      return {
+        id: rawId,
+        label: summary,
+        kind: node.kind ?? "case",
+        kindGroup: normalizeKind(node.kind),
+      };
+    });
 
     const nodeIdSet = new Set(nodes.map((node) => node.id));
 
@@ -69,10 +99,12 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
     return { nodes, edges };
   }, [memoryView]);
 
+  const hasModel = Boolean(model);
+
   useEffect(() => {
     const container = containerRef.current;
 
-    if (!container) {
+    if (!container || chartRef.current) {
       return;
     }
 
@@ -86,15 +118,7 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
       chart.dispose();
       chartRef.current = null;
     };
-  }, []);
-
-  const effectiveSelectedId = useMemo(() => {
-    if (!selectedId || !model) {
-      return "";
-    }
-
-    return model.nodes.some((node) => node.id === selectedId) ? selectedId : "";
-  }, [model, selectedId]);
+  }, [hasModel]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -103,38 +127,19 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
       return;
     }
 
-    const selectedNeighborIds = new Set<string>();
-
-    if (effectiveSelectedId) {
-      selectedNeighborIds.add(effectiveSelectedId);
-
-      for (const edge of model.edges) {
-        if (edge.source === effectiveSelectedId) {
-          selectedNeighborIds.add(edge.target);
-        } else if (edge.target === effectiveSelectedId) {
-          selectedNeighborIds.add(edge.source);
-        }
-      }
-    }
-
-    const focused = selectedNeighborIds.size > 0;
-
     const nodes = model.nodes.map((node) => {
-      const isFocused = selectedNeighborIds.has(node.id);
-      const isSelected = node.id === effectiveSelectedId;
-
       return {
         id: node.id,
         name: shortText(node.label, 14),
         tooltipTitle: node.label,
-        value: `${node.label}\n${node.kind}`,
+        value: `${node.label}\n${formatNodeKind(node.kind)}`,
         symbol: "circle",
-        symbolSize: isSelected ? 44 : 34,
+        symbolSize: 34,
         itemStyle: {
           color: NODE_COLOR_BY_KIND[node.kindGroup],
           borderColor: "#ffffff",
-          borderWidth: isSelected ? 3 : 1.5,
-          opacity: focused ? (isFocused ? 1 : 0.2) : 1,
+          borderWidth: 1.5,
+          opacity: 1,
         },
         label: {
           show: true,
@@ -145,19 +150,14 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
     });
 
     const links = model.edges.map((edge) => {
-      const isFocused =
-        effectiveSelectedId &&
-        (edge.source === effectiveSelectedId ||
-          edge.target === effectiveSelectedId);
-
       return {
         id: edge.id,
         source: edge.source,
         target: edge.target,
         lineStyle: {
           color: "#60a5fa",
-          width: isFocused ? 3 : 2,
-          opacity: effectiveSelectedId ? (isFocused ? 1 : 0.14) : 0.86,
+          width: 2,
+          opacity: 0.86,
           curveness: 0.08,
         },
       };
@@ -211,67 +211,15 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
     } as EChartsOption;
 
     chart.setOption(option, true);
-    chart.off("click");
-
-    chart.on("click", (params) => {
-      if (params.dataType !== "node") {
-        return;
-      }
-
-      const payload = params.data as { id?: string } | undefined;
-      setSelectedId(String(payload?.id ?? ""));
-    });
-
-    const zr = chart.getZr();
-    zr.off("click");
-
-    zr.on("click", (event) => {
-      if (event.target) {
-        return;
-      }
-
-      setSelectedId("");
-    });
-  }, [effectiveSelectedId, model]);
-
-  const selectedNode = model?.nodes.find(
-    (item) => item.id === effectiveSelectedId,
-  );
+  }, [model]);
 
   return (
-    <article className="ux-card">
+    <article className="ux-card ux-card-full">
       <h2>TaskLayer 案例关系图</h2>
 
       {memoryView ? (
-        <div className="ux-graph-layout">
-          <div className="ux-graph-canvas">
-            <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
-          </div>
-
-          <aside className="ux-node-inspector">
-            <h3>案例详情</h3>
-
-            {selectedNode ? (
-              <div className="ux-kv">
-                <p>
-                  <span>案例 ID</span>
-                  <strong>{selectedNode.id}</strong>
-                </p>
-
-                <p>
-                  <span>标题</span>
-                  <strong>{selectedNode.label}</strong>
-                </p>
-
-                <p>
-                  <span>节点类型</span>
-                  <strong>{selectedNode.kind}</strong>
-                </p>
-              </div>
-            ) : (
-              <p className="ux-empty">点击图中的案例节点查看详情。</p>
-            )}
-          </aside>
+        <div className="ux-graph-canvas">
+          <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
         </div>
       ) : (
         <p className="ux-empty">暂无记忆图数据。</p>

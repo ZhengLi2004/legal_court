@@ -8,9 +8,10 @@ to agents at the start of new, similar cases.
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from prompts.common_prompts import (
     EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT,
@@ -29,11 +30,25 @@ _INSIGHT_EXTRACTION_SCHEMA = {
         "type": "object",
         "properties": {
             "side": {"type": "string", "enum": ["PLAINTIFF", "DEFENDANT", "COMMON"]},
-            "content": {"type": "string"},
+            "content": {"type": "string", "minLength": 8, "maxLength": 200},
         },
         "required": ["side", "content"],
         "additionalProperties": False,
     },
+}
+
+_PLACEHOLDER_INSIGHT_CONTENTS = {
+    "PLAINTIFF",
+    "DEFENDANT",
+    "COMMON",
+    "原告",
+    "被告",
+    "通用",
+    "策略",
+    "INSIGHT",
+    "N/A",
+    "NONE",
+    "NULL",
 }
 
 
@@ -95,9 +110,60 @@ class InsightsManager:
         self.matcher = matcher
         self.cfg = config or SystemConfig()
         self.file_path = os.path.join(working_dir, self.cfg.path.file_insight_graph)
+        self._insights_repaired_on_load = False
         self.insights: List[Insight] = self._load_insights()
+
+        if self._insights_repaired_on_load:
+            self._save_insights()
+
         self._insight_index = []
         self._rebuild_index()
+
+    @staticmethod
+    def _normalize_insight_content(raw_text: str) -> str:
+        """Normalize one raw insight content string and drop placeholders."""
+        text = " ".join(str(raw_text or "").strip().split())
+
+        if not text:
+            return ""
+
+        side_line_pattern = re.compile(
+            r"^\s*SIDE\s*[:：]\s*(PLAINTIFF|DEFENDANT|COMMON)\s*",
+            re.IGNORECASE,
+        )
+        text = side_line_pattern.sub("", text)
+
+        text = re.sub(
+            r"^(PLAINTIFF|DEFENDANT|COMMON)\s*[:：\-]\s*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        for prefix in (
+            "CONTENT:",
+            "content:",
+            "Insight:",
+            "insight:",
+            "策略：",
+            "策略:",
+        ):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+
+        text = " ".join(text.split())
+        upper = text.upper().strip()
+
+        if not text:
+            return ""
+
+        if upper in _PLACEHOLDER_INSIGHT_CONTENTS:
+            return ""
+
+        if len(text) <= 3:
+            return ""
+
+        return text
 
     def _load_insights(self) -> List[Insight]:
         """Load insights from the persistent JSON file."""
@@ -131,9 +197,17 @@ class InsightsManager:
                     except ValueError:
                         side = InsightSide.COMMON
 
+                    normalized_content = self._normalize_insight_content(
+                        item.get("content", "")
+                    )
+
+                    if not normalized_content:
+                        self._insights_repaired_on_load = True
+                        continue
+
                     loaded_insights.append(
                         Insight(
-                            content=item["content"],
+                            content=normalized_content,
                             side=side,
                             cases=cases,
                             representatives=reps,
@@ -170,43 +244,13 @@ class InsightsManager:
             emb = self.matcher.embedding_func.embed_query(inst.content)
             self._insight_index.append((emb, inst))
 
-    @staticmethod
-    def _parse_legacy_insight_text(raw_text: str) -> Tuple["InsightSide", str]:
-        """Fallback parser for historical free-text insight outputs."""
-        content = (raw_text or "").strip()
-        side = InsightSide.COMMON
-        upper_text = content.upper()
-
-        if "SIDE: PLAINTIFF" in upper_text:
-            side = InsightSide.PLAINTIFF
-
-            content = content.replace("SIDE: PLAINTIFF", "").replace(
-                "SIDE: plaintiff", ""
-            )
-
-        elif "SIDE: DEFENDANT" in upper_text:
-            side = InsightSide.DEFENDANT
-
-            content = content.replace("SIDE: DEFENDANT", "").replace(
-                "SIDE: defendant", ""
-            )
-
-        content = (
-            content.replace("CONTENT:", "")
-            .replace("策略：", "")
-            .replace("Insight:", "")
-            .strip()
-        )
-
-        return side, content
-
     def extract_adversarial_insights(
         self,
         case_id: str,
         case_context: str,
         transcript: List[str],
         root_claims_status: Dict[str, str],
-    ) -> "Insight":
+    ) -> Optional["Insight"]:
         """Extract a new insight from a completed case using an LLM.
 
         It prompts the LLM with the case outcome and transcript to generate a
@@ -223,6 +267,7 @@ class InsightsManager:
 
         Returns:
             The newly created or updated `Insight` object.
+            Returns `None` when JSON extraction fails or content is invalid.
         """
         status_desc = "\n".join(
             [f"- {cid}: {status}" for cid, status in root_claims_status.items()]
@@ -233,11 +278,8 @@ class InsightsManager:
         prompt = EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT.format(
             case_context=case_context,
             claims_status=status_desc,
-            transcript=transcript_text[:15000],  # Truncate for context window
+            transcript=transcript_text[:3000],
         )
-
-        side = InsightSide.COMMON
-        content = ""
 
         try:
             data = self.llm.ask_json_schema(
@@ -248,28 +290,19 @@ class InsightsManager:
                 schema=_INSIGHT_EXTRACTION_SCHEMA,
             )
 
-            side_raw = str(data.get("side", "COMMON")).upper().strip()
-            content = str(data.get("content", "")).strip()
-
-            try:
-                side = InsightSide(side_raw)
-
-            except ValueError:
-                side = InsightSide.COMMON
-
         except Exception:
-            legacy_response = self.llm(
-                [
-                    Message(role="system", content=SYSTEM_PROMPT_INSIGHT_EXTRACTOR),
-                    Message(role="user", content=prompt),
-                ]
-            )
+            return None
 
-            side, content = self._parse_legacy_insight_text(legacy_response)
+        side_raw = str(data.get("side", "")).upper().strip()
+        content = self._normalize_insight_content(str(data.get("content", "")).strip())
+
+        if side_raw not in InsightSide._value2member_map_:
+            return None
 
         if not content:
-            content = "围绕证据链完整性构建攻防，并针对关键薄弱点形成可执行反制。"
+            return None
 
+        side = InsightSide(side_raw)
         candidates = [(str(i), inst.content) for i, inst in enumerate(self.insights)]
         match_idx_str = self.matcher.find_match(content, candidates)
         target_insight = None
@@ -348,6 +381,9 @@ class InsightsManager:
         candidates = []
 
         for emb, inst in self._insight_index:
+            if not self._normalize_insight_content(inst.content):
+                continue
+
             sim = cosine_similarity(query_emb, emb)
             candidates.append((sim, inst))
 
@@ -357,13 +393,18 @@ class InsightsManager:
         d_insights = []
 
         for _, inst in top_candidates:
+            normalized_content = self._normalize_insight_content(inst.content)
+
+            if not normalized_content:
+                continue
+
             if inst.side == InsightSide.PLAINTIFF or inst.side == InsightSide.COMMON:
                 if len(p_insights) < top_k:
-                    p_insights.append(inst.content)
+                    p_insights.append(normalized_content)
 
             if inst.side == InsightSide.DEFENDANT or inst.side == InsightSide.COMMON:
                 if len(d_insights) < top_k:
-                    d_insights.append(inst.content)
+                    d_insights.append(normalized_content)
 
         return p_insights, d_insights
 

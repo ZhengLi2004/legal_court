@@ -16,6 +16,7 @@ import { renderScrollableNodeTooltip } from "../graph/echarts/tooltip";
 interface ForceArgumentGraphProps {
   graph: GraphView | null;
   title?: string;
+  cardClassName?: string;
 }
 
 type NodeLegendCategory =
@@ -23,7 +24,8 @@ type NodeLegendCategory =
   | "原告观点"
   | "核心诉求"
   | "法条"
-  | "被告观点";
+  | "被告观点"
+  | "其他节点";
 
 type EdgeLegendCategory = "support" | "attack";
 
@@ -56,6 +58,7 @@ const LEGEND_ORDER: NodeLegendCategory[] = [
   "核心诉求",
   "法条",
   "被告观点",
+  "其他节点",
 ];
 
 const EDGE_LEGEND_ORDER: EdgeLegendCategory[] = ["support", "attack"];
@@ -71,6 +74,7 @@ const CATEGORY_COLOR: Record<NodeLegendCategory, string> = {
   核心诉求: "#2f855a",
   法条: "#facc15",
   被告观点: "#e11d48",
+  其他节点: "#64748b",
 };
 
 const CATEGORY_SIZE: Record<NodeLegendCategory, number> = {
@@ -79,6 +83,7 @@ const CATEGORY_SIZE: Record<NodeLegendCategory, number> = {
   核心诉求: 52,
   法条: 24,
   被告观点: 44,
+  其他节点: 28,
 };
 
 function resolveLegendCategory(node: {
@@ -146,35 +151,33 @@ function resolveLegendCategory(node: {
     return "被告观点";
   }
 
-  return "核心诉求";
+  return node.family === "OTHER" ? "其他节点" : "核心诉求";
 }
 
 function mapGraphToModel(graph: GraphView): GraphModel {
-  const baseNodes = graph.nodes
-    .map((node: GraphNode) => {
-      const family = toNodeFamily(node.type);
-      const label = (node.label ?? node.id).trim() || String(node.id);
-      const content = (node.content ?? label).trim();
-      const id = String(node.id);
-      const agentId = String(node.agentId ?? "unknown");
+  const baseNodes = graph.nodes.map((node: GraphNode) => {
+    const family = toNodeFamily(node.type);
+    const label = (node.label ?? node.id).trim() || String(node.id);
+    const content = (node.content ?? label).trim();
+    const id = String(node.id);
+    const agentId = String(node.agentId ?? "unknown");
 
-      return {
+    return {
+      id,
+      label,
+      content,
+      family,
+      agentId,
+      category: resolveLegendCategory({
         id,
+        family,
         label,
         content,
-        family,
         agentId,
-        category: resolveLegendCategory({
-          id,
-          family,
-          label,
-          content,
-          agentId,
-          metadata: node.metadata,
-        }),
-      };
-    })
-    .filter((node) => node.family !== "OTHER");
+        metadata: node.metadata,
+      }),
+    };
+  });
 
   const nodeIdSet = new Set(baseNodes.map((node) => node.id));
 
@@ -218,10 +221,12 @@ function mapGraphToModel(graph: GraphView): GraphModel {
 export function ForceArgumentGraph({
   graph,
   title = "论证图（ECharts）",
+  cardClassName = "ux-card",
 }: ForceArgumentGraphProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<EChartsType | null>(null);
   const model = useMemo(() => (graph ? mapGraphToModel(graph) : null), [graph]);
+  const hasModel = Boolean(model);
 
   const [activeCategories, setActiveCategories] = useState<
     Set<NodeLegendCategory>
@@ -231,52 +236,23 @@ export function ForceArgumentGraph({
     Set<EdgeLegendCategory>
   >(() => new Set<EdgeLegendCategory>(EDGE_LEGEND_ORDER));
 
-  const [focusOnlyEnabled, setFocusOnlyEnabled] = useState<boolean>(false);
-
   const focusNodeIds = useMemo(
     () => new Set((graph?.focusNodeIds ?? []).map((item) => String(item))),
     [graph],
   );
-
-  const focusNodeCount = useMemo(() => {
-    if (!model) {
-      return 0;
-    }
-
-    return model.nodes.filter((node) => focusNodeIds.has(node.id)).length;
-  }, [focusNodeIds, model]);
-
-  const effectiveFocusOnly = focusOnlyEnabled && focusNodeCount > 0;
 
   const visibleStats = useMemo(() => {
     if (!model) {
       return { nodes: 0, edges: 0 };
     }
 
-    if (!effectiveFocusOnly) {
-      return { nodes: model.nodes.length, edges: model.edges.length };
-    }
-
-    const nodeIds = new Set(
-      model.nodes
-        .filter((node) => focusNodeIds.has(node.id))
-        .map((node) => node.id),
-    );
-
-    const edges = model.edges.filter(
-      (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
-    );
-
-    return {
-      nodes: nodeIds.size,
-      edges: edges.length,
-    };
-  }, [effectiveFocusOnly, focusNodeIds, model]);
+    return { nodes: model.nodes.length, edges: model.edges.length };
+  }, [model]);
 
   useEffect(() => {
     const container = containerRef.current;
 
-    if (!container) {
+    if (!container || chartRef.current) {
       return;
     }
 
@@ -290,7 +266,7 @@ export function ForceArgumentGraph({
       chart.dispose();
       chartRef.current = null;
     };
-  }, []);
+  }, [hasModel]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -303,18 +279,7 @@ export function ForceArgumentGraph({
       LEGEND_ORDER.map((category, idx) => [category, idx]),
     );
 
-    const focusVisibleNodeIds = effectiveFocusOnly
-      ? new Set(
-          model.nodes
-            .filter((node) => focusNodeIds.has(node.id))
-            .map((node) => node.id),
-        )
-      : null;
-
-    const renderedNodes = focusVisibleNodeIds
-      ? model.nodes.filter((node) => focusVisibleNodeIds.has(node.id))
-      : model.nodes;
-
+    const renderedNodes = model.nodes;
     const renderedNodeIds = new Set(renderedNodes.map((node) => node.id));
     const nodeOpacityMap = new Map<string, number>();
 
@@ -454,31 +419,11 @@ export function ForceArgumentGraph({
     } as EChartsOption;
 
     chart.setOption(option, true);
-  }, [
-    activeCategories,
-    activeRelations,
-    effectiveFocusOnly,
-    focusNodeIds,
-    model,
-  ]);
+  }, [activeCategories, activeRelations, focusNodeIds, model]);
 
   return (
-    <article className="ux-card">
+    <article className={cardClassName}>
       <h2>{title}</h2>
-
-      <div className="ux-row">
-        <button
-          disabled={focusNodeCount === 0}
-          onClick={() => setFocusOnlyEnabled((prev) => !prev)}
-          type="button"
-        >
-          {effectiveFocusOnly ? "显示全部节点" : "仅显示 Focus 节点"}
-        </button>
-
-        <span className="ux-chip">
-          Focus：{focusNodeCount}/{model?.nodes.length ?? 0}
-        </span>
-      </div>
 
       <div className="ux-graph-legend">
         <span>节点图例（点击筛选）</span>

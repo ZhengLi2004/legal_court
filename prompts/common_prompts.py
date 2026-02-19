@@ -46,7 +46,9 @@ ACCEPTED / REJECTED / UNMENTIONED。
 
 SYSTEM_PROMPT_INSIGHT_EXTRACTOR = """
 你是法律复盘策略抽取器。
-只提炼可复用的高层策略，不复述案件细节，不输出冗余文本。
+只提炼可复用的高层策略，不复述案件细节。
+你必须仅输出一个 JSON 对象，字段固定为 `side` 与 `content`，不得输出 markdown 或额外文本。
+`content` 必须是一句可执行策略，不得输出占位词（如 PLAINTIFF / DEFENDANT / COMMON / INSIGHT / N/A）。
 """.strip()
 
 SYSTEM_PROMPT_NARRATOR = """
@@ -407,7 +409,10 @@ EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT = """
 2. 输出一句可复用策略，不包含具体当事人或案号细节。
 3. 重点提炼“为什么该策略有效/失效”。
 
-请按 schema 输出，不要输出额外文本。
+【输出契约（必须严格遵守）】
+1. 仅输出一个 JSON 对象：{{"side":"PLAINTIFF|DEFENDANT|COMMON","content":"..."}}。
+2. `content` 必须是单句策略，至少 8 个字符，不得只输出占位词。
+3. 不得输出代码块、解释、前后缀文本。
 """
 
 
