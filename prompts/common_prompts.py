@@ -91,8 +91,8 @@ ASSESS_FACT_NEEDS_PROMPT = (
 
 【你的核心 BDI】
 - 信念(Belief): {belief}
+- 目标(Desire): {desire}
 - 意图(Intention): {intention}
-- 战略(Strategy): {strategy}
 
 【当前战局】
 {graph_context}
@@ -127,8 +127,8 @@ ASSESS_LAW_NEEDS_PROMPT = (
 
 【你的核心 BDI】
 - 信念(Belief): {belief}
+- 目标(Desire): {desire}
 - 意图(Intention): {intention}
-- 战略(Strategy): {strategy}
 
 【当前战局】
 {graph_context}
@@ -163,8 +163,8 @@ ASSESS_RECALL_NEEDS_PROMPT = (
 
 【你的核心 BDI】
 - 信念(Belief): {belief}
+- 目标(Desire): {desire}
 - 意图(Intention): {intention}
-- 战略(Strategy): {strategy}
 
 【当前战局】
 {graph_context}
@@ -462,18 +462,26 @@ GENERATE_ROOT_CLAIM_PROMPT = """
 
 
 GENERATE_PERSONA_PROMPT = """
-基于案由【{cause}】和事实，请为【{role_cn}】构建 BDI 画像。
+基于案由【{cause}】、拆分事实与根主张，请为【{role_cn}】构建 BDI 画像。
 
-【事实】
-{facts}
+【拆分事实（结构化）】
+{fact_statements}
+
+【根主张（结构化）】
+{root_claim_actions}
+
+【构建要求】
+1. belief 必须锚定关键事实，不得泛化。
+2. desire 必须对齐根主张的裁判目标。
+3. intention 必须体现可执行攻防方向（补强支持链/压缩对方主张）。
+4. 不得输出与上述事实或根主张无关的抽象口号。
 
 【输出要求】
 仅输出 JSON 对象，字段固定为：
 {{
   "belief": "...",
   "desire": "...",
-  "intention": "...",
-  "strategy": "..."
+  "intention": "..."
 }}
 """
 

@@ -460,7 +460,7 @@ class ArgumentController(Role):
                     graph_tool=self.graph_tool,
                     worker_advice=current_advice,
                     graph_context=graph_context,
-                    focus=self.persona.initial_strategy,
+                    focus=self.persona.intention,
                     id_inventory=id_list_str,
                     feedback=feedback_section,
                 )

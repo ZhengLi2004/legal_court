@@ -157,8 +157,8 @@ class AssessFactNeeds(Action):
         prompt = ASSESS_FACT_NEEDS_PROMPT.format(
             role_name=role_name,
             belief=persona.belief,
+            desire=persona.desire,
             intention=persona.intention,
-            strategy=persona.initial_strategy,
             graph_context=graph_context,
         )
 
@@ -201,8 +201,8 @@ class AssessLawNeeds(Action):
         prompt = ASSESS_LAW_NEEDS_PROMPT.format(
             role_name=role_name,
             belief=persona.belief,
+            desire=persona.desire,
             intention=persona.intention,
-            strategy=persona.initial_strategy,
             graph_context=graph_context,
         )
 
@@ -245,8 +245,8 @@ class AssessRecallNeeds(Action):
         prompt = ASSESS_RECALL_NEEDS_PROMPT.format(
             role_name=role_name,
             belief=persona.belief,
+            desire=persona.desire,
             intention=persona.intention,
-            strategy=persona.initial_strategy,
             graph_context=graph_context,
         )
 

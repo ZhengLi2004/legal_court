@@ -6,7 +6,7 @@ formats needed to start the debate simulation. This includes decomposing facts,
 generating root claims, and creating BDI personas for the agents.
 """
 
-import re
+import json
 from dataclasses import dataclass
 from typing import List
 
@@ -18,7 +18,7 @@ from prompts.common_prompts import (
     GENERATE_ROOT_CLAIM_PROMPT,
     SYSTEM_PROMPT_CASE_INITIALIZER,
 )
-from tools.llm import GPTChat, Message
+from tools.llm import GPTChat
 
 _FACT_STATEMENTS_SCHEMA = {
     "name": "fact_statements",
@@ -47,9 +47,8 @@ _PERSONA_SCHEMA = {
             "belief": {"type": "string"},
             "desire": {"type": "string"},
             "intention": {"type": "string"},
-            "strategy": {"type": "string"},
         },
-        "required": ["belief", "desire", "intention", "strategy"],
+        "required": ["belief", "desire", "intention"],
         "additionalProperties": False,
     },
 }
@@ -63,15 +62,13 @@ class AgentPersona:
         role_name: The role of the agent (e.g., "plaintiff").
         belief: A description of the agent's core beliefs about the case.
         desire: What the agent wants to achieve.
-        intention: The agent's general approach or style.
-        initial_strategy: A high-level starting strategy.
+        intention: The agent's executable approach for current and subsequent turns.
     """
 
     role_name: str
     belief: str
     desire: str
     intention: str
-    initial_strategy: str
 
 
 @dataclass
@@ -122,8 +119,20 @@ class CaseInitializer:
         """
         fact_statements = await self._decompose_facts(fact_finding)
         root_claim_texts = await self._generate_root_claim(fact_finding, cause)
-        p_persona = await self._generate_persona(fact_finding, cause, "plaintiff")
-        d_persona = await self._generate_persona(fact_finding, cause, "defendant")
+
+        p_persona = await self._generate_persona(
+            fact_statements=fact_statements,
+            root_claim_actions=root_claim_texts,
+            cause=cause,
+            role="plaintiff",
+        )
+
+        d_persona = await self._generate_persona(
+            fact_statements=fact_statements,
+            root_claim_actions=root_claim_texts,
+            cause=cause,
+            role="defendant",
+        )
 
         return InitializationResult(
             plaintiff_persona=p_persona,
@@ -132,36 +141,8 @@ class CaseInitializer:
             root_claim_actions=root_claim_texts,
         )
 
-    async def _parse_numbered_list_to_agent_actions(self, text: str) -> List[str]:
-        """Parse a numbered list string into a list of strings."""
-        facts = []
-        lines = text.strip().split("\n")
-        current_fact_content = []
-
-        for line in lines:
-            line = line.strip()
-
-            if not line:
-                continue
-
-            match = re.match(r"^\d+\.\s*(.*)", line)
-
-            if match:
-                if current_fact_content:
-                    facts.append(" ".join(current_fact_content).strip())
-
-                current_fact_content = [match.group(1)]
-
-            elif current_fact_content:
-                current_fact_content.append(line)
-
-        if current_fact_content:
-            facts.append(" ".join(current_fact_content).strip())
-
-        return facts
-
     async def _decompose_facts(self, text: str) -> List[str]:
-        """Use an LLM to break down a block of text into atomic fact statements."""
+        """Use strict JSON-schema output to derive atomic fact statements."""
         prompt = DECOMPOSE_FACTS_PROMPT.format(text=text)
 
         try:
@@ -184,29 +165,11 @@ class CaseInitializer:
             return normalized
 
         except Exception as e:
-            logger.warning(
-                f"Fact JSON-schema decomposition failed, fallback to numbered parsing: {e}"
-            )
-
-        fallback_messages = [
-            Message(role="system", content=SYSTEM_PROMPT_CASE_INITIALIZER),
-            Message(role="user", content=prompt),
-        ]
-
-        response = self.llm(fallback_messages)
-
-        try:
-            return await self._parse_numbered_list_to_agent_actions(response)
-
-        except Exception as e:
-            logger.error(
-                f"Error parsing decomposed facts from fallback numbered list: {e}\nResponse: {response}"
-            )
-
-            return []
+            logger.error(f"Fact JSON-schema decomposition failed: {e}")
+            raise ValueError(f"Fact decomposition failed under strict JSON: {e}") from e
 
     async def _generate_root_claim(self, facts: str, cause: str) -> List[str]:
-        """Use an LLM to generate the plaintiff's primary legal claims."""
+        """Use strict JSON-schema output to generate plaintiff root claims."""
         prompt = GENERATE_ROOT_CLAIM_PROMPT.format(cause=cause, facts=facts)
 
         try:
@@ -221,20 +184,37 @@ class CaseInitializer:
             ):
                 raise ValueError("LLM did not return a JSON array of strings.")
 
-            return claims_list
+            normalized = [item.strip() for item in claims_list if item and item.strip()]
+
+            if not normalized:
+                raise ValueError("LLM returned empty root claim list.")
+
+            return normalized
 
         except Exception as e:
             logger.error(f"Error parsing root claim texts: {e}")
-            return []
+
+            raise ValueError(
+                f"Root claim generation failed under strict JSON: {e}"
+            ) from e
 
     async def _generate_persona(
-        self, facts: str, cause: str, role: str
+        self,
+        fact_statements: List[str],
+        root_claim_actions: List[str],
+        cause: str,
+        role: str,
     ) -> AgentPersona:
-        """Use an LLM to generate a BDI persona for a given role."""
+        """Use strict JSON-schema output to generate one BDI persona."""
         role_cn = "原告" if role == "plaintiff" else "被告"
+        fact_text = json.dumps(fact_statements or [], ensure_ascii=False, indent=2)
+        claim_text = json.dumps(root_claim_actions or [], ensure_ascii=False, indent=2)
 
         prompt = GENERATE_PERSONA_PROMPT.format(
-            cause=cause, role_cn=role_cn, facts=facts
+            cause=cause,
+            role_cn=role_cn,
+            fact_statements=fact_text,
+            root_claim_actions=claim_text,
         )
 
         try:
@@ -245,21 +225,23 @@ class CaseInitializer:
                 temperature=0.7,
             )
 
+            if not isinstance(data, dict):
+                raise ValueError("LLM did not return a JSON object for persona.")
+
+            belief = str(data.get("belief", "")).strip()
+            desire = str(data.get("desire", "")).strip()
+            intention = str(data.get("intention", "")).strip()
+
+            if not (belief and desire and intention):
+                raise ValueError("Persona JSON fields cannot be empty.")
+
             return AgentPersona(
                 role_name=role,
-                belief=data.get("belief", "N/A"),
-                desire=data.get("desire", "N/A"),
-                intention=data.get("intention", "N/A"),
-                initial_strategy=data.get("strategy", "N/A"),
+                belief=belief,
+                desire=desire,
+                intention=intention,
             )
 
         except Exception as e:
             logger.error(f"Error parsing persona for {role}: {e}")
-
-            return AgentPersona(
-                role,
-                "Default Belief",
-                "Default Desire",
-                "Default Intention",
-                "Default Strategy",
-            )
+            raise ValueError(f"Persona generation failed under strict JSON: {e}") from e
