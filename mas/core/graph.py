@@ -11,7 +11,7 @@ import json
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum, auto
-from typing import Any, List, Optional, Set, TypedDict, Union
+from typing import Any, List, Optional, TypedDict, Union
 
 import networkx as nx
 from networkx.readwrite import json_graph
@@ -124,28 +124,6 @@ class ShadowGraph:
         if not hasattr(self.graph, "graph"):
             self.graph.graph = {}
 
-    def get_id_inventory(self) -> str:
-        """Generate a simple string list of all node IDs and their content.
-
-        This is used to provide a "ground truth" list of available IDs to the
-        LLM to prevent it from hallucinating non-existent node IDs.
-
-        Returns:
-            A formatted string listing all nodes.
-        """
-        lines = []
-
-        for n, d in self.graph.nodes(data=True):
-            n_type = d.get("type", "UNKNOWN")
-
-            if hasattr(n_type, "value"):
-                n_type = n_type.value
-
-            content = d.get("content", "")[:30].replace("\n", " ")
-            lines.append(f"- [{n}] {n_type}: {content}...")
-
-        return "\n".join(lines)
-
     def _calculate_focus_nodes(self, current_step: int) -> List[str]:
         """Determine which nodes are currently most relevant for context.
 
@@ -216,14 +194,6 @@ class ShadowGraph:
                         self.graph.nodes[nid]["metadata"] = {}
 
                     self.graph.nodes[nid]["metadata"]["last_modified_step"] = step_index
-
-    def is_valid_evidence(self, node_id: str) -> bool:
-        """Check if a node is a valid piece of evidence (FACT or LAW)."""
-        if not self.graph.has_node(node_id):
-            return False
-
-        t = self._get_node_type(node_id)
-        return t.value in [NodeType.FACT.value, NodeType.LAW.value]
 
     def _get_node_type(self, node_id: str) -> NodeType:
         """Retrieve the NodeType of a node by its ID."""
@@ -534,21 +504,6 @@ class ShadowGraph:
                         final_text_blocks.append(block)
 
         return "\n".join(final_text_blocks).strip()
-
-    def to_recursive_text_for_nodes(self, node_ids: Set[str]) -> str:
-        """Generate recursive text for a selected node subset.
-
-        If selection is empty, falls back to full-graph recursive text.
-        """
-        if not node_ids:
-            return self.to_recursive_text()
-
-        valid_nodes = [node for node in node_ids if self.graph.has_node(node)]
-
-        if not valid_nodes:
-            return self.to_recursive_text()
-
-        return self.get_subgraph(valid_nodes).to_recursive_text()
 
     def get_tactical_subgraph(
         self, focus_nodes: List[str], history_window: int = 1

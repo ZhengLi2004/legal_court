@@ -11,7 +11,6 @@ state onto historical cases.
 from typing import List
 
 from metagpt.actions import Action
-from metagpt.logs import logger
 
 from mas.core.graph import ShadowGraph
 from mas.core.system import LegalSystem
@@ -99,8 +98,7 @@ class FormulateSearchQueries(Action):
         """Generate search queries from high-level legal intent.
 
         The method enforces strict function-calling output via
-        `formulate_search_queries`. If the tool payload is missing or invalid,
-        it logs the issue and falls back to `[intent]`.
+        `formulate_search_queries`.
 
         Args:
             intent: The high-level search intent string.
@@ -108,35 +106,35 @@ class FormulateSearchQueries(Action):
                 contain a placeholder for `intent`.
 
         Returns:
-            A list of formulated search query strings. Returns `[intent]` as a
-            fallback if the LLM response is invalid.
+            A list of formulated search query strings.
+
+        Raises:
+            ValueError: If tool-call payload is missing or invalid.
         """
         prompt = prompt_template.format(intent=intent)
 
-        try:
-            result = await self.llm.aask_tool_call(
-                prompt=prompt,
-                tools=[_FORMULATE_SEARCH_QUERIES_TOOL],
-                tool_choice="formulate_search_queries",
-                system_msgs=[SYSTEM_PROMPT_QUERY_DECOMPOSER],
-                temperature=0.4,
+        result = await self.llm.aask_tool_call(
+            prompt=prompt,
+            tools=[_FORMULATE_SEARCH_QUERIES_TOOL],
+            tool_choice="formulate_search_queries",
+            system_msgs=[SYSTEM_PROMPT_QUERY_DECOMPOSER],
+            temperature=0.4,
+        )
+
+        payload = result.arguments
+        queries = payload.get("queries", [])
+
+        if not (isinstance(queries, list) and all(isinstance(q, str) for q in queries)):
+            raise ValueError(
+                "FormulateSearchQueries expected payload.queries as list[str]."
             )
 
-            payload = result.arguments
-            queries = payload.get("queries", [])
+        normalized = [q.strip() for q in queries if q and q.strip()]
 
-            if isinstance(queries, list) and all(isinstance(q, str) for q in queries):
-                return queries
+        if not normalized:
+            raise ValueError("FormulateSearchQueries received empty queries list.")
 
-            logger.warning(
-                "[FormulateSearchQueries] Tool payload invalid. Fallback to intent."
-            )
-
-            return [intent]
-
-        except Exception as e:
-            logger.error(f"[FormulateSearchQueries] Failed: {e}")
-            return [intent]
+        return normalized
 
 
 class ProjectAndAnalyze(Action):

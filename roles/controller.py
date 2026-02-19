@@ -266,9 +266,19 @@ class ArgumentController(Role):
                     role=self.profile,
                 )
 
-            req_fact = self._parse_requirement(fact_payload)
-            req_law = self._parse_requirement(law_payload)
-            req_recall = self._parse_requirement(recall_payload)
+            try:
+                req_fact = self._parse_requirement(fact_payload)
+                req_law = self._parse_requirement(law_payload)
+                req_recall = self._parse_requirement(recall_payload)
+
+            except ValueError as e:
+                self._record_tool_call_error(stage="assess_needs_parse", error=e)
+
+                return Message(
+                    content="EXECUTION_FAILURE_RETRY: TOOL_CALL_ERROR",
+                    role=self.profile,
+                )
+
             instructions = []
 
             self.last_assessment = {
@@ -815,8 +825,10 @@ class ArgumentController(Role):
             payload: Parsed function arguments, typically a dict.
 
         Returns:
-            A `ResourceRequirement` object. Returns a default `need=False` object
-            on parsing failure.
+            A `ResourceRequirement` object.
+
+        Raises:
+            ValueError: If payload cannot be validated as ResourceRequirement.
         """
         try:
             if isinstance(payload, str):
@@ -825,7 +837,7 @@ class ArgumentController(Role):
             return ResourceRequirement.model_validate(payload)
 
         except Exception as e:
-            return ResourceRequirement(need=False, reasoning=f"Parse Error: {e}")
+            raise ValueError(f"Invalid resource requirement payload: {e}") from e
 
     def _record_tool_call_error(self, stage: str, error: Exception) -> str:
         """Persist a tool-call routing error and update retry context.
@@ -948,11 +960,3 @@ class ArgumentController(Role):
             return text[:length] + "..."
 
         return text
-
-    def get_error_history(self, limit: int | None = None) -> List[Dict[str, Any]]:
-        """Return append-only controller error history."""
-        if limit is None:
-            return [dict(item) for item in self.error_history]
-
-        safe_limit = max(1, int(limit))
-        return [dict(item) for item in self.error_history[-safe_limit:]]

@@ -16,7 +16,7 @@ from tools.llm import LLMCallable
 
 
 class GraphTool:
-    """A tool for agents to process intents and modify the debate graph.
+    """A tool for agents to validate/apply actions on the debate graph.
 
     This class holds the current state of the debate graph and provides methods
     for agents to apply changes. It uses a `GraphExecutor` to handle the
@@ -49,25 +49,6 @@ class GraphTool:
             graph: The `ShadowGraph` for the current turn.
         """
         self.current_graph = graph
-
-    async def process_intent(
-        self, agent_id: str, actions: Union[AgentAction, List[AgentAction]]
-    ) -> str:
-        """Process a list of agent actions and applies them to the graph.
-
-        This method validates and executes a batch of `AgentAction`s. If the
-        execution is successful, it returns a log of the operations. If any
-        action is invalid or fails, it returns a rejection message.
-
-        Args:
-            agent_id: The ID of the agent performing the actions.
-            actions: A single `AgentAction` or a list of `AgentAction`s to be executed.
-
-        Returns:
-            A string indicating the result of the execution, either "EXECUTED"
-            with logs or "REJECT" with an error message.
-        """
-        return await self.apply_actions(agent_id=agent_id, actions=actions)
 
     def _normalize_actions(
         self, actions: Union[AgentAction, List[AgentAction]]
