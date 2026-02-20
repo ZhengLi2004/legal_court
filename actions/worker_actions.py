@@ -8,7 +8,7 @@ search queries, analyzing search results, and projecting the current debate
 state onto historical cases.
 """
 
-from typing import List
+from typing import List, Optional
 
 from metagpt.actions import Action
 
@@ -148,6 +148,44 @@ class ProjectAndAnalyze(Action):
     context and provide strategic advice.
     """
 
+    @staticmethod
+    def _coerce_positive_int(value: object) -> Optional[int]:
+        """Parse a positive integer from a raw value."""
+        try:
+            parsed = int(value)
+
+        except (TypeError, ValueError):
+            return None
+
+        return parsed if parsed > 0 else None
+
+    @classmethod
+    def _resolve_projection_top_k(
+        cls,
+        legal_system: LegalSystem,
+        primary_key: str,
+        alias_key: str,
+        default: int,
+    ) -> int:
+        """Resolve projection top-k from config with alias fallback.
+
+        The paper describes projection over a bounded set of anchors and
+        candidate history cases for engineering feasibility. This helper ensures
+        those bounds are actually enforced from runtime config.
+        """
+        retrieval_cfg = getattr(getattr(legal_system, "cfg", None), "retrieval", None)
+
+        for key in (primary_key, alias_key):
+            if retrieval_cfg is None:
+                break
+
+            parsed = cls._coerce_positive_int(getattr(retrieval_cfg, key, None))
+
+            if parsed is not None:
+                return parsed
+
+        return max(1, int(default))
+
     name: str = "ProjectAndAnalyze"
 
     async def run(
@@ -156,7 +194,7 @@ class ProjectAndAnalyze(Action):
         legal_system: LegalSystem,
         current_graph: ShadowGraph,
         my_role: str = "Unknown",
-        top_k: int = 3,
+        top_k: Optional[int] = None,
     ) -> str:
         """Execute the projection and analysis workflow.
 
@@ -167,7 +205,8 @@ class ProjectAndAnalyze(Action):
             current_graph: The current state of the debate as a ShadowGraph.
             my_role: The role of the agent executing the action (e.g., "plaintiff"),
                 used to tailor the analysis.
-            top_k: The number of most similar nodes to use as anchors for projection.
+            top_k: Optional explicit override for anchor top-k. When omitted,
+                `cfg.retrieval.projection_anchor_top_k` is used.
 
         Returns:
             A string containing strategic advice derived from analyzing
@@ -182,6 +221,16 @@ class ProjectAndAnalyze(Action):
             return "无法执行历史映射：当前战术视图为空，没有可用的锚点。"
 
         query_emb = legal_system.ef.embed_query(query)
+
+        configured_anchor_top_k = self._resolve_projection_top_k(
+            legal_system=legal_system,
+            primary_key="projection_anchor_top_k",
+            alias_key="project_anchor_top_k",
+            default=3,
+        )
+
+        runtime_anchor_top_k = self._coerce_positive_int(top_k)
+        anchor_top_k = runtime_anchor_top_k or configured_anchor_top_k
         candidates = []
 
         for nid, data in tactical_subgraph.graph.nodes(data=True):
@@ -195,7 +244,7 @@ class ProjectAndAnalyze(Action):
             candidates.append((sim, nid))
 
         candidates.sort(key=lambda x: x[0], reverse=True)
-        anchor_node_ids = [nid for _, nid in candidates[:top_k]]
+        anchor_node_ids = [nid for _, nid in candidates[:anchor_top_k]]
 
         if not anchor_node_ids:
             return f"未能根据意图 '{query}' 在当前战术视图中找到足够相关的节点作为映射锚点。"
@@ -205,10 +254,35 @@ class ProjectAndAnalyze(Action):
         if not history_messages:
             return "系统初始化时未检索到相关历史案例，暂无经验可供借鉴。"
 
+        case_top_k = self._resolve_projection_top_k(
+            legal_system=legal_system,
+            primary_key="projection_case_top_k",
+            alias_key="project_case_top_k",
+            default=3,
+        )
+
+        scored_history = []
+
+        for msg in history_messages:
+            case_context = str(getattr(msg, "case_context", "") or "")
+
+            if not case_context:
+                continue
+
+            case_emb = legal_system.ef.embed_query(case_context)
+            sim = cosine_similarity(query_emb, case_emb)
+            scored_history.append((sim, msg))
+
+        scored_history.sort(key=lambda x: x[0], reverse=True)
+        selected_history_messages = [msg for _, msg in scored_history[:case_top_k]]
+
+        if not selected_history_messages:
+            return "候选历史案例为空，无法执行投影映射。"
+
         historical_context_text = legal_system.projector.retrieve_historical_context(
             current_graph=current_graph,
             focus_node_ids=anchor_node_ids,
-            history_messages=history_messages,
+            history_messages=selected_history_messages,
         )
 
         if "未找到" in historical_context_text or not historical_context_text.strip():

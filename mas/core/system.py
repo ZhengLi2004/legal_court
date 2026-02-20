@@ -88,7 +88,6 @@ class LegalSystem:
         self.step_counter = 0
         self._static_history_cases: List[LegalMessage] = []
         self._dynamic_law_cases: List[LegalMessage] = []
-        self._last_retrieval_trace = self._empty_retrieval_trace()
 
     @property
     def active_history_cases(self) -> List[LegalMessage]:
@@ -116,29 +115,6 @@ class LegalSystem:
                 self._static_history_cases.append(case)
                 existing_ids.add(case.case_id)
 
-    def _empty_retrieval_trace(self) -> Dict[str, Dict[str, Any]]:
-        """Build a default trace payload for the three long-memory retrieval paths."""
-        return {
-            "semantic": {
-                "requested_top_k": 0,
-                "raw_candidates": 0,
-                "selected_count": 0,
-                "selected_case_ids": [],
-            },
-            "strategy": {
-                "requested_top_k": 0,
-                "raw_candidates": 0,
-                "selected_count": 0,
-                "selected_case_ids": [],
-            },
-            "jurisprudence": {
-                "requested_top_k": 0,
-                "raw_candidates": 0,
-                "selected_count": 0,
-                "selected_case_ids": [],
-            },
-        }
-
     def _resolve_retrieval_top_k(self, key: str, default: int) -> int:
         """Resolve retrieval top-k from config and fall back to default."""
         retrieval_cfg = getattr(self.cfg, "retrieval", None)
@@ -158,21 +134,6 @@ class LegalSystem:
 
         return max(1, int(default))
 
-    def _update_retrieval_trace(
-        self,
-        path_name: str,
-        requested_top_k: int,
-        raw_candidates: int,
-        selected_cases: List[LegalMessage],
-    ):
-        """Update the retrieval trace payload for one path."""
-        self._last_retrieval_trace[path_name] = {
-            "requested_top_k": int(requested_top_k),
-            "raw_candidates": int(raw_candidates),
-            "selected_count": len(selected_cases),
-            "selected_case_ids": [str(c.case_id) for c in selected_cases],
-        }
-
     def new_case(self, context: str) -> Tuple[ShadowGraph, Tuple[List[str], List[str]]]:
         """Set up the system for a new case.
 
@@ -191,7 +152,6 @@ class LegalSystem:
         self.step_counter = 0
         self._static_history_cases = []
         self._dynamic_law_cases = []
-        self._last_retrieval_trace = self._empty_retrieval_trace()
         sg = ShadowGraph()
 
         semantic_top_k = self._resolve_retrieval_top_k(
@@ -200,14 +160,6 @@ class LegalSystem:
         )
 
         initial_msgs, _ = self.memory.retrieve_memory(context, top_k=semantic_top_k)
-
-        self._update_retrieval_trace(
-            path_name="semantic",
-            requested_top_k=semantic_top_k,
-            raw_candidates=len(initial_msgs),
-            selected_cases=initial_msgs,
-        )
-
         self._merge_static_cases(initial_msgs)
 
         p_insights, d_insights = self.insights.get_relevant_insights_by_side(
@@ -216,7 +168,6 @@ class LegalSystem:
 
         all_strategies = list(set(p_insights + d_insights))
         candidates_from_strategy = []
-        raw_strategy_candidates = []
 
         strategy_top_k = self._resolve_retrieval_top_k(
             key="strategy_path_top_k",
@@ -249,18 +200,10 @@ class LegalSystem:
                         scored_candidates.append((sim, msg))
 
                     scored_candidates.sort(key=lambda x: x[0], reverse=True)
-                    raw_strategy_candidates = [item[1] for item in scored_candidates]
 
                     candidates_from_strategy = [
                         item[1] for item in scored_candidates[:strategy_top_k]
                     ]
-
-        self._update_retrieval_trace(
-            path_name="strategy",
-            requested_top_k=strategy_top_k,
-            raw_candidates=len(raw_strategy_candidates),
-            selected_cases=candidates_from_strategy,
-        )
 
         self._merge_static_cases(candidates_from_strategy)
         sg.refresh_context(0)
@@ -359,18 +302,6 @@ class LegalSystem:
             if self._dynamic_law_cases:
                 self._dynamic_law_cases = []
 
-            jurisprudence_top_k = self._resolve_retrieval_top_k(
-                key="jurisprudence_path_top_k",
-                default=3,
-            )
-
-            self._update_retrieval_trace(
-                path_name="jurisprudence",
-                requested_top_k=jurisprudence_top_k,
-                raw_candidates=0,
-                selected_cases=[],
-            )
-
             return
 
         jurisprudence_top_k = self._resolve_retrieval_top_k(
@@ -392,13 +323,6 @@ class LegalSystem:
                 new_dynamic_cases.append(case)
 
         self._dynamic_law_cases = new_dynamic_cases
-
-        self._update_retrieval_trace(
-            path_name="jurisprudence",
-            requested_top_k=jurisprudence_top_k,
-            raw_candidates=len(retrieved_cases),
-            selected_cases=new_dynamic_cases,
-        )
 
     def advance_step(self):
         """Increment the internal step counter."""
