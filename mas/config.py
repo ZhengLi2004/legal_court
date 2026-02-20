@@ -112,10 +112,17 @@ class DeduplicationConfig:
 
 @dataclass
 class RetrievalConfig:
-    """Parameters for various information retrieval processes."""
+    """Parameters for information retrieval across the three long-memory paths.
 
-    initial_top_k: int = 3
-    corrective_top_k: int = 3
+    Long-term case recall follows three paths:
+    1. Semantic path (fact similarity).
+    2. Jurisprudence path (law overlap).
+    3. Strategy path (insight-guided strategy recall).
+    """
+
+    semantic_path_top_k: int = 3
+    jurisprudence_path_top_k: int = 3
+    strategy_path_top_k: int = 9
     insight_top_k: int = 3
     chroma_n_results: int = 3
     hop: int = 1

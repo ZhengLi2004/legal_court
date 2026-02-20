@@ -181,7 +181,7 @@ class LegalGMemory(MASMemoryBase):
                 self.collection.add(**payload)
 
     def retrieve_cases_by_law_codes(
-        self, law_contents: List[str]
+        self, law_contents: List[str], top_k: int = 3
     ) -> List[LegalMessage]:
         """Retrieve cases that cite a given set of laws.
 
@@ -190,6 +190,7 @@ class LegalGMemory(MASMemoryBase):
 
         Args:
             law_contents: A list of law content strings to search for.
+            top_k: The maximum number of retrieved cases.
 
         Returns:
             A list of the most relevant `LegalMessage` objects.
@@ -216,8 +217,15 @@ class LegalGMemory(MASMemoryBase):
             if sim > 0:
                 scores.append((case_id, sim))
 
+        try:
+            limit = int(top_k)
+
+        except (TypeError, ValueError):
+            limit = 3
+
+        limit = max(1, limit)
         scores.sort(key=lambda x: x[1], reverse=True)
-        top_k_ids = [s[0] for s in scores[:3]]
+        top_k_ids = [s[0] for s in scores[:limit]]
         return self._fetch_messages_by_ids(top_k_ids)
 
     def retrieve_memory(
