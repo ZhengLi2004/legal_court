@@ -226,6 +226,7 @@ class LegalSystem:
         )
 
         self.memory.add_memory(msg)
+        self.memory.task_layer.add_node(case_id)
         status_str_dict = {k: v.value for k, v in normalized_root_status.items()}
 
         target_insight = self.insights.extract_adversarial_insights(
@@ -236,7 +237,6 @@ class LegalSystem:
         )
 
         if target_insight:
-            self.memory.task_layer.add_node(case_id)
             active_ids = {c.case_id for c in self.active_history_cases}
             insight_peers = set(target_insight.cases)
 

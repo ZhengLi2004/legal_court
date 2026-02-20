@@ -98,7 +98,7 @@ class ConvergenceConfig:
 class MatcherConfig:
     """Thresholds for semantic matching."""
 
-    projection_threshold: float = 0.60
+    projection_threshold: float = 0.58
     insight_threshold: float = 0.70
 
 
@@ -119,6 +119,8 @@ class RetrievalConfig:
     insight_top_k: int = 3
     chroma_n_results: int = 3
     hop: int = 1
+    projection_anchor_top_k: int = 3
+    projection_case_top_k: int = 3
 
 
 @dataclass
