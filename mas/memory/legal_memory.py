@@ -214,7 +214,11 @@ class LegalGMemory(MASMemoryBase):
             case_laws = self.case_law_index.get(case_id, set())
             sim = self._compute_jaccard(target_set, case_laws)
 
-            if sim > 0:
+            min_sim = float(
+                getattr(self.config.retrieval, "law_jaccard_min_similarity", 0.0)
+            )
+
+            if sim > min_sim:
                 scores.append((case_id, sim))
 
         try:

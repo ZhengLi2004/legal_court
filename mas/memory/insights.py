@@ -428,6 +428,10 @@ class InsightsManager:
             query_emb = self.matcher.embedding_func.embed_query(insight_content)
             best_score = -1
 
+            fallback_threshold = float(
+                getattr(self.cfg.matcher, "insight_fallback_threshold", 0.7)
+            )
+
             for emb, inst in self._insight_index:
                 sim = cosine_similarity(query_emb, emb)
 
@@ -435,7 +439,7 @@ class InsightsManager:
                     best_score = sim
                     target_insight = inst
 
-            if best_score < 0.7:
+            if best_score < fallback_threshold:
                 return []
 
         if target_insight:

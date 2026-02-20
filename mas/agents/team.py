@@ -81,12 +81,35 @@ class DebateTeam:
         for action in self.controller.actions:
             action.llm = llm
 
+        worker_cfg = getattr(
+            getattr(legal_system, "cfg", None), "worker_threshold", None
+        )
+
+        try:
+            fact_threshold = float(getattr(worker_cfg, "fact_worker_threshold", 0.6))
+
+        except (TypeError, ValueError):
+            fact_threshold = 0.6
+
+        try:
+            law_threshold = float(getattr(worker_cfg, "law_worker_threshold", 0.6))
+
+        except (TypeError, ValueError):
+            law_threshold = 0.6
+
         self.fact_worker = FactWorker(
-            name=f"{side}_FactWorker", es_tool=fact_es, llm=llm
+            name=f"{side}_FactWorker",
+            es_tool=fact_es,
+            llm=llm,
+            threshold=fact_threshold,
         )
 
         self.law_worker = LawWorker(
-            name=f"{side}_LawWorker", es_tool=law_es, llm=llm, legal_system=legal_system
+            name=f"{side}_LawWorker",
+            es_tool=law_es,
+            llm=llm,
+            legal_system=legal_system,
+            threshold=law_threshold,
         )
 
         self.law_worker.graph_tool = graph_tool

@@ -100,6 +100,8 @@ class MatcherConfig:
 
     projection_threshold: float = 0.58
     insight_threshold: float = 0.70
+    semantic_default_threshold: float = 0.85
+    insight_fallback_threshold: float = 0.70
 
 
 @dataclass
@@ -128,6 +130,15 @@ class RetrievalConfig:
     hop: int = 1
     projection_anchor_top_k: int = 3
     projection_case_top_k: int = 3
+    law_jaccard_min_similarity: float = 0.0
+
+
+@dataclass
+class WorkerThresholdConfig:
+    """Similarity thresholds used by fact/law retrieval workers."""
+
+    fact_worker_threshold: float = 0.60
+    law_worker_threshold: float = 0.60
 
 
 @dataclass
@@ -152,6 +163,7 @@ class SystemConfig:
     judge: JudgeLLMConfig = JudgeLLMConfig()
     matcher: MatcherConfig = MatcherConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
+    worker_threshold: WorkerThresholdConfig = WorkerThresholdConfig()
     topology: TopologyConfig = TopologyConfig()
     dedup: DeduplicationConfig = DeduplicationConfig()
     es: ESConfig = ESConfig()
