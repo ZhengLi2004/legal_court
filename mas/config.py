@@ -88,8 +88,8 @@ class JudgeLLMConfig:
 class ConvergenceConfig:
     """Parameters for the debate convergence detection algorithm."""
 
-    alpha: float = 0.6
-    epsilon: float = 2
+    alpha: float = 0.4
+    epsilon: float = 1.6
     window_size: int = 4
     min_rounds: int = 2
 
@@ -98,8 +98,8 @@ class ConvergenceConfig:
 class MatcherConfig:
     """Thresholds for semantic matching."""
 
-    projection_threshold: float = 0.58
-    insight_threshold: float = 0.70
+    projection_threshold: float = 0.67
+    insight_threshold: float = 0.64
     semantic_default_threshold: float = 0.85
     insight_fallback_threshold: float = 0.70
 

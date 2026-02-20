@@ -380,12 +380,16 @@ class InsightsManager:
         query_emb = self.matcher.embedding_func.embed_query(context)
         candidates = []
 
+        retrieval_threshold = float(getattr(self.cfg.matcher, "insight_threshold", 0.7))
+
         for emb, inst in self._insight_index:
             if not self._normalize_insight_content(inst.content):
                 continue
 
             sim = cosine_similarity(query_emb, emb)
-            candidates.append((sim, inst))
+
+            if sim >= retrieval_threshold:
+                candidates.append((sim, inst))
 
         candidates.sort(key=lambda x: x[0], reverse=True)
         top_candidates = candidates[: top_k * 2]
@@ -399,11 +403,11 @@ class InsightsManager:
                 continue
 
             if inst.side == InsightSide.PLAINTIFF or inst.side == InsightSide.COMMON:
-                if len(p_insights) < top_k:
+                if len(p_insights) < top_k and normalized_content not in p_insights:
                     p_insights.append(normalized_content)
 
             if inst.side == InsightSide.DEFENDANT or inst.side == InsightSide.COMMON:
-                if len(d_insights) < top_k:
+                if len(d_insights) < top_k and normalized_content not in d_insights:
                     d_insights.append(normalized_content)
 
         return p_insights, d_insights
