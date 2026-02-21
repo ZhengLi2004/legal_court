@@ -69,7 +69,7 @@ class LLMConfig:
 
     temperature: float = 0.1
     max_tokens: int = 8192
-    model_name: str = "Kimi-K2.5-Instruct"
+    model_name: str = "DeepSeek-V3.2"
     api_key: str = get_env_strict("LEGAL_LLM_KEY")
     base_url: str = get_env_strict("LEGAL_LLM_URL")
 
@@ -108,8 +108,8 @@ class MatcherConfig:
 class DeduplicationConfig:
     """Thresholds for semantic deduplication of graph nodes."""
 
-    fact_threshold: float = 0.95
-    other_threshold: float = 0.90
+    fact_threshold: float = 0.88
+    other_threshold: float = 0.82
 
 
 @dataclass
@@ -137,8 +137,8 @@ class RetrievalConfig:
 class WorkerThresholdConfig:
     """Similarity thresholds used by fact/law retrieval workers."""
 
-    fact_worker_threshold: float = 0.60
-    law_worker_threshold: float = 0.60
+    fact_worker_threshold: float = 0.62
+    law_worker_threshold: float = 0.71
 
 
 @dataclass
