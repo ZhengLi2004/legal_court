@@ -58,7 +58,7 @@ class MASMemoryBase(ABC):
     @abstractmethod
     def retrieve_memory(
         self, query_context: str, top_k: int = 3
-    ) -> Tuple[List[LegalMessage], List[str]]:
+    ) -> Tuple[List[LegalMessage], List[float]]:
         """Retrieve relevant memories based on a query.
 
         Args:
@@ -67,7 +67,7 @@ class MASMemoryBase(ABC):
 
         Returns:
             A tuple containing a list of retrieved `LegalMessage` objects and a
-            list of any associated debug strings or metadata.
+            list of similarity scores aligned with returned messages.
         """
         pass
 

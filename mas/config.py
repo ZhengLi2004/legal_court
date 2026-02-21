@@ -44,22 +44,12 @@ class ESConfig:
 
 
 @dataclass
-class AgentConfig:
-    """Configuration for agent identifiers."""
-
-    system_id: str = "system"
-    projection_id: str = "projection"
-    default_commander_id: str = "commander"
-
-
-@dataclass
 class PathConfig:
     """Configuration for file system paths."""
 
     embedding_model_path: str = get_env_strict("EMBEDDING_MODEL_PATH")
     storage_root_dir: str = get_env_strict("MAS_STORAGE_DIR")
     storage_subdir_chroma: str = "chroma_db"
-    file_query_graph: str = "case_graph.pkl"
     file_insight_graph: str = "legal_insights.json"
 
 
@@ -124,8 +114,7 @@ class RetrievalConfig:
     jurisprudence_path_top_k: int = 3
     strategy_path_top_k: int = 9
     insight_top_k: int = 3
-    chroma_n_results: int = 3
-    hop: int = 1
+    semantic_min_similarity: float = 0.58
     projection_anchor_top_k: int = 3
     projection_case_top_k: int = 3
     law_jaccard_min_similarity: float = 0.25
@@ -140,13 +129,6 @@ class WorkerThresholdConfig:
 
 
 @dataclass
-class TopologyConfig:
-    """Configuration for the case topology graph (TaskLayer)."""
-
-    task_layer_threshold: float = 0.50
-
-
-@dataclass
 class SystemConfig:
     """The root configuration class that aggregates all other configs.
 
@@ -155,14 +137,12 @@ class SystemConfig:
     directory if it doesn't exist.
     """
 
-    agent: AgentConfig = AgentConfig()
     path: PathConfig = PathConfig()
     llm: LLMConfig = LLMConfig()
     judge: JudgeLLMConfig = JudgeLLMConfig()
     matcher: MatcherConfig = MatcherConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
     worker_threshold: WorkerThresholdConfig = WorkerThresholdConfig()
-    topology: TopologyConfig = TopologyConfig()
     dedup: DeduplicationConfig = DeduplicationConfig()
     es: ESConfig = ESConfig()
     convergence: ConvergenceConfig = ConvergenceConfig()

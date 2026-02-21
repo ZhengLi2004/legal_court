@@ -234,7 +234,7 @@ class LegalGMemory(MASMemoryBase):
 
     def retrieve_memory(
         self, query_context: str, top_k: int = 3
-    ) -> Tuple[List[LegalMessage], List[str]]:
+    ) -> Tuple[List[LegalMessage], List[float]]:
         """Retrieve semantically similar cases from ChromaDB.
 
         Args:
@@ -242,20 +242,82 @@ class LegalGMemory(MASMemoryBase):
             top_k: The maximum number of cases to retrieve.
 
         Returns:
-            A tuple containing a list of retrieved `LegalMessage` objects and an
-            empty list (for compatibility with a base class signature).
+            A tuple containing a list of retrieved `LegalMessage` objects and
+            their cosine similarities.
         """
         count = self.collection.count()
 
         if count == 0:
             return [], []
 
+        try:
+            limit = int(top_k)
+
+        except (TypeError, ValueError):
+            limit = 3
+
+        limit = max(1, limit)
+        candidate_k = min(max(limit * 5, limit), count)
+
         results = self.collection.query(
-            query_texts=[query_context], n_results=min(top_k, count)
+            query_texts=[query_context],
+            n_results=candidate_k,
+            include=["distances"],
         )
 
         found_ids = results["ids"][0] if results["ids"] else []
-        return self._fetch_messages_by_ids(found_ids), []
+
+        if not found_ids:
+            return [], []
+
+        distances = []
+
+        if results.get("distances") and results["distances"]:
+            distances = results["distances"][0]
+
+        min_similarity = float(
+            getattr(self.config.retrieval, "semantic_min_similarity", 0.0)
+        )
+
+        filtered_pairs: List[Tuple[str, float]] = []
+
+        for idx, case_id in enumerate(found_ids):
+            distance = None
+
+            if idx < len(distances):
+                distance = distances[idx]
+
+            if distance is None:
+                # Fallback keeps compatibility for backends returning ids only.
+                similarity = 1.0
+
+            else:
+                similarity = 1.0 - float(distance)
+                similarity = max(-1.0, min(1.0, similarity))
+
+            if similarity >= min_similarity:
+                filtered_pairs.append((str(case_id), similarity))
+
+        selected_pairs = filtered_pairs[:limit]
+
+        if not selected_pairs:
+            return [], []
+
+        selected_ids = [case_id for case_id, _ in selected_pairs]
+        fetched_messages = self._fetch_messages_by_ids(selected_ids)
+        message_by_id = {msg.case_id: msg for msg in fetched_messages}
+
+        ordered_messages: List[LegalMessage] = []
+        ordered_scores: List[float] = []
+
+        for case_id, score in selected_pairs:
+            msg = message_by_id.get(case_id)
+
+            if msg is not None:
+                ordered_messages.append(msg)
+                ordered_scores.append(score)
+
+        return ordered_messages, ordered_scores
 
     def _fetch_messages_by_ids(self, ids: List[str]) -> List[LegalMessage]:
         """Fetch full LegalMessage objects from ChromaDB using their IDs."""
