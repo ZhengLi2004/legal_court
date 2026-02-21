@@ -60,9 +60,7 @@ class LegalSystem:
             self.ef, threshold=self.cfg.matcher.insight_threshold
         )
 
-        self.dedup_matcher = SemanticMatcher(
-            self.ef, threshold=self.cfg.matcher.semantic_default_threshold
-        )
+        self.dedup_matcher = SemanticMatcher(self.ef)
 
         self.memory = LegalGMemory(
             persist_dir=self.cfg.path.storage_root_dir, config=self.cfg

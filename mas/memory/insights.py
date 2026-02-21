@@ -433,7 +433,7 @@ class InsightsManager:
             best_score = -1
 
             fallback_threshold = float(
-                getattr(self.cfg.matcher, "insight_fallback_threshold", 0.7)
+                getattr(self.cfg.matcher, "insight_threshold", 0.7)
             )
 
             for emb, inst in self._insight_index:

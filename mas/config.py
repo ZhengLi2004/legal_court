@@ -100,8 +100,6 @@ class MatcherConfig:
 
     projection_threshold: float = 0.67
     insight_threshold: float = 0.64
-    semantic_default_threshold: float = 0.85
-    insight_fallback_threshold: float = 0.70
 
 
 @dataclass
@@ -130,7 +128,7 @@ class RetrievalConfig:
     hop: int = 1
     projection_anchor_top_k: int = 3
     projection_case_top_k: int = 3
-    law_jaccard_min_similarity: float = 0.0
+    law_jaccard_min_similarity: float = 0.25
 
 
 @dataclass
