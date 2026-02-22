@@ -3,119 +3,75 @@
 from __future__ import annotations
 
 import asyncio
-import io
-import json
 import os
 import shutil
-import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-import networkx as nx
-
 from mas.common.serialization import (
-    as_non_negative_int,
     serialize_value_attr,
     to_json_safe,
 )
-from mas.session.frontend_snapshots import (
+from mas.session.event_stream import (
+    get_event_history as get_session_event_history,
+)
+from mas.session.event_stream import (
+    infer_event_source,
+)
+from mas.session.event_stream import (
+    record_event as record_session_event,
+)
+from mas.session.event_stream import (
+    register_event_subscriber as register_session_event_subscriber,
+)
+from mas.session.event_stream import (
+    unregister_event_subscriber as unregister_session_event_subscriber,
+)
+from mas.session.exporters import (
+    build_replay_bundle,
+)
+from mas.session.exporters import (
+    export_graph_gexf as export_graph_gexf_bytes,
+)
+from mas.session.replay_restore import (
+    apply_normalized_replay_bundle,
+    get_recent_loaded_session,
+    mark_recent_load,
+)
+from mas.session.session_lifecycle import (
+    default_case_path as get_default_case_path,
+)
+from mas.session.session_lifecycle import (
+    default_engine_factory as build_default_engine_factory,
+)
+from mas.session.session_lifecycle import (
+    default_frontend_snapshots_dir as get_default_frontend_snapshots_dir,
+)
+from mas.session.session_lifecycle import (
+    derive_status,
+    load_case_from_jsonl,
+    resolve_memory_storage_dir,
+)
+from mas.session.snapshot_store import (
     extract_replay_metadata,
     frontend_snapshot_item,
     frontend_snapshot_load_response,
     normalize_import_bundle,
-    normalize_restored_events,
     read_frontend_snapshot_record,
-    restore_round_index,
     write_frontend_snapshot_record,
 )
-from mas.session.frontend_snapshots import (
+from mas.session.snapshot_store import (
     list_frontend_snapshots as list_frontend_snapshot_items,
 )
+from mas.session.teamflow_stream import build_teamflow_stream
 
 
 def utc_now_iso() -> str:
     """Return an RFC3339-like UTC timestamp string."""
     return datetime.now(timezone.utc).isoformat()
-
-
-def _infer_event_source(event: str) -> str:
-    """Infer event source from event name."""
-    if event.startswith("team_"):
-        return "team"
-
-    if event.startswith("adjudication"):
-        return "judge"
-
-    if (
-        event.startswith("setup")
-        or event.startswith("turn")
-        or event
-        in {
-            "transcript_update",
-            "snapshot_saved",
-        }
-    ):
-        return "engine"
-
-    return "engine"
-
-
-def _derive_round_idx(
-    event_payload: Dict[str, Any],
-    engine: Any,
-) -> Optional[int]:
-    """Infer round index from payload first, then engine state."""
-    candidates = [
-        event_payload.get("round_idx"),
-        event_payload.get("round"),
-    ]
-
-    for item in candidates:
-        try:
-            if item is None:
-                continue
-
-            return int(item)
-
-        except (TypeError, ValueError):
-            continue
-
-    try:
-        engine_round = getattr(engine, "round_idx", None)
-
-        if engine_round is not None:
-            return int(engine_round)
-
-    except (TypeError, ValueError):
-        return None
-
-    return None
-
-
-def _default_case_path() -> Path:
-    """Return the default bundled case JSONL path.
-
-    Returns:
-        Absolute path to `data/sampling/cleaned_samples.jsonl`.
-    """
-    return (
-        Path(__file__).resolve().parents[2]
-        / "data"
-        / "sampling"
-        / "cleaned_samples.jsonl"
-    )
-
-
-def _default_frontend_snapshots_dir() -> Path:
-    """Return the directory used for persisted frontend snapshot files.
-
-    Returns:
-        Absolute path to the frontend snapshot storage directory.
-    """
-    return Path(__file__).resolve().parents[2] / "tmp" / "frontend_snapshots"
 
 
 def _to_json_safe(value: Any) -> Any:
@@ -128,42 +84,6 @@ def _to_json_safe(value: Any) -> Any:
         JSON-friendly representation using only primitive containers/scalars.
     """
     return to_json_safe(value, scalar_serializer=serialize_value_attr)
-
-
-def _default_engine_factory() -> Any:
-    """Build a default `DebateEngine` instance for API sessions.
-
-    Returns:
-        Ready-to-use debate engine instance.
-    """
-    from mas.config import SystemConfig
-    from mas.core.engine import DebateEngine
-
-    return DebateEngine(config=SystemConfig(), judge_config={})
-
-
-def _load_case_from_jsonl(path: Path) -> Dict[str, Any]:
-    """Load the first valid case row from a JSONL file.
-
-    Args:
-        path: JSONL file path to read.
-
-    Returns:
-        Parsed case dictionary.
-    """
-    with path.open("r", encoding="utf-8") as file:
-        for line in file:
-            row = line.strip()
-
-            if not row:
-                continue
-
-            payload = json.loads(row)
-
-            if isinstance(payload, dict):
-                return payload
-
-    raise ValueError(f"No valid case row found in {path}")
 
 
 @dataclass
@@ -204,11 +124,13 @@ class SessionManager:
             default_case_path: Optional fallback case JSONL path.
             frontend_snapshots_dir: Optional snapshot persistence directory.
         """
-        self._engine_factory = engine_factory or _default_engine_factory
-        self._default_case_path = default_case_path or _default_case_path()
+        self._engine_factory = engine_factory or build_default_engine_factory
+        self._default_case_path = default_case_path or get_default_case_path()
+
         self._frontend_snapshots_dir = (
-            frontend_snapshots_dir or _default_frontend_snapshots_dir()
+            frontend_snapshots_dir or get_default_frontend_snapshots_dir()
         )
+
         self._recent_frontend_snapshot_loads: Dict[str, Dict[str, Any]] = {}
         self._sessions: Dict[str, DebateSession] = {}
 
@@ -257,7 +179,7 @@ class SessionManager:
             lambda event, data, sid=session_id: self._record_event(
                 sid,
                 event=event,
-                source=_infer_event_source(event),
+                source=infer_event_source(event),
                 data=data,
             )
         )
@@ -304,7 +226,7 @@ class SessionManager:
 
             if payload is None:
                 target_path = case_data_path or self._default_case_path
-                payload = _load_case_from_jsonl(Path(target_path))
+                payload = load_case_from_jsonl(Path(target_path))
 
             session.status = "SETTING_UP"
             session.updated_at = utc_now_iso()
@@ -312,7 +234,7 @@ class SessionManager:
             try:
                 await session.engine.setup(case_data=payload)
                 session.last_error = ""
-                session.status = self._derive_status(session.engine)
+                session.status = derive_status(session.engine)
                 session.updated_at = utc_now_iso()
                 return session
 
@@ -346,7 +268,7 @@ class SessionManager:
 
         async with session.lock:
             if getattr(session.engine, "is_ready_for_adjudication", False):
-                session.status = self._derive_status(session.engine)
+                session.status = derive_status(session.engine)
                 session.updated_at = utc_now_iso()
 
                 self._record_event(
@@ -410,7 +332,7 @@ class SessionManager:
 
                 await session.engine.step()
                 session.last_error = ""
-                session.status = self._derive_status(session.engine)
+                session.status = derive_status(session.engine)
                 session.updated_at = utc_now_iso()
                 return session
 
@@ -462,7 +384,7 @@ class SessionManager:
 
                 await session.engine.adjudicate()
                 session.last_error = ""
-                session.status = self._derive_status(session.engine)
+                session.status = derive_status(session.engine)
                 session.updated_at = utc_now_iso()
                 return session
 
@@ -480,23 +402,6 @@ class SessionManager:
 
                 raise
 
-    @staticmethod
-    def _resolve_memory_storage_dir() -> Path:
-        """Resolve the long-term memory storage directory from environment."""
-        storage_root = str(os.getenv("MAS_STORAGE_DIR", "")).strip()
-
-        if not storage_root:
-            raise ValueError(
-                "Missing MAS_STORAGE_DIR. Cannot locate long-term memory storage."
-            )
-
-        resolved = Path(storage_root).expanduser().resolve()
-
-        if str(resolved) in {"", "/", "."}:
-            raise ValueError(f"Refuse to clear unsafe storage path: {resolved}")
-
-        return resolved
-
     async def reset_memory_storage(self) -> str:
         """Delete all persisted long-term-memory files on disk.
 
@@ -511,7 +416,7 @@ class SessionManager:
                 "Active sessions exist. Close all sessions before clearing memory storage."
             )
 
-        storage_dir = self._resolve_memory_storage_dir()
+        storage_dir = resolve_memory_storage_dir(os.getenv("MAS_STORAGE_DIR", ""))
 
         if storage_dir.exists():
             shutil.rmtree(storage_dir)
@@ -538,16 +443,13 @@ class SessionManager:
             Event envelopes ordered by original sequence.
         """
         session = self.get_session(session_id)
-        events = session.events
 
-        if from_seq is not None:
-            events = [item for item in events if int(item.get("seq", 0)) >= from_seq]
-
-        if to_seq is not None:
-            events = [item for item in events if int(item.get("seq", 0)) <= to_seq]
-
-        limit_value = max(1, int(limit))
-        return events[-limit_value:]
+        return get_session_event_history(
+            session.events,
+            limit=limit,
+            from_seq=from_seq,
+            to_seq=to_seq,
+        )
 
     def register_event_subscriber(
         self, session_id: str, max_queue_size: int = 200
@@ -562,9 +464,11 @@ class SessionManager:
             Newly created asyncio queue.
         """
         session = self.get_session(session_id)
-        queue: asyncio.Queue = asyncio.Queue(maxsize=max(1, int(max_queue_size)))
-        session.event_subscribers.append(queue)
-        return queue
+
+        return register_session_event_subscriber(
+            session.event_subscribers,
+            max_queue_size=max_queue_size,
+        )
 
     def unregister_event_subscriber(
         self, session_id: str, queue: asyncio.Queue
@@ -576,12 +480,7 @@ class SessionManager:
             queue: Queue instance to remove.
         """
         session = self.get_session(session_id)
-
-        try:
-            session.event_subscribers.remove(queue)
-
-        except ValueError:
-            return
+        unregister_session_event_subscriber(session.event_subscribers, queue)
 
     def get_snapshot_index(self, session_id: str) -> List[Dict[str, Any]]:
         """Build a compact index for available round snapshots.
@@ -652,108 +551,6 @@ class SessionManager:
 
         return []
 
-    @staticmethod
-    def _stringify_compact(value: Any) -> str:
-        """Render nested values into compact multiline display text.
-
-        Args:
-            value: Arbitrary structured value.
-
-        Returns:
-            Human-readable compact string.
-        """
-        if isinstance(value, str):
-            return value.strip()
-
-        if isinstance(value, (int, float, bool)):
-            return str(value)
-
-        if value is None:
-            return ""
-
-        if isinstance(value, dict):
-            lines: List[str] = []
-
-            for key, item in value.items():
-                item_text = SessionManager._stringify_compact(item)
-
-                if not item_text:
-                    continue
-
-                item_lines = item_text.splitlines()
-
-                if len(item_lines) == 1:
-                    lines.append(f"{key}: {item_lines[0]}")
-                else:
-                    lines.append(f"{key}:")
-                    lines.extend([f"  {line}" for line in item_lines])
-
-            return "\n".join(lines)
-
-        if isinstance(value, list):
-            lines: List[str] = []
-
-            for item in value:
-                item_text = SessionManager._stringify_compact(item)
-
-                if not item_text:
-                    continue
-
-                item_lines = item_text.splitlines()
-
-                if len(item_lines) == 1:
-                    lines.append(f"- {item_lines[0]}")
-                else:
-                    lines.append("-")
-                    lines.extend([f"  {line}" for line in item_lines])
-
-            return "\n".join(lines)
-
-        return str(value)
-
-    @staticmethod
-    def _build_teamflow_message(
-        message_id: str,
-        phase: str,
-        actor: str,
-        role: str,
-        title: str,
-        content: str,
-        ts_ms: Optional[int] = None,
-        meta: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Create one normalized TeamFlow timeline message payload.
-
-        Args:
-            message_id: Stable message identifier.
-            phase: Pipeline phase (ASSESS, INSTRUCT, WORKER, etc.).
-            actor: Display name of the message source.
-            role: Actor role used by frontend styling.
-            title: Short message title.
-            content: Message body text.
-            ts_ms: Optional event timestamp in milliseconds.
-            meta: Optional auxiliary metadata.
-
-        Returns:
-            TeamFlow message dictionary ready for serialization.
-        """
-        payload: Dict[str, Any] = {
-            "id": message_id,
-            "phase": phase,
-            "actor": actor,
-            "role": role,
-            "title": title,
-            "content": content.strip() or "(empty)",
-        }
-
-        if isinstance(ts_ms, int) and ts_ms > 0:
-            payload["ts_ms"] = ts_ms
-
-        if isinstance(meta, dict) and len(meta) > 0:
-            payload["meta"] = _to_json_safe(meta)
-
-        return payload
-
     def get_teamflow_stream(
         self,
         session_id: str,
@@ -784,440 +581,24 @@ class SessionManager:
             session_id=session_id,
             limit=max(240, safe_limit * 12),
         )
-
-        events_by_turn: Dict[str, List[Dict[str, Any]]] = {}
-
-        for item in events:
-            if not isinstance(item, dict):
-                continue
-
-            turn_uid = str(item.get("turn_uid", "")).strip()
-
-            if not turn_uid:
-                continue
-
-            events_by_turn.setdefault(turn_uid, []).append(item)
-
-        turns: List[Dict[str, Any]] = []
-
-        for artifact_index, item in enumerate(artifacts):
-            if not isinstance(item, dict):
-                continue
-
-            turn_uid = str(item.get("turn_uid", "")).strip()
-
-            if not turn_uid:
-                turn_uid = f"turn_{artifact_index + 1}"
-
-            round_idx = as_non_negative_int(
-                item.get("round_idx", item.get("round")),
-                artifact_index,
-            )
-
-            side = str(item.get("side", "unknown")).strip() or "unknown"
-            related_events = events_by_turn.get(turn_uid, [])
-            artifact_ts = as_non_negative_int(item.get("ts_ms"), 0)
-            message_seq = 0
-            messages: List[Dict[str, Any]] = []
-
-            def push_message(
-                phase: str,
-                actor: str,
-                role: str,
-                title: str,
-                content: str,
-                *,
-                ts_override: Optional[int] = None,
-                meta: Optional[Dict[str, Any]] = None,
-            ) -> None:
-                """Append one formatted message to the current turn bucket.
-
-                Args:
-                    phase: Pipeline phase label.
-                    actor: Message source name.
-                    role: Source role used by frontend rendering.
-                    title: Short message title.
-                    content: Message text body.
-                    ts_override: Optional timestamp override.
-                    meta: Optional metadata payload.
-                """
-                nonlocal message_seq
-                message_seq += 1
-
-                payload = self._build_teamflow_message(
-                    message_id=f"{turn_uid}-{message_seq}",
-                    phase=phase,
-                    actor=actor,
-                    role=role,
-                    title=title,
-                    content=content,
-                    ts_ms=ts_override if ts_override is not None else artifact_ts,
-                    meta=meta,
-                )
-
-                messages.append(payload)
-
-            assessment = item.get("controller_assessment", {})
-            assessment_text = self._stringify_compact(assessment)
-
-            if assessment_text:
-                meta = None
-
-                if isinstance(assessment, dict):
-                    meta = {"keys": len(assessment)}
-
-                push_message(
-                    "ASSESS",
-                    "Controller",
-                    "controller",
-                    "需求评估",
-                    assessment_text,
-                    meta=meta,
-                )
-
-            instructions = item.get("batch_instructions", [])
-
-            if isinstance(instructions, list):
-                for idx, instruction_item in enumerate(instructions, start=1):
-                    row = instruction_item if isinstance(instruction_item, dict) else {}
-                    target = str(row.get("target", "")).strip() or "Worker"
-
-                    content = self._stringify_compact(
-                        row.get("instruction", instruction_item)
-                    )
-
-                    if not content:
-                        continue
-
-                    push_message(
-                        "INSTRUCT",
-                        "Controller",
-                        "controller",
-                        f"任务下发 #{idx}",
-                        content,
-                        meta={"target": target},
-                    )
-
-            else:
-                instruction_text = self._stringify_compact(instructions)
-
-                if instruction_text:
-                    push_message(
-                        "INSTRUCT",
-                        "Controller",
-                        "controller",
-                        "任务下发",
-                        instruction_text,
-                    )
-
-            worker_reports = item.get("worker_reports", [])
-
-            if isinstance(worker_reports, list):
-                for idx, report_item in enumerate(worker_reports, start=1):
-                    report = report_item if isinstance(report_item, dict) else {}
-
-                    worker = (
-                        str(
-                            report.get("worker", report.get("target", "Worker"))
-                        ).strip()
-                        or "Worker"
-                    )
-
-                    content = (
-                        self._stringify_compact(report.get("content", report_item))
-                        or "（无内容）"
-                    )
-
-                    meta: Dict[str, Any] = {}
-                    status = str(report.get("status", "")).strip()
-
-                    if status:
-                        meta["status"] = status
-
-                    max_score = report.get("max_score")
-
-                    if isinstance(max_score, (int, float)):
-                        meta["max_score"] = max_score
-
-                    duration_ms = as_non_negative_int(
-                        report.get("duration_ms"),
-                        -1,
-                    )
-
-                    if duration_ms >= 0:
-                        meta["duration_ms"] = duration_ms
-
-                    push_message(
-                        "WORKER",
-                        worker,
-                        "worker",
-                        f"Worker反馈 #{idx}",
-                        content,
-                        meta=meta or None,
-                    )
-
-            retry_history = item.get("retry_history", [])
-            retry_count = len(retry_history) if isinstance(retry_history, list) else 0
-
-            if isinstance(retry_history, list):
-                for idx, retry_item in enumerate(retry_history, start=1):
-                    content = (
-                        self._stringify_compact(retry_item) or "执行失败，触发重试"
-                    )
-
-                    push_message(
-                        "RETRY",
-                        "System",
-                        "system",
-                        f"重试 #{idx}",
-                        content,
-                    )
-
-            decision_raw = str(item.get("decision_raw", "")).strip()
-
-            parsed_actions = (
-                item.get("parsed_actions", [])
-                if isinstance(item.get("parsed_actions"), list)
-                else []
-            )
-
-            execution_logs = str(item.get("execution_logs", "")).strip()
-
-            action_cache = (
-                item.get("action_cache", [])
-                if isinstance(item.get("action_cache"), list)
-                else []
-            )
-
-            plan_attempts_used = as_non_negative_int(
-                item.get("plan_attempts_used"),
-                0,
-            )
-
-            push_attempts_used = as_non_negative_int(
-                item.get("push_attempts_used"),
-                0,
-            )
-
-            decision_lines: List[str] = []
-
-            if decision_raw:
-                decision_lines.append(f"决策输出：{decision_raw}")
-
-            if parsed_actions:
-                action_lines = [
-                    self._stringify_compact(action) for action in parsed_actions[:5]
-                ]
-
-                decision_lines.append("解析动作：")
-
-                for action_text in action_lines:
-                    if action_text:
-                        decision_lines.append(f"- {action_text}")
-
-                if len(parsed_actions) > 5:
-                    decision_lines.append(f"... 共 {len(parsed_actions)} 项")
-
-            if execution_logs:
-                log_preview = "\n".join(execution_logs.splitlines()[:3]).strip()
-
-                if log_preview:
-                    decision_lines.append(f"执行日志：{log_preview}")
-
-            if plan_attempts_used > 0 or push_attempts_used > 0:
-                decision_lines.append(
-                    f"Plan/PUSH 统计：plan={plan_attempts_used}, push={push_attempts_used}"
-                )
-
-            if action_cache:
-                latest_cache = action_cache[-1]
-                latest_text = self._stringify_compact(latest_cache)
-
-                if latest_text:
-                    decision_lines.append(f"最新动作 Cache：{latest_text}")
-
-            has_decision = len(decision_lines) > 0
-
-            if has_decision:
-                push_message(
-                    "DECIDE",
-                    "Controller",
-                    "controller",
-                    "决策执行",
-                    "\n".join(decision_lines),
-                    meta={"actions": len(parsed_actions)},
-                )
-
-            narrative_text = str(item.get("narrative_polished", "")).strip()
-
-            if narrative_text:
-                push_message(
-                    "NARRATE",
-                    "Narrator",
-                    "narrator",
-                    "叙事总结",
-                    narrative_text,
-                )
-
-            for event_item in related_events:
-                if not isinstance(event_item, dict):
-                    continue
-
-                event_name = str(event_item.get("event", "")).strip()
-
-                if event_name not in {"session_warning", "session_error"}:
-                    continue
-
-                event_data = event_item.get("data", {})
-                event_text = self._stringify_compact(event_data) or event_name
-                event_ts = as_non_negative_int(event_item.get("ts_ms"), 0)
-
-                push_message(
-                    "SYSTEM",
-                    "System",
-                    "system",
-                    event_name,
-                    event_text,
-                    ts_override=event_ts if event_ts > 0 else None,
-                )
-
-            if not messages:
-                push_message(
-                    "SYSTEM",
-                    "System",
-                    "system",
-                    "无可视化数据",
-                    "本回合暂无可结构化协作消息。",
-                )
-
-            status = "partial"
-
-            if has_decision:
-                status = "retry" if retry_count > 0 else "done"
-
-            turns.append(
-                {
-                    "turn_uid": turn_uid,
-                    "round_idx": round_idx,
-                    "side": side,
-                    "status": status,
-                    "retry_count": retry_count,
-                    "worker_count": len(worker_reports)
-                    if isinstance(worker_reports, list)
-                    else 0,
-                    "message_count": len(messages),
-                    "messages": messages,
-                }
-            )
-
-        turns.sort(
-            key=lambda row: (
-                as_non_negative_int(row.get("round_idx"), 0),
-                str(row.get("turn_uid", "")),
-            )
+        return build_teamflow_stream(
+            artifacts=artifacts,
+            events=events,
+            limit=safe_limit,
+            to_json_safe=_to_json_safe,
         )
-
-        return _to_json_safe(turns)
-
-    def _graph_data_for_export(
-        self, session: DebateSession, round_idx: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """Resolve graph payload used by export endpoints.
-
-        Args:
-            session: Target debate session.
-            round_idx: Optional round index for historical export.
-
-        Returns:
-            Graph payload dictionary containing nodes and edges.
-        """
-        snapshots = getattr(session.engine, "round_snapshots", [])
-
-        if isinstance(round_idx, int) and isinstance(snapshots, list):
-            if 0 <= round_idx < len(snapshots):
-                row = snapshots[round_idx]
-
-                if isinstance(row, dict):
-                    graph_data = row.get("graph_data", {})
-
-                    if isinstance(graph_data, dict):
-                        return graph_data
-
-        getter = getattr(session.engine, "get_serializable_snapshot", None)
-
-        if callable(getter):
-            payload = getter()
-
-            if isinstance(payload, dict):
-                graph_data = payload.get("graph_data", {})
-
-                if isinstance(graph_data, dict):
-                    return graph_data
-
-        return {"nodes": [], "edges": []}
 
     def export_graph_gexf(
         self, session_id: str, round_idx: Optional[int] = None
     ) -> bytes:
         """Export current or historical graph as GEXF bytes."""
         session = self.get_session(session_id)
-        graph_data = self._graph_data_for_export(session, round_idx=round_idx)
-        graph = nx.DiGraph()
 
-        for node in graph_data.get("nodes", []):
-            if not isinstance(node, dict):
-                continue
-
-            node_id = str(node.get("id", "")).strip()
-
-            if not node_id:
-                continue
-
-            attrs: Dict[str, Any] = {}
-
-            for key, value in node.items():
-                if key == "id":
-                    continue
-
-                if isinstance(value, (str, int, float, bool)) or value is None:
-                    attrs[str(key)] = value
-
-                else:
-                    attrs[str(key)] = json.dumps(
-                        _to_json_safe(value), ensure_ascii=False
-                    )
-
-            graph.add_node(node_id, **attrs)
-
-        for edge in graph_data.get("edges", []):
-            if not isinstance(edge, dict):
-                continue
-
-            source = str(edge.get("source", "")).strip()
-            target = str(edge.get("target", "")).strip()
-
-            if not source or not target:
-                continue
-
-            attrs = {}
-
-            for key, value in edge.items():
-                if key in {"source", "target"}:
-                    continue
-
-                if isinstance(value, (str, int, float, bool)) or value is None:
-                    attrs[str(key)] = value
-
-                else:
-                    attrs[str(key)] = json.dumps(
-                        _to_json_safe(value), ensure_ascii=False
-                    )
-
-            graph.add_edge(source, target, **attrs)
-
-        buffer = io.BytesIO()
-        nx.write_gexf(graph, buffer, encoding="utf-8")
-        return buffer.getvalue()
+        return export_graph_gexf_bytes(
+            session,
+            round_idx=round_idx,
+            to_json_safe=_to_json_safe,
+        )
 
     def export_replay_bundle(
         self,
@@ -1227,16 +608,6 @@ class SessionManager:
     ) -> Dict[str, Any]:
         """Export a complete replay bundle for offline analysis."""
         session = self.get_session(session_id)
-        getter = getattr(session.engine, "get_serializable_snapshot", None)
-        snapshot_payload = getter() if callable(getter) else {}
-
-        if not isinstance(snapshot_payload, dict):
-            snapshot_payload = {}
-
-        snapshots = getattr(session.engine, "round_snapshots", [])
-
-        if not isinstance(snapshots, list):
-            snapshots = []
 
         events = self.get_event_history(
             session_id=session_id,
@@ -1249,26 +620,14 @@ class SessionManager:
             limit=max(1, int(include_artifacts_limit)),
         )
 
-        return {
-            "session": {
-                "session_id": session.session_id,
-                "status": session.status,
-                "created_at": session.created_at,
-                "updated_at": session.updated_at,
-                "failure_simulation": dict(session.failure_simulation),
-            },
-            "snapshot": snapshot_payload,
-            "snapshot_index": self.get_snapshot_index(session_id),
-            "snapshots": _to_json_safe(snapshots),
-            "events": events,
-            "turn_artifacts": _to_json_safe(artifacts),
-            "metadata": {
-                "generated_at": utc_now_iso(),
-                "event_count": len(events),
-                "artifact_count": len(artifacts),
-                "snapshot_count": len(snapshots),
-            },
-        }
+        return build_replay_bundle(
+            session=session,
+            snapshot_index=self.get_snapshot_index(session_id),
+            events=events,
+            artifacts=artifacts,
+            utc_now_iso=utc_now_iso,
+            to_json_safe=_to_json_safe,
+        )
 
     def save_frontend_snapshot(
         self,
@@ -1388,17 +747,15 @@ class SessionManager:
             self._frontend_snapshots_dir, snapshot_id
         )
 
-        now_ts = time.time()
-        cache_entry = self._recent_frontend_snapshot_loads.get(snapshot_id, {})
-        recent_session_id = str(cache_entry.get("session_id", "")).strip()
-        recent_loaded_at = float(cache_entry.get("loaded_at", 0.0) or 0.0)
+        recent_session = get_recent_loaded_session(
+            snapshot_id=snapshot_id,
+            recent_loads=self._recent_frontend_snapshot_loads,
+            sessions=self._sessions,
+        )
 
-        if recent_session_id and (now_ts - recent_loaded_at) <= 8.0:
-            recent_session = self._sessions.get(recent_session_id)
-
-            if recent_session is not None:
-                recent_session.updated_at = utc_now_iso()
-                return frontend_snapshot_load_response(record, recent_session)
+        if recent_session is not None:
+            recent_session.updated_at = utc_now_iso()
+            return frontend_snapshot_load_response(record, recent_session)
 
         replay_bundle = record.get("replay_bundle")
 
@@ -1407,193 +764,38 @@ class SessionManager:
 
         normalized_bundle = normalize_import_bundle(replay_bundle)
         restored_session = await self.create_session(auto_setup=True)
-        engine = restored_session.engine
-        snapshots = normalized_bundle.get("snapshots", [])
-        turn_artifacts = normalized_bundle.get("turn_artifacts", [])
-        engine.round_snapshots = snapshots if isinstance(snapshots, list) else []
 
-        engine.turn_artifacts = (
-            _to_json_safe(turn_artifacts) if isinstance(turn_artifacts, list) else []
+        apply_normalized_replay_bundle(
+            restored_session=restored_session,
+            normalized_bundle=normalized_bundle,
+            derive_status=derive_status,
+            to_json_safe=_to_json_safe,
+            utc_now_iso=utc_now_iso,
         )
 
-        raw_snapshot = normalized_bundle.get("snapshot", {})
-
-        if isinstance(raw_snapshot, dict):
-            latest_turn_uid = str(raw_snapshot.get("latest_turn_uid", "")).strip()
-
-            if latest_turn_uid:
-                engine.latest_turn_uid = latest_turn_uid
-
-        restore_round_idx = restore_round_index(
-            normalized_bundle,
-            engine.round_snapshots,
+        mark_recent_load(
+            snapshot_id=snapshot_id,
+            session_id=restored_session.session_id,
+            recent_loads=self._recent_frontend_snapshot_loads,
         )
-
-        restore_snapshot = getattr(engine, "restore_snapshot", None)
-
-        if not callable(restore_snapshot) or not restore_snapshot(restore_round_idx):
-            raise ValueError("Failed to restore engine state from frontend snapshot")
-
-        if isinstance(raw_snapshot, dict):
-            ready_raw = raw_snapshot.get("is_ready_for_adjudication")
-
-            if ready_raw is not None:
-                is_ready = bool(ready_raw) and not bool(
-                    getattr(engine, "is_finished", False)
-                )
-
-                engine.is_ready_for_adjudication = is_ready
-
-                if isinstance(getattr(engine, "last_step_log", None), dict):
-                    convergence = engine.last_step_log.get("convergence")
-
-                    if not isinstance(convergence, dict):
-                        convergence = {}
-
-                    convergence["is_converged"] = is_ready
-                    engine.last_step_log["convergence"] = convergence
-
-        restored_events = normalize_restored_events(
-            restored_session.session_id,
-            normalized_bundle.get("events", []),
-        )
-
-        restored_session.events = restored_events
-        restored_session.next_seq = len(restored_events) + 1
-
-        if restored_events:
-            last_turn_uid = str(restored_events[-1].get("turn_uid", "")).strip()
-            restored_session.current_turn_uid = last_turn_uid
-            restored_session.last_turn_uid = last_turn_uid
-
-        else:
-            latest_turn_uid = str(getattr(engine, "latest_turn_uid", "")).strip()
-            restored_session.current_turn_uid = latest_turn_uid
-            restored_session.last_turn_uid = latest_turn_uid
-
-        session_meta = normalized_bundle.get("session", {})
-
-        if not isinstance(session_meta, dict):
-            session_meta = {}
-
-        failure_simulation = session_meta.get("failure_simulation", {})
-
-        if isinstance(failure_simulation, dict):
-            restored_session.failure_simulation = {
-                "es_unavailable": bool(failure_simulation.get("es_unavailable", False)),
-                "llm_timeout": bool(failure_simulation.get("llm_timeout", False)),
-            }
-
-        restored_session.status = self._derive_status(engine)
-        restored_session.last_error = ""
-        restored_session.updated_at = utc_now_iso()
-
-        self._recent_frontend_snapshot_loads[snapshot_id] = {
-            "session_id": restored_session.session_id,
-            "loaded_at": time.time(),
-        }
 
         return frontend_snapshot_load_response(record, restored_session)
 
     def _record_event(
         self, session_id: str, event: str, source: str, data: Optional[Dict[str, Any]]
     ) -> None:
-        """Append one event envelope and fan it out to live subscribers.
-
-        Args:
-            session_id: Session identifier.
-            event: Event type name.
-            source: Event source namespace.
-            data: Optional structured event payload.
-        """
+        """Append one event envelope and fan it out to live subscribers."""
         session = self._sessions.get(session_id)
 
         if not session:
             return
 
-        payload = _to_json_safe(data or {})
-        explicit_turn_uid = str(payload.get("turn_uid", "")).strip()
-
-        if explicit_turn_uid:
-            session.current_turn_uid = explicit_turn_uid
-            session.last_turn_uid = explicit_turn_uid
-
-        elif event == "turn_start":
-            round_part = str(payload.get("round", "na"))
-            side_part = str(payload.get("turn", "unknown"))
-
-            session.current_turn_uid = (
-                f"turn_{round_part}_{side_part}_{int(time.time() * 1000)}"
-            )
-
-            session.last_turn_uid = session.current_turn_uid
-
-        turn_uid = session.current_turn_uid or session.last_turn_uid
-
-        round_idx = _derive_round_idx(payload, session.engine)
-        event_id = f"{session_id}-{session.next_seq:06d}"
-
-        envelope = {
-            "event_id": event_id,
-            "seq": session.next_seq,
-            "ts_ms": int(time.time() * 1000),
-            "session_id": session_id,
-            "turn_uid": turn_uid,
-            "round_idx": round_idx,
-            "event": event,
-            "source": source,
-            "data": payload,
-        }
-
-        session.events.append(envelope)
-
-        if event == "turn_complete":
-            session.last_turn_uid = turn_uid
-
-        stale_queues: List[asyncio.Queue] = []
-
-        for queue in list(session.event_subscribers):
-            try:
-                queue.put_nowait(envelope)
-
-            except asyncio.QueueFull:
-                try:
-                    queue.get_nowait()
-                    queue.put_nowait(envelope)
-
-                except Exception:
-                    stale_queues.append(queue)
-
-            except Exception:
-                stale_queues.append(queue)
-
-        if stale_queues:
-            session.event_subscribers = [
-                item for item in session.event_subscribers if item not in stale_queues
-            ]
-
-        session.next_seq += 1
-        session.updated_at = utc_now_iso()
-
-    def _derive_status(self, engine: Any) -> str:
-        """Derive API session status from engine runtime fields.
-
-        Args:
-            engine: Debate engine instance.
-
-        Returns:
-            Session status string consumed by API responses.
-        """
-        if getattr(engine, "is_finished", False):
-            return "FINISHED"
-
-        if getattr(engine, "is_ready_for_adjudication", False):
-            return "READY_FOR_ADJUDICATION"
-
-        if getattr(engine, "round_idx", 0) > 0:
-            return "DEBATING"
-
-        if getattr(engine, "graph", None) is not None:
-            return "SETUP_DONE"
-
-        return "CREATED"
+        record_session_event(
+            session=session,
+            session_id=session_id,
+            event=event,
+            source=source,
+            data=data,
+            to_json_safe=_to_json_safe,
+            utc_now_iso=utc_now_iso,
+        )
