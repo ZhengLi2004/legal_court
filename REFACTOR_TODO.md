@@ -11,10 +11,14 @@
   - 去除重复 JSON 安全转换逻辑，统一复用一个序列化工具。
   - 验收：`SessionManager` 主类仅保留编排职责，不直接处理文件 I/O 与回放细节。
 
-- [ ] 拆分引擎巨型模块：`mas/core/engine.py`（1189 行，31 个方法）
+- [x] 拆分引擎巨型模块：`mas/core/engine.py`（1189 行，31 个方法）
   - 分离 `setup`、`turn_runner`、`convergence`、`snapshot_codec`、`post_adjudication_learning`。
   - 清理重复字段（如快照中的同义字段）和多处默认值回退链。
   - 验收：核心回合推进逻辑可在不触发持久化/序列化代码时单测。
+  - 完成说明（2026-02-22）：
+    - 已拆分到 `engine_setup.py`、`engine_turn_runner.py`、`engine_convergence.py`、`engine_snapshot_codec.py`、`engine_post_learning.py`、`engine_adjudication.py`。
+    - `DebateEngine.step()` 新增 `persist_snapshot` 开关（默认 `True`），可在单测中关闭快照落盘路径以隔离回合推进逻辑。
+    - 快照状态已移除顶层重复收敛字段，仅保留 `convergence` 统一载荷。
 
 - [ ] 前端状态中心解耦：`frontend/src/app/state/DebateContext.tsx`（1063 行）
   - 拆为 `useSessionActions`、`useGraphActions`、`useTimelineStream`、`useSnapshotActions`。
