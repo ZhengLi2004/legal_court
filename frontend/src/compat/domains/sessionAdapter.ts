@@ -58,6 +58,13 @@ export class SessionDomainAdapter implements SessionAdapter {
     return normalizeSnapshot(raw);
   }
 
+  async resetMemory(): Promise<void> {
+    await this.client.request({
+      method: "POST",
+      path: "/api/v1/memory/reset-storage",
+    });
+  }
+
   async getSnapshot(sessionId: string): Promise<DebateSnapshot> {
     const raw = await this.client.request({
       method: "GET",

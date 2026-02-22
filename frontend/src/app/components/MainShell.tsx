@@ -37,9 +37,22 @@ function phaseIndex(phase: string): number {
 }
 
 export function MainShell({ route, onNavigate, children }: MainShellProps) {
-  const { snapshot, busyAction, error } = useDebate();
+  const { snapshot, sessions, busyAction, error, resetMemory } = useDebate();
   const currentPhase = snapshot?.phase ?? "idle";
   const currentStep = phaseIndex(currentPhase);
+  const hasActiveSessions = sessions.length > 0;
+
+  const handleResetMemory = (): void => {
+    const confirmed = window.confirm(
+      "将删除磁盘上的长期记忆文件（案例、洞察、拓扑）。仅允许在无活动会话时执行，且不可撤销，是否继续？",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    void resetMemory();
+  };
 
   return (
     <main className="ux-shell">
@@ -101,6 +114,18 @@ export function MainShell({ route, onNavigate, children }: MainShellProps) {
           type="button"
         >
           记忆类比
+        </button>
+
+        <button
+          className="ux-nav-danger"
+          disabled={hasActiveSessions || Boolean(busyAction)}
+          onClick={handleResetMemory}
+          title={
+            hasActiveSessions ? "请先关闭所有会话后再清理磁盘长期记忆" : ""
+          }
+          type="button"
+        >
+          调试：清空长期记忆
         </button>
       </nav>
 

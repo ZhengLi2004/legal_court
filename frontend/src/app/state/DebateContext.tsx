@@ -559,6 +559,29 @@ export function DebateProvider({ children }: { children: ReactNode }) {
     }
   }, [adapter, sessionId]);
 
+  const resetMemory = useCallback(async (): Promise<boolean> => {
+    if (sessions.length > 0) {
+      setError("存在活动会话，禁止清理磁盘长期记忆。请先关闭所有会话。");
+      return false;
+    }
+
+    setBusyAction("resetMemoryStorage");
+    setError("");
+
+    try {
+      await adapter.resetMemory();
+      setMemoryView(null);
+      setMemoryCaseGraphView(null);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      return false;
+    } finally {
+      setBusyAction("");
+    }
+  }, [adapter, sessions.length]);
+
   const loadMemoryCaseGraph = useCallback(
     async (caseId: string): Promise<boolean> => {
       if (!sessionId) {
@@ -960,6 +983,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       selectSession,
       step,
       adjudicate,
+      resetMemory,
       refreshSnapshot,
       loadGraph,
       loadGraphAtRound,
@@ -1005,6 +1029,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       memoryCaseGraphView,
       previousSnapshot,
       refreshSnapshot,
+      resetMemory,
       saveFrontendSnapshot,
       selectSession,
       sessionId,

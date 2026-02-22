@@ -387,6 +387,25 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.post("/api/v1/memory/reset-storage")
+    async def reset_memory_storage() -> Dict[str, Any]:
+        """Delete all persisted long-term-memory files from disk.
+
+        The operation is only allowed when no active runtime sessions exist.
+        """
+        try:
+            storage_dir = await manager.reset_memory_storage()
+            return {"status": "ok", "storage_root_dir": storage_dir}
+
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Reset storage memory failed: {exc}",
+            ) from exc
+
     @app.get("/api/v1/sessions/{session_id}/memory/cases/{case_id}/graph")
     async def get_memory_case_graph(session_id: str, case_id: str) -> Dict[str, Any]:
         """Return one historical-case argument graph for memory-page inspection.

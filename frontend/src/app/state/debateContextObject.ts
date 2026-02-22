@@ -39,6 +39,7 @@ export interface DebateContextValue {
   selectSession: (nextSessionId: string) => Promise<boolean>;
   step: () => Promise<boolean>;
   adjudicate: () => Promise<boolean>;
+  resetMemory: () => Promise<boolean>;
   refreshSnapshot: () => Promise<boolean>;
   loadGraph: () => Promise<boolean>;
   loadGraphAtRound: (round: number) => Promise<boolean>;

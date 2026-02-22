@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
+import shutil
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -476,6 +478,47 @@ class SessionManager:
                 )
 
                 raise
+
+    @staticmethod
+    def _resolve_memory_storage_dir() -> Path:
+        """Resolve the long-term memory storage directory from environment."""
+        storage_root = str(os.getenv("MAS_STORAGE_DIR", "")).strip()
+
+        if not storage_root:
+            raise ValueError(
+                "Missing MAS_STORAGE_DIR. Cannot locate long-term memory storage."
+            )
+
+        resolved = Path(storage_root).expanduser().resolve()
+
+        if str(resolved) in {"", "/", "."}:
+            raise ValueError(
+                f"Refuse to clear unsafe storage path: {resolved}"
+            )
+
+        return resolved
+
+    async def reset_memory_storage(self) -> str:
+        """Delete all persisted long-term-memory files on disk.
+
+        Returns:
+            Absolute storage directory path that has been reset.
+
+        Raises:
+            ValueError: When active sessions exist or storage path is invalid.
+        """
+        if len(self._sessions) > 0:
+            raise ValueError(
+                "Active sessions exist. Close all sessions before clearing memory storage."
+            )
+
+        storage_dir = self._resolve_memory_storage_dir()
+
+        if storage_dir.exists():
+            shutil.rmtree(storage_dir)
+
+        storage_dir.mkdir(parents=True, exist_ok=True)
+        return str(storage_dir)
 
     def get_event_history(
         self,

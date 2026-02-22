@@ -53,6 +53,10 @@ export class CompatAdapterFacade implements EngineAdapter {
     return this.session.adjudicate(sessionId);
   }
 
+  resetMemory(): Promise<void> {
+    return this.session.resetMemory();
+  }
+
   getSnapshot(sessionId: string): Promise<DebateSnapshot> {
     return this.session.getSnapshot(sessionId);
   }

@@ -250,6 +250,7 @@ export interface SessionAdapter {
   createSession(input?: CreateSessionInput): Promise<DebateSnapshot>;
   step(sessionId: string): Promise<DebateSnapshot>;
   adjudicate(sessionId: string): Promise<DebateSnapshot>;
+  resetMemory(): Promise<void>;
   getSnapshot(sessionId: string): Promise<DebateSnapshot>;
   listSessions(): Promise<DebateSnapshot[]>;
   getSnapshots(sessionId: string): Promise<SnapshotIndexItem[]>;
