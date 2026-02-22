@@ -290,7 +290,7 @@ class InsightsManager:
                 schema=_INSIGHT_EXTRACTION_SCHEMA,
             )
 
-        except Exception:
+        except (TypeError, ValueError, RuntimeError):
             return None
 
         side_raw = str(data.get("side", "")).upper().strip()

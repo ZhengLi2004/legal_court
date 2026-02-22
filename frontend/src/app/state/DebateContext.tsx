@@ -215,9 +215,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       }
     })();
 
-    let inFlight: Promise<boolean>;
-
-    inFlight = task.finally(() => {
+    const inFlight = task.finally(() => {
       if (snapshotInFlightRef.current === inFlight) {
         snapshotInFlightRef.current = null;
         snapshotInFlightSessionRef.current = "";
@@ -259,7 +257,12 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         try {
           const memory = await adapter.insight.getMemory(sessionId);
           setMemoryView(memory);
-        } catch {}
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(
+            `[DebateContext] getMemory after step failed: ${message}`,
+          );
+        }
       })();
 
       return true;
@@ -288,14 +291,26 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         try {
           const memory = await adapter.insight.getMemory(sessionId);
           setMemoryView(memory);
-        } catch {}
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+
+          console.warn(
+            `[DebateContext] getMemory after adjudicate failed: ${message}`,
+          );
+        }
       })();
 
       void (async () => {
         try {
           const rows = await adapter.getSnapshots(sessionId);
           setSnapshotIndex(rows);
-        } catch {}
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+
+          console.warn(
+            `[DebateContext] getSnapshots after adjudicate failed: ${message}`,
+          );
+        }
       })();
 
       return true;
@@ -340,9 +355,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       }
     })();
 
-    let inFlight: Promise<boolean>;
-
-    inFlight = task.finally(() => {
+    const inFlight = task.finally(() => {
       if (graphInFlightRef.current === inFlight) {
         graphInFlightRef.current = null;
         graphInFlightSessionRef.current = "";
@@ -449,9 +462,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         }
       })();
 
-      let inFlight: Promise<boolean>;
-
-      inFlight = task.finally(() => {
+      const inFlight = task.finally(() => {
         if (timelineInFlightRef.current === inFlight) {
           timelineInFlightRef.current = null;
           timelineInFlightSessionRef.current = "";

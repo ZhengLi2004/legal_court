@@ -16,6 +16,7 @@ from typing import Any, Dict, List
 from metagpt.logs import logger
 from metagpt.roles import Role
 from metagpt.schema import Message
+from pydantic import ValidationError
 
 from actions.controller_actions import (
     AssessFactNeeds,
@@ -156,46 +157,39 @@ class ArgumentController(Role):
             results_list: A list of dictionaries, where each dictionary contains
                 the 'worker' name and 'content' of their report.
         """
-        try:
-            for item in results_list:
-                worker_name = item.get("worker", "")
-                raw_content = item.get("content", "")
-                clean_content = raw_content
-                status = "UNKNOWN"
+        for item in results_list:
+            if not isinstance(item, dict):
+                continue
 
-                try:
-                    parsed_report = WorkerReport.model_validate_json(raw_content)
-                    clean_content = parsed_report.content
-                    status = parsed_report.status.value
+            worker_name = str(item.get("worker", ""))
+            raw_content = str(item.get("content", ""))
+            clean_content = raw_content
+            status = "UNKNOWN"
 
-                except Exception:
-                    pass
+            try:
+                parsed_report = WorkerReport.model_validate_json(raw_content)
+                clean_content = parsed_report.content
+                status = parsed_report.status.value
 
-                if status == WorkerReportStatus.NOT_FOUND.value:
-                    clean_content = f"（未找到）{clean_content}"
+            except ValidationError:
+                pass
 
-                if "FactWorker" in worker_name:
-                    self.investigation_buffer["Fact"] = (
-                        f"🔎 [事实检索报告]: {clean_content}"
-                    )
+            if status == WorkerReportStatus.NOT_FOUND.value:
+                clean_content = f"（未找到）{clean_content}"
 
-                elif "LawWorker" in worker_name:
-                    self.investigation_buffer["Law"] = (
-                        f"⚖️ [法条检索报告]: {clean_content}"
-                    )
+            if "FactWorker" in worker_name:
+                self.investigation_buffer["Fact"] = f"🔎 [事实检索报告]: {clean_content}"
 
-                elif "RecallWorker" in worker_name:
-                    self.investigation_buffer["Recall"] = (
-                        f"🧠 [历史策略参考]: {clean_content}"
-                    )
+            elif "LawWorker" in worker_name:
+                self.investigation_buffer["Law"] = f"⚖️ [法条检索报告]: {clean_content}"
 
-        except Exception as e:
-            logger.error(f"[{self.name}] Failed to ingest results: {e}")
-            self.investigation_buffer["Error"] = f"Ingestion error: {e}"
+            elif "RecallWorker" in worker_name:
+                self.investigation_buffer["Recall"] = (
+                    f"🧠 [历史策略参考]: {clean_content}"
+                )
 
-        finally:
-            self._generate_and_memorize_summary()
-            self.pipeline_step = ControllerPipelineStep.PLAN
+        self._generate_and_memorize_summary()
+        self.pipeline_step = ControllerPipelineStep.PLAN
 
     async def _act(self) -> Message:
         """Execute the main logic for the controller, driven by a state machine.
@@ -442,7 +436,7 @@ class ArgumentController(Role):
                     )
 
                 self.last_execution_log = (
-                    "ROUTED_TO_PUSH_BUT_NO_VALIDATED_PLAN: fallback to PLAN."
+                    "ROUTED_TO_PUSH_BUT_NO_VALIDATED_PLAN: continue planning."
                 )
 
             else:
@@ -562,7 +556,7 @@ class ArgumentController(Role):
                         for item in sandbox_actions_payload
                     ]
 
-                except Exception as e:
+                except (TypeError, ValueError, ValidationError) as e:
                     validated = False
                     validation_errors.append(f"Action Validation Failed: {e}")
 
@@ -787,36 +781,30 @@ class ArgumentController(Role):
 
     def _generate_and_memorize_summary(self):
         """Create a summary of worker findings and adds it to short-term memory."""
+        step_info = "?"
+
+        if (
+            self.graph_tool
+            and hasattr(self.graph_tool, "system")
+            and hasattr(self.graph_tool.system, "step_counter")
+        ):
+            step_info = str(self.graph_tool.system.step_counter)
+
+        summary_text = (
+            f"=== 🕵️ 本轮调查综述 (Round {step_info}) ===\n"
+            f"1. {self.investigation_buffer.get('Fact')}\n\n"
+            f"2. {self.investigation_buffer.get('Law')}\n\n"
+            f"3. {self.investigation_buffer.get('Recall')}\n"
+            f"=============================="
+        )
+
+        self.latest_summary = summary_text
+
         try:
-            step_info = "?"
-
-            if (
-                self.graph_tool
-                and hasattr(self.graph_tool, "system")
-                and hasattr(self.graph_tool.system, "step_counter")
-            ):
-                step_info = str(self.graph_tool.system.step_counter)
-
-            summary_text = (
-                f"=== 🕵️ 本轮调查综述 (Round {step_info}) ===\n"
-                f"1. {self.investigation_buffer.get('Fact')}\n\n"
-                f"2. {self.investigation_buffer.get('Law')}\n\n"
-                f"3. {self.investigation_buffer.get('Recall')}\n"
-                f"=============================="
-            )
-
-            self.latest_summary = summary_text
             self.rc.memory.add(Message(content=summary_text, role="System"))
 
-        except Exception as e:
+        except (AttributeError, RuntimeError, TypeError) as e:
             logger.error(f"[{self.name}] Failed to memorize summary: {e}")
-
-            fallback_msg = (
-                f"=== 🕵️ 本轮调查综述 (Error) ===\nFailed to generate summary: {e}"
-            )
-
-            self.latest_summary = fallback_msg
-            self.rc.memory.add(Message(content=fallback_msg, role="System"))
 
     def _parse_requirement(self, payload: Any) -> ResourceRequirement:
         """Safely parse a resource requirement payload from tool arguments.
@@ -836,7 +824,7 @@ class ArgumentController(Role):
 
             return ResourceRequirement.model_validate(payload)
 
-        except Exception as e:
+        except (TypeError, ValueError, ValidationError) as e:
             raise ValueError(f"Invalid resource requirement payload: {e}") from e
 
     def _record_tool_call_error(self, stage: str, error: Exception) -> str:

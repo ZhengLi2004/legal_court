@@ -18,7 +18,7 @@ export class GraphDomainAdapter implements GraphAdapter {
       path: `/api/v1/sessions/${sessionId}/graph`,
     });
 
-    return normalizeGraph(raw, sessionId);
+    return normalizeGraph(raw);
   }
 
   async getGraphDiff(
@@ -36,7 +36,7 @@ export class GraphDomainAdapter implements GraphAdapter {
       path: v1Path,
     });
 
-    return normalizeGraphDiff(raw, sessionId, fromRound, toRound);
+    return normalizeGraphDiff(raw);
   }
 
   async getGraphAtRound(sessionId: string, round: number): Promise<GraphView> {
@@ -47,6 +47,6 @@ export class GraphDomainAdapter implements GraphAdapter {
       path: v1Path,
     });
 
-    return normalizeGraph(raw, sessionId);
+    return normalizeGraph(raw);
   }
 }

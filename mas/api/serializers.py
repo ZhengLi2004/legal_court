@@ -184,7 +184,7 @@ def _serialize_shadow_graph(shadow_graph: Any) -> Dict[str, List[Dict[str, Any]]
     try:
         graph_nodes = list(graph.nodes(data=True))
 
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         graph_nodes = []
 
     for idx, row in enumerate(graph_nodes):
@@ -214,7 +214,7 @@ def _serialize_shadow_graph(shadow_graph: Any) -> Dict[str, List[Dict[str, Any]]
     try:
         graph_edges = list(graph.edges(data=True))
 
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         graph_edges = []
 
     for idx, row in enumerate(graph_edges):
@@ -272,7 +272,7 @@ def memory_case_graph_response(session: DebateSession, case_id: str) -> Dict[str
         try:
             candidates = _as_list(fetch_messages([normalized_case_id]))
 
-        except Exception:
+        except (AttributeError, TypeError, ValueError, RuntimeError):
             candidates = []
 
         for row in candidates:
@@ -426,7 +426,7 @@ def _iter_graph_nodes(graph: Any) -> List[Any]:
         try:
             return list(node_view())
 
-        except Exception:
+        except (TypeError, ValueError):
             return []
 
     if isinstance(node_view, list):
@@ -435,7 +435,7 @@ def _iter_graph_nodes(graph: Any) -> List[Any]:
     try:
         return list(node_view) if node_view is not None else []
 
-    except Exception:
+    except TypeError:
         return []
 
 
@@ -454,10 +454,10 @@ def _iter_graph_edges(graph: Any) -> List[Any]:
             try:
                 return list(edge_view())
 
-            except Exception:
+            except (TypeError, ValueError):
                 return []
 
-        except Exception:
+        except (TypeError, ValueError):
             return []
 
     if isinstance(edge_view, list):
@@ -466,7 +466,7 @@ def _iter_graph_edges(graph: Any) -> List[Any]:
     try:
         return list(edge_view) if edge_view is not None else []
 
-    except Exception:
+    except TypeError:
         return []
 
 
@@ -693,7 +693,7 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
                     if normalized:
                         relevant_insight_contents.add(normalized)
 
-            except Exception:
+            except (AttributeError, TypeError, ValueError, RuntimeError):
                 relevant_insight_contents = set()
 
         filtered_insight_items: List[Dict[str, Any]] = []

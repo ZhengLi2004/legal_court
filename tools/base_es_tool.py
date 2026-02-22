@@ -8,7 +8,13 @@ laws) should inherit from this class.
 
 from typing import Any, Dict, List
 
-from elasticsearch import AsyncElasticsearch
+from elasticsearch import (
+    ApiError,
+    AsyncElasticsearch,
+    ConnectionError,
+    SerializationError,
+    TransportError,
+)
 
 from tools.embedding import EmbeddingFunc
 
@@ -90,7 +96,7 @@ class BaseEsTool:
 
             return response["hits"]["hits"]
 
-        except Exception as e:
+        except (ApiError, ConnectionError, SerializationError, TransportError) as e:
             print(f"Error during ES search in index '{index_name}': {e}")
             return []
 

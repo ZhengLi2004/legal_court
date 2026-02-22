@@ -56,15 +56,10 @@ class LegalGMemory(MASMemoryBase):
         )
         self.index_path = os.path.join(self.persist_dir, "legal_indices.json")
 
-        try:
-            self.chroma_client = chromadb.PersistentClient(
-                path=chroma_path,
-                settings=ChromaSettings(anonymized_telemetry=False),
-            )
-
-        except TypeError:
-            os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
-            self.chroma_client = chromadb.PersistentClient(path=chroma_path)
+        self.chroma_client = chromadb.PersistentClient(
+            path=chroma_path,
+            settings=ChromaSettings(anonymized_telemetry=False),
+        )
 
         self.chroma_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=self.embedding_model_path
@@ -94,7 +89,7 @@ class LegalGMemory(MASMemoryBase):
                     for k, v in data.get("case_law_index", {}).items():
                         self.case_law_index[k] = set(v)
 
-            except Exception as e:
+            except (OSError, TypeError, ValueError, json.JSONDecodeError) as e:
                 print(f"[Memory] Failed to load indices: {e}")
 
     def _save_indices(self):
@@ -173,12 +168,9 @@ class LegalGMemory(MASMemoryBase):
             self.collection.upsert(**payload)
 
         else:
-            try:
-                self.collection.add(**payload)
-
-            except Exception:
-                self.collection.delete(ids=[message.case_id])
-                self.collection.add(**payload)
+            raise AttributeError(
+                "Chroma collection is missing `upsert`; current runtime requires it."
+            )
 
     def retrieve_cases_by_law_codes(
         self, law_contents: List[str], top_k: int = 3
@@ -282,18 +274,16 @@ class LegalGMemory(MASMemoryBase):
         filtered_pairs: List[Tuple[str, float]] = []
 
         for idx, case_id in enumerate(found_ids):
-            distance = None
+            if idx >= len(distances):
+                continue
 
-            if idx < len(distances):
-                distance = distances[idx]
+            distance = distances[idx]
 
             if distance is None:
-                # Fallback keeps compatibility for backends returning ids only.
-                similarity = 1.0
+                continue
 
-            else:
-                similarity = 1.0 - float(distance)
-                similarity = max(-1.0, min(1.0, similarity))
+            similarity = 1.0 - float(distance)
+            similarity = max(-1.0, min(1.0, similarity))
 
             if similarity >= min_similarity:
                 filtered_pairs.append((str(case_id), similarity))
@@ -343,7 +333,13 @@ class LegalGMemory(MASMemoryBase):
 
                 messages.append(msg)
 
-            except Exception as e:
+            except (
+                IndexError,
+                KeyError,
+                TypeError,
+                ValueError,
+                json.JSONDecodeError,
+            ) as e:
                 print(f"Error loading memory {final_results['ids'][i]}: {e}")
                 continue
 

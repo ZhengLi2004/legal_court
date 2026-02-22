@@ -65,7 +65,7 @@ export class InsightDomainAdapter implements InsightAdapter {
       path: `/api/v1/sessions/${sessionId}/memory`,
     });
 
-    return normalizeMemory(raw, sessionId);
+    return normalizeMemory(raw);
   }
 
   async getMemoryCaseGraph(
@@ -79,7 +79,7 @@ export class InsightDomainAdapter implements InsightAdapter {
       path: `/api/v1/sessions/${sessionId}/memory/cases/${encodedCaseId}/graph`,
     });
 
-    return normalizeGraph(raw, sessionId);
+    return normalizeGraph(raw);
   }
 
   async getTimeline(sessionId: string, limit = 100): Promise<TimelineEvent[]> {

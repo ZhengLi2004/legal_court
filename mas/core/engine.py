@@ -130,7 +130,7 @@ class DebateEngine:
             try:
                 self.on_state_change(event, data)
 
-            except Exception as e:
+            except (TypeError, ValueError, RuntimeError) as e:
                 logger.warning(f"State change callback error: {e}")
 
     def _count_claim_nodes(self) -> int:
@@ -476,65 +476,40 @@ class DebateEngine:
 
         return str(serialized)
 
-    def _deserialize_node_type(self, value: Any) -> Any:
-        """Best-effort convert a snapshot node type value back to NodeType."""
-        if isinstance(value, NodeType):
+    @staticmethod
+    def _deserialize_enum(value: Any, enum_cls: Any) -> Any:
+        """Best-effort convert serialized enum text back to enum value."""
+        if isinstance(value, enum_cls):
             return value
 
-        if isinstance(value, str):
-            token = value.split(".")[-1].strip().upper()
+        if not isinstance(value, str):
+            return value
 
-            try:
-                return NodeType[token]
+        token = value.split(".")[-1].strip().upper()
 
-            except Exception:
-                try:
-                    return NodeType(token)
+        try:
+            return enum_cls[token]
 
-                except Exception:
-                    return value
+        except KeyError:
+            pass
 
-        return value
+        try:
+            return enum_cls(token)
+
+        except ValueError:
+            return value
+
+    def _deserialize_node_type(self, value: Any) -> Any:
+        """Best-effort convert a snapshot node type value back to NodeType."""
+        return self._deserialize_enum(value, NodeType)
 
     def _deserialize_edge_type(self, value: Any) -> Any:
         """Best-effort convert a snapshot edge type value back to EdgeType."""
-        if isinstance(value, EdgeType):
-            return value
-
-        if isinstance(value, str):
-            token = value.split(".")[-1].strip().upper()
-
-            try:
-                return EdgeType[token]
-
-            except Exception:
-                try:
-                    return EdgeType(token)
-
-                except Exception:
-                    return value
-
-        return value
+        return self._deserialize_enum(value, EdgeType)
 
     def _deserialize_node_status(self, value: Any) -> Any:
         """Best-effort convert a snapshot status value back to NodeStatus."""
-        if isinstance(value, NodeStatus):
-            return value
-
-        if isinstance(value, str):
-            token = value.split(".")[-1].strip().upper()
-
-            try:
-                return NodeStatus[token]
-
-            except Exception:
-                try:
-                    return NodeStatus(token)
-
-                except Exception:
-                    return value
-
-        return value
+        return self._deserialize_enum(value, NodeStatus)
 
     def _count_conflict_edges(self) -> int:
         """Count CONFLICT edges in the current graph."""
@@ -585,7 +560,7 @@ class DebateEngine:
             try:
                 current_step = int(getattr(self.legal_sys, "step_counter", 0) or 0)
 
-            except Exception:
+            except (TypeError, ValueError):
                 current_step = 0
 
         if current_step <= 0:
@@ -594,7 +569,7 @@ class DebateEngine:
         try:
             focus_nodes = self.graph._calculate_focus_nodes(current_step)
 
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             return []
 
         ordered: List[str] = []
@@ -649,7 +624,7 @@ class DebateEngine:
             try:
                 p_mem = [m.model_dump() for m in self.p_team.controller.get_memories()]
 
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass
 
         d_mem: List[Dict[str, Any]] = []
@@ -658,7 +633,7 @@ class DebateEngine:
             try:
                 d_mem = [m.model_dump() for m in self.d_team.controller.get_memories()]
 
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass
 
         return {"plaintiff": p_mem, "defendant": d_mem}
@@ -675,7 +650,7 @@ class DebateEngine:
         try:
             ts_ms = int(turn_result.get("ts_ms", int(time.time() * 1000)))
 
-        except Exception:
+        except (TypeError, ValueError):
             ts_ms = int(time.time() * 1000)
 
         artifact = {
@@ -877,7 +852,7 @@ class DebateEngine:
                 try:
                     self.legal_sys.step_counter = restored_step
 
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     pass
 
         self.prev_stats = {

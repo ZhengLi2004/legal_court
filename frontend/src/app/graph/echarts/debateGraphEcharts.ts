@@ -132,7 +132,13 @@ export function buildLouvainCommunities(
     }
 
     return result;
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[debateGraphEcharts] louvain clustering failed, using BFS fallback: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+
     const adjacency = new Map<string, Set<string>>();
 
     for (const nodeId of nodeIds) {

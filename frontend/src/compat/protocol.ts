@@ -18,12 +18,6 @@ import type {
   TurnArtifact,
 } from "./types";
 
-const EMPTY_METRICS: DebateMetrics = {
-  arguments: 0,
-  attacks: 0,
-  supports: 0,
-};
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object"
     ? (value as Record<string, unknown>)
@@ -418,14 +412,11 @@ function deriveTermination(
   };
 }
 
-export function normalizeSnapshot(
-  raw: unknown,
-  fallbackSessionId = "",
-): DebateSnapshot {
+export function normalizeSnapshot(raw: unknown): DebateSnapshot {
   const payload = unwrapPayload(raw);
 
   const sessionId = requireNonEmptyString(
-    asString(payload.session_id, fallbackSessionId),
+    asString(payload.session_id),
     "session_id",
   );
 
@@ -441,7 +432,7 @@ export function normalizeSnapshot(
     termination,
     winner: asString(payload.winner, "") || null,
     transcript: asStringList(payload.transcript),
-    metrics: deriveMetrics(payload) ?? EMPTY_METRICS,
+    metrics: deriveMetrics(payload),
     updatedAt: new Date().toISOString(),
     raw,
   };
@@ -449,7 +440,7 @@ export function normalizeSnapshot(
 
 export function normalizeSnapshotList(raw: unknown): DebateSnapshot[] {
   const payload = unwrapPayload(raw);
-  const rows = payload.sessions ?? payload.items;
+  const rows = payload.sessions;
 
   if (!Array.isArray(rows)) {
     return [];
@@ -480,10 +471,7 @@ export function normalizeSnapshotIndex(raw: unknown): SnapshotIndexItem[] {
   });
 }
 
-export function normalizeGraph(
-  raw: unknown,
-  fallbackSessionId = "",
-): GraphView {
+export function normalizeGraph(raw: unknown): GraphView {
   const payload = unwrapPayload(raw);
   const graphData = asRecord(payload.graph_data);
   const nodesRaw = graphData.nodes;
@@ -497,7 +485,7 @@ export function normalizeGraph(
 
   return {
     sessionId: requireNonEmptyString(
-      asString(payload.session_id, fallbackSessionId),
+      asString(payload.session_id),
       "session_id",
     ),
     round: asNumber(payload.round_idx, asNumber(payload.current_round, 0)),
@@ -508,12 +496,7 @@ export function normalizeGraph(
   };
 }
 
-export function normalizeGraphDiff(
-  raw: unknown,
-  sessionId: string,
-  fromRound: number,
-  toRound: number,
-): GraphDiffView {
+export function normalizeGraphDiff(raw: unknown): GraphDiffView {
   const payload = unwrapPayload(raw);
   const addedNodeIds = asStringList(payload.added_node_ids);
   const removedNodeIds = asStringList(payload.removed_node_ids);
@@ -524,9 +507,12 @@ export function normalizeGraphDiff(
   const changedEdgeIds = asStringList(payload.changed_edge_ids);
 
   return {
-    sessionId: asString(payload.session_id, sessionId),
-    fromRound: asNumber(payload.from_round, fromRound),
-    toRound: asNumber(payload.to_round, toRound),
+    sessionId: requireNonEmptyString(
+      asString(payload.session_id),
+      "session_id",
+    ),
+    fromRound: asNumber(payload.from_round, 0),
+    toRound: asNumber(payload.to_round, 0),
     addedNodeIds,
     removedNodeIds,
     addedEdgeIds,
@@ -550,10 +536,7 @@ export function normalizeGraphDiff(
   };
 }
 
-export function normalizeMemory(
-  raw: unknown,
-  fallbackSessionId = "",
-): MemoryView {
+export function normalizeMemory(raw: unknown): MemoryView {
   const payload = unwrapPayload(raw);
   const insightItemsRaw = payload.insight_items;
   const recalledCaseIdsRaw = payload.recalled_case_ids;
@@ -583,7 +566,7 @@ export function normalizeMemory(
 
   return {
     sessionId: requireNonEmptyString(
-      asString(payload.session_id, fallbackSessionId),
+      asString(payload.session_id),
       "session_id",
     ),
     insightSummaries: asStringList(payload.insight_summaries),
@@ -599,7 +582,7 @@ export function normalizeMemory(
 
 export function normalizeTimeline(raw: unknown): TimelineEvent[] {
   const payload = unwrapPayload(raw);
-  const events = payload.events ?? payload.items;
+  const events = payload.events;
 
   if (!Array.isArray(events)) {
     return [];
@@ -763,21 +746,24 @@ export function normalizeFrontendSnapshotLoadResult(
       : {};
 
   const session = asRecord(payload.session);
-  const parsedSessionId = asString(session.session_id, "");
+
+  const parsedSessionId = requireNonEmptyString(
+    asString(session.session_id),
+    "session.session_id",
+  );
+
   const snapshotPayloadRaw = payload.snapshot_payload;
+
   const snapshotPayload =
     snapshotPayloadRaw !== undefined
-      ? normalizeSnapshot(snapshotPayloadRaw, parsedSessionId)
+      ? normalizeSnapshot(snapshotPayloadRaw)
       : null;
 
   return {
     snapshot,
     frontendState,
     session: {
-      sessionId: requireNonEmptyString(
-        parsedSessionId || snapshotPayload?.sessionId || "",
-        "session.session_id",
-      ),
+      sessionId: parsedSessionId,
       status: asString(session.status, "UNKNOWN"),
       currentRound: asNumber(session.current_round, 0),
       updatedAt: asString(session.updated_at, new Date(0).toISOString()),
