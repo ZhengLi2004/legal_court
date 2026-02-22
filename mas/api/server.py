@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type
 
 from fastapi import FastAPI, HTTPException, Query, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,6 +42,23 @@ class ImportFrontendSnapshotRequest(BaseModel):
     bundle: Dict[str, Any]
     label: Optional[str] = Field(default="")
     frontend_state: Optional[Dict[str, Any]] = Field(default=None)
+
+
+ErrorMapping = Tuple[Type[BaseException], int]
+
+
+def _raise_as_http(
+    exc: Exception,
+    *,
+    action: str,
+    mappings: Sequence[ErrorMapping] = (),
+) -> HTTPException:
+    """Convert domain errors into consistent `HTTPException`s."""
+    for error_type, status_code in mappings:
+        if isinstance(exc, error_type):
+            return HTTPException(status_code=status_code, detail=str(exc))
+
+    return HTTPException(status_code=500, detail=f"{action} failed: {exc}")
 
 
 def create_app(
@@ -118,9 +135,7 @@ def create_app(
             return snapshot_response(session)
 
         except Exception as exc:
-            raise HTTPException(
-                status_code=500, detail=f"Create session failed: {exc}"
-            ) from exc
+            raise _raise_as_http(exc, action="Create session") from exc
 
     @app.post("/api/v1/frontend-snapshots")
     async def save_frontend_snapshot(
@@ -141,16 +156,11 @@ def create_app(
                 frontend_state=body.frontend_state,
             )
 
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
         except Exception as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Save frontend snapshot failed: {exc}",
+            raise _raise_as_http(
+                exc,
+                action="Save frontend snapshot",
+                mappings=((KeyError, 404), (ValueError, 400)),
             ) from exc
 
     @app.post("/api/v1/frontend-snapshots/import")
@@ -172,13 +182,11 @@ def create_app(
                 frontend_state=body.frontend_state,
             )
 
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
         except Exception as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Import frontend snapshot failed: {exc}",
+            raise _raise_as_http(
+                exc,
+                action="Import frontend snapshot",
+                mappings=((ValueError, 400),),
             ) from exc
 
     @app.get("/api/v1/frontend-snapshots")
@@ -210,16 +218,11 @@ def create_app(
         try:
             return await manager.load_frontend_snapshot(snapshot_id)
 
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
         except Exception as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Load frontend snapshot failed: {exc}",
+            raise _raise_as_http(
+                exc,
+                action="Load frontend snapshot",
+                mappings=((FileNotFoundError, 404), (ValueError, 400)),
             ) from exc
 
     @app.get("/api/v1/sessions")
@@ -248,7 +251,11 @@ def create_app(
             return snapshot_response(session)
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get session snapshot",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.post("/api/v1/sessions/{session_id}/step")
     async def step_session(session_id: str) -> Dict[str, Any]:
@@ -264,14 +271,12 @@ def create_app(
             session = await manager.step_session(session_id)
             return snapshot_response(session)
 
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Step failed: {exc}") from exc
+            raise _raise_as_http(
+                exc,
+                action="Step session",
+                mappings=((KeyError, 404), (ValueError, 409)),
+            ) from exc
 
     @app.post("/api/v1/sessions/{session_id}/adjudicate")
     async def adjudicate_session(session_id: str) -> Dict[str, Any]:
@@ -287,12 +292,11 @@ def create_app(
             session = await manager.adjudicate_session(session_id)
             return snapshot_response(session)
 
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
         except Exception as exc:
-            raise HTTPException(
-                status_code=500, detail=f"Adjudication failed: {exc}"
+            raise _raise_as_http(
+                exc,
+                action="Adjudicate session",
+                mappings=((KeyError, 404),),
             ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/graph")
@@ -310,7 +314,11 @@ def create_app(
             return graph_response(session)
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get graph",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/snapshots/{round_idx}")
     async def get_round_snapshot(session_id: str, round_idx: int) -> Dict[str, Any]:
@@ -328,7 +336,11 @@ def create_app(
             return graph_response(session, round_idx)
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get round snapshot",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/snapshots")
     async def get_snapshots_index(session_id: str) -> Dict[str, Any]:
@@ -345,7 +357,11 @@ def create_app(
             return {"items": items, "total": len(items)}
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get snapshots index",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/diff")
     async def get_graph_diff(
@@ -368,7 +384,11 @@ def create_app(
             return graph_diff_response(session, from_round, to_round)
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get graph diff",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/memory")
     async def get_memory(session_id: str) -> Dict[str, Any]:
@@ -385,7 +405,11 @@ def create_app(
             return memory_response(session)
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get memory",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.post("/api/v1/memory/reset-storage")
     async def reset_memory_storage() -> Dict[str, Any]:
@@ -397,13 +421,11 @@ def create_app(
             storage_dir = await manager.reset_memory_storage()
             return {"status": "ok", "storage_root_dir": storage_dir}
 
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
         except Exception as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Reset storage memory failed: {exc}",
+            raise _raise_as_http(
+                exc,
+                action="Reset memory storage",
+                mappings=((ValueError, 409),),
             ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/memory/cases/{case_id}/graph")
@@ -422,7 +444,11 @@ def create_app(
             return memory_case_graph_response(session, case_id)
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get memory case graph",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/events")
     async def get_events(
@@ -453,7 +479,11 @@ def create_app(
             return {"events": events}
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get events",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.websocket("/api/v1/sessions/{session_id}/events")
     async def stream_events(session_id: str, websocket: WebSocket) -> None:
@@ -537,7 +567,11 @@ def create_app(
             return {"items": items, "total": len(items)}
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get turn artifacts",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/teamflow/stream")
     async def get_teamflow_stream(
@@ -562,7 +596,11 @@ def create_app(
             return {"items": items, "total": len(items)}
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get teamflow stream",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/turns/{turn_uid}/artifacts")
     async def get_single_turn_artifact(
@@ -590,7 +628,11 @@ def create_app(
             return {"items": items, "total": len(items)}
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Get turn artifact",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     @app.get("/api/v1/sessions/{session_id}/export/graph.gexf")
     async def export_graph_gexf(
@@ -625,7 +667,11 @@ def create_app(
             )
 
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise _raise_as_http(
+                exc,
+                action="Export graph gexf",
+                mappings=((KeyError, 404),),
+            ) from exc
 
     return app
 

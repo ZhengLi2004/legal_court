@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from metagpt.logs import logger
 
+from mas.common.serialization import serialize_enum_like, to_json_safe
 from roles.controller import ControllerPipelineStep
 from tools.fact_es_tool import FactEsTool
 from tools.graph_tool import GraphTool
@@ -447,34 +448,11 @@ class DebateEngine:
         Returns:
             A JSON-serializable version of the value.
         """
-        if hasattr(value, "value"):
-            return value.value
-
-        if hasattr(value, "name"):
-            return value.name
-
-        return value
+        return serialize_enum_like(value)
 
     def _to_json_safe(self, value: Any) -> Any:
         """Recursively convert values into JSON-safe primitives."""
-        if isinstance(value, dict):
-            return {str(k): self._to_json_safe(v) for k, v in value.items()}
-
-        if isinstance(value, (list, tuple)):
-            return [self._to_json_safe(v) for v in value]
-
-        if isinstance(value, set):
-            return [self._to_json_safe(v) for v in sorted(value, key=str)]
-
-        serialized = self._serialize_value(value)
-
-        if isinstance(serialized, (str, int, float, bool)) or serialized is None:
-            return serialized
-
-        if isinstance(serialized, (dict, list, tuple, set)):
-            return self._to_json_safe(serialized)
-
-        return str(serialized)
+        return to_json_safe(value, scalar_serializer=self._serialize_value)
 
     @staticmethod
     def _deserialize_enum(value: Any, enum_cls: Any) -> Any:

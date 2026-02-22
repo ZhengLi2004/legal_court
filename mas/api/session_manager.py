@@ -16,6 +16,12 @@ from typing import Any, Callable, Dict, List, Optional
 
 import networkx as nx
 
+from mas.common.serialization import (
+    as_non_negative_int,
+    serialize_value_attr,
+    to_json_safe,
+)
+
 
 def utc_now_iso() -> str:
     """Return an RFC3339-like UTC timestamp string."""
@@ -108,25 +114,7 @@ def _to_json_safe(value: Any) -> Any:
     Returns:
         JSON-friendly representation using only primitive containers/scalars.
     """
-    if isinstance(value, dict):
-        return {str(k): _to_json_safe(v) for k, v in value.items()}
-
-    if isinstance(value, (list, tuple)):
-        return [_to_json_safe(v) for v in value]
-
-    if isinstance(value, set):
-        return [_to_json_safe(v) for v in sorted(value, key=str)]
-
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-
-    scalar = getattr(value, "value", None)
-
-    if isinstance(scalar, (str, int, float, bool)) or scalar is None:
-        if scalar is not None:
-            return scalar
-
-    return str(value)
+    return to_json_safe(value, scalar_serializer=serialize_value_attr)
 
 
 def _default_engine_factory() -> Any:
@@ -492,9 +480,7 @@ class SessionManager:
         resolved = Path(storage_root).expanduser().resolve()
 
         if str(resolved) in {"", "/", "."}:
-            raise ValueError(
-                f"Refuse to clear unsafe storage path: {resolved}"
-            )
+            raise ValueError(f"Refuse to clear unsafe storage path: {resolved}")
 
         return resolved
 
@@ -810,14 +796,14 @@ class SessionManager:
             if not turn_uid:
                 turn_uid = f"turn_{artifact_index + 1}"
 
-            round_idx = self._as_non_negative_int(
+            round_idx = as_non_negative_int(
                 item.get("round_idx", item.get("round")),
                 artifact_index,
             )
 
             side = str(item.get("side", "unknown")).strip() or "unknown"
             related_events = events_by_turn.get(turn_uid, [])
-            artifact_ts = self._as_non_negative_int(item.get("ts_ms"), 0)
+            artifact_ts = as_non_negative_int(item.get("ts_ms"), 0)
             message_seq = 0
             messages: List[Dict[str, Any]] = []
 
@@ -940,7 +926,7 @@ class SessionManager:
                     if isinstance(max_score, (int, float)):
                         meta["max_score"] = max_score
 
-                    duration_ms = self._as_non_negative_int(
+                    duration_ms = as_non_negative_int(
                         report.get("duration_ms"),
                         -1,
                     )
@@ -990,12 +976,12 @@ class SessionManager:
                 else []
             )
 
-            plan_attempts_used = self._as_non_negative_int(
+            plan_attempts_used = as_non_negative_int(
                 item.get("plan_attempts_used"),
                 0,
             )
 
-            push_attempts_used = self._as_non_negative_int(
+            push_attempts_used = as_non_negative_int(
                 item.get("push_attempts_used"),
                 0,
             )
@@ -1071,7 +1057,7 @@ class SessionManager:
 
                 event_data = event_item.get("data", {})
                 event_text = self._stringify_compact(event_data) or event_name
-                event_ts = self._as_non_negative_int(event_item.get("ts_ms"), 0)
+                event_ts = as_non_negative_int(event_item.get("ts_ms"), 0)
 
                 push_message(
                     "SYSTEM",
@@ -1113,7 +1099,7 @@ class SessionManager:
 
         turns.sort(
             key=lambda row: (
-                self._as_non_negative_int(row.get("round_idx"), 0),
+                as_non_negative_int(row.get("round_idx"), 0),
                 str(row.get("turn_uid", "")),
             )
         )
@@ -1271,24 +1257,6 @@ class SessionManager:
             },
         }
 
-    @staticmethod
-    def _as_non_negative_int(value: Any, fallback: int = 0) -> int:
-        """Parse a non-negative integer with fallback on invalid input.
-
-        Args:
-            value: Candidate numeric value.
-            fallback: Value returned when parse fails or number is negative.
-
-        Returns:
-            Parsed non-negative integer or `fallback`.
-        """
-        try:
-            parsed = int(value)
-            return parsed if parsed >= 0 else fallback
-
-        except (TypeError, ValueError):
-            return fallback
-
     def _ensure_frontend_snapshots_dir(self) -> Path:
         """Ensure the frontend snapshot directory exists on disk.
 
@@ -1337,19 +1305,19 @@ class SessionManager:
         event_count = (
             len(events)
             if isinstance(events, list)
-            else self._as_non_negative_int(metadata_raw.get("event_count"), 0)
+            else as_non_negative_int(metadata_raw.get("event_count"), 0)
         )
 
         artifact_count = (
             len(artifacts)
             if isinstance(artifacts, list)
-            else self._as_non_negative_int(metadata_raw.get("artifact_count"), 0)
+            else as_non_negative_int(metadata_raw.get("artifact_count"), 0)
         )
 
         snapshot_count = (
             len(snapshots)
             if isinstance(snapshots, list)
-            else self._as_non_negative_int(metadata_raw.get("snapshot_count"), 0)
+            else as_non_negative_int(metadata_raw.get("snapshot_count"), 0)
         )
 
         return {
@@ -1372,9 +1340,9 @@ class SessionManager:
         if not isinstance(metadata, dict):
             metadata = {}
 
-        event_count = self._as_non_negative_int(metadata.get("event_count"), 0)
-        artifact_count = self._as_non_negative_int(metadata.get("artifact_count"), 0)
-        snapshot_count = self._as_non_negative_int(metadata.get("snapshot_count"), 0)
+        event_count = as_non_negative_int(metadata.get("event_count"), 0)
+        artifact_count = as_non_negative_int(metadata.get("artifact_count"), 0)
+        snapshot_count = as_non_negative_int(metadata.get("snapshot_count"), 0)
 
         return {
             "snapshot_id": str(record.get("snapshot_id", "")),
@@ -1675,10 +1643,7 @@ class SessionManager:
             if not isinstance(item, dict):
                 continue
 
-            ts_ms = self._as_non_negative_int(
-                item.get("ts_ms"), int(time.time() * 1000)
-            )
-
+            ts_ms = as_non_negative_int(item.get("ts_ms"), int(time.time() * 1000))
             round_raw = item.get("round_idx")
             round_idx: Optional[int]
 

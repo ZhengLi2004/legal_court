@@ -29,6 +29,14 @@ function sortedTimeline(rows: TimelineEvent[]): TimelineEvent[] {
   return [...rows].sort((a, b) => a.seq - b.seq || a.ts - b.ts).slice(-180);
 }
 
+function toErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function warnDebateContext(scope: string, err: unknown): void {
+  console.warn(`[DebateContext] ${scope} failed: ${toErrorMessage(err)}`);
+}
+
 export function DebateProvider({ children }: { children: ReactNode }) {
   const adapterMode: AdapterMode = "http";
 
@@ -131,8 +139,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         (prev) => prev || (rows.length > 0 ? rows[0].sessionId : prev),
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(toErrorMessage(err));
     } finally {
       setBusyAction("");
     }
@@ -150,8 +157,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       setSessions(rows);
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(toErrorMessage(err));
       return false;
     } finally {
       setBusyAction("");
@@ -169,8 +175,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         applySnapshot(result);
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       } finally {
         setBusyAction("");
@@ -207,8 +212,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         applySnapshot(result);
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       } finally {
         setBusyAction("");
@@ -258,17 +262,13 @@ export function DebateProvider({ children }: { children: ReactNode }) {
           const memory = await adapter.insight.getMemory(sessionId);
           setMemoryView(memory);
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.warn(
-            `[DebateContext] getMemory after step failed: ${message}`,
-          );
+          warnDebateContext("getMemory after step", err);
         }
       })();
 
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(toErrorMessage(err));
       return false;
     } finally {
       setBusyAction("");
@@ -292,11 +292,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
           const memory = await adapter.insight.getMemory(sessionId);
           setMemoryView(memory);
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-
-          console.warn(
-            `[DebateContext] getMemory after adjudicate failed: ${message}`,
-          );
+          warnDebateContext("getMemory after adjudicate", err);
         }
       })();
 
@@ -305,18 +301,13 @@ export function DebateProvider({ children }: { children: ReactNode }) {
           const rows = await adapter.getSnapshots(sessionId);
           setSnapshotIndex(rows);
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-
-          console.warn(
-            `[DebateContext] getSnapshots after adjudicate failed: ${message}`,
-          );
+          warnDebateContext("getSnapshots after adjudicate", err);
         }
       })();
 
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(toErrorMessage(err));
       return false;
     } finally {
       setBusyAction("");
@@ -348,9 +339,8 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         setGraphView(result);
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
         setMemoryCaseGraphView(null);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       }
     })();
@@ -384,8 +374,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         setGraphDiff(null);
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       }
     },
@@ -419,8 +408,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         setGraphView(toGraph);
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       }
     },
@@ -456,8 +444,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
           replaceTimeline(rows);
           return true;
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          setError(message);
+          setError(toErrorMessage(err));
           return false;
         }
       })();
@@ -488,8 +475,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         setTeamflowStream(rows);
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       }
     },
@@ -506,8 +492,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       setSnapshotIndex(rows);
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(toErrorMessage(err));
       return false;
     }
   }, [adapter, sessionId]);
@@ -546,8 +531,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
 
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       }
     },
@@ -564,8 +548,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       setMemoryView(memory);
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(toErrorMessage(err));
       return false;
     }
   }, [adapter, sessionId]);
@@ -585,8 +568,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       setMemoryCaseGraphView(null);
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(toErrorMessage(err));
       return false;
     } finally {
       setBusyAction("");
@@ -616,8 +598,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         return true;
       } catch (err) {
         setMemoryCaseGraphView(null);
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       }
     },
@@ -633,8 +614,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
       try {
         return await adapter.insight.exportGraphGexf(sessionId, round);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return null;
       }
     },
@@ -653,8 +633,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
           setFrontendSnapshots(rows);
           return true;
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          setError(message);
+          setError(toErrorMessage(err));
           return false;
         }
       })();
@@ -690,8 +669,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         await listFrontendSnapshots();
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       } finally {
         setBusyAction("");
@@ -719,8 +697,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         await listFrontendSnapshots();
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       } finally {
         setBusyAction("");
@@ -763,8 +740,7 @@ export function DebateProvider({ children }: { children: ReactNode }) {
         await listSessions();
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(toErrorMessage(err));
         return false;
       } finally {
         restoringSnapshotIdRef.current = "";
