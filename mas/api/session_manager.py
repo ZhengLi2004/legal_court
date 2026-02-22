@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import shutil
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -53,7 +52,7 @@ from mas.session.session_lifecycle import (
 from mas.session.session_lifecycle import (
     derive_status,
     load_case_from_jsonl,
-    resolve_memory_storage_dir,
+    reset_memory_storage_dir,
 )
 from mas.session.snapshot_store import (
     extract_replay_metadata,
@@ -416,13 +415,7 @@ class SessionManager:
                 "Active sessions exist. Close all sessions before clearing memory storage."
             )
 
-        storage_dir = resolve_memory_storage_dir(os.getenv("MAS_STORAGE_DIR", ""))
-
-        if storage_dir.exists():
-            shutil.rmtree(storage_dir)
-
-        storage_dir.mkdir(parents=True, exist_ok=True)
-        return str(storage_dir)
+        return reset_memory_storage_dir(os.getenv("MAS_STORAGE_DIR", ""))
 
     def get_event_history(
         self,

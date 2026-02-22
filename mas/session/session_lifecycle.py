@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Dict
 
@@ -62,6 +63,17 @@ def resolve_memory_storage_dir(storage_root: str) -> Path:
         raise ValueError(f"Refuse to clear unsafe storage path: {resolved}")
 
     return resolved
+
+
+def reset_memory_storage_dir(storage_root: str) -> str:
+    """Reset long-term memory storage directory and return absolute path."""
+    storage_dir = resolve_memory_storage_dir(storage_root)
+
+    if storage_dir.exists():
+        shutil.rmtree(storage_dir)
+
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    return str(storage_dir)
 
 
 def derive_status(engine: Any) -> str:
