@@ -13,6 +13,7 @@ from mas.session.session_lifecycle import (
     load_case_from_jsonl,
     reset_memory_storage_dir,
 )
+from mas.session.session_status import SessionStatus, ensure_allowed_transition
 
 
 class SessionService:
@@ -47,6 +48,70 @@ class SessionService:
 
         except KeyError as exc:
             raise KeyError(f"Session not found: {session_id}") from exc
+
+    def _validate_status_type(self, session: Any) -> SessionStatus:
+        """Return current session status and enforce enum-based state machine."""
+        status = getattr(session, "status", None)
+
+        if not isinstance(status, SessionStatus):
+            raise TypeError(f"Session status must be SessionStatus, got: {status!r}")
+
+        return status
+
+    def _set_status(self, session: Any, target: SessionStatus) -> None:
+        """Apply a validated status transition and refresh timestamp."""
+        current = self._validate_status_type(session)
+        session.status = ensure_allowed_transition(current, target)
+        session.updated_at = self._utc_now_iso()
+
+    def _set_status_unchecked(self, session: Any, target: SessionStatus) -> None:
+        """Set status directly for terminal/derived statuses that may skip edges."""
+        session.status = target
+        session.updated_at = self._utc_now_iso()
+
+    def _emit_warning(self, session_id: str, stage: str, kind: str, message: str) -> None:
+        """Emit one warning event envelope for simulated failure modes."""
+        self._record_event(
+            session_id,
+            event="session_warning",
+            source="api",
+            data={
+                "stage": stage,
+                "kind": kind,
+                "message": message,
+            },
+        )
+
+    def _set_error_state(self, session_id: str, session: Any, stage: str, exc: Exception) -> None:
+        """Apply error status and publish one session_error event."""
+        session.last_error = str(exc)
+        self._set_status_unchecked(session, SessionStatus.ERROR)
+
+        self._record_event(
+            session_id,
+            event="session_error",
+            source="api",
+            data={"stage": stage, "message": session.last_error},
+        )
+
+    def _mark_success_status(self, session: Any) -> None:
+        """Sync session status with engine-derived status after successful step."""
+        session.last_error = ""
+        derived = derive_status(session.engine)
+        self._set_status_unchecked(session, derived)
+
+    def _resolve_case_payload(
+        self,
+        *,
+        case_data: Optional[Dict[str, Any]],
+        case_data_path: Optional[Path],
+    ) -> Dict[str, Any]:
+        """Resolve case payload from in-memory data or JSONL file."""
+        if case_data is not None:
+            return case_data
+
+        target_path = case_data_path or self._default_case_path
+        return load_case_from_jsonl(Path(target_path))
 
     async def create_session(
         self,
@@ -84,182 +149,134 @@ class SessionService:
         session = self.get_session(session_id)
 
         async with session.lock:
+            current = self._validate_status_type(session)
+
             if (
-                session.status
+                current
                 in {
-                    "SETUP_DONE",
-                    "DEBATING",
-                    "READY_FOR_ADJUDICATION",
-                    "FINISHED",
+                    SessionStatus.SETUP_DONE,
+                    SessionStatus.DEBATING,
+                    SessionStatus.READY_FOR_ADJUDICATION,
+                    SessionStatus.FINISHED,
                 }
                 and getattr(session.engine, "graph", None) is not None
             ):
                 return session
 
-            payload = case_data
+            payload = self._resolve_case_payload(
+                case_data=case_data,
+                case_data_path=case_data_path,
+            )
 
-            if payload is None:
-                target_path = case_data_path or self._default_case_path
-                payload = load_case_from_jsonl(Path(target_path))
-
-            session.status = "SETTING_UP"
-            session.updated_at = self._utc_now_iso()
+            self._set_status(session, SessionStatus.SETTING_UP)
 
             try:
                 await session.engine.setup(case_data=payload)
-                session.last_error = ""
-                session.status = derive_status(session.engine)
-                session.updated_at = self._utc_now_iso()
+                self._mark_success_status(session)
                 return session
 
             except Exception as exc:
-                session.last_error = str(exc)
-                session.status = "ERROR"
-                session.updated_at = self._utc_now_iso()
-
-                self._record_event(
-                    session_id,
-                    event="session_error",
-                    source="api",
-                    data={"stage": "setup", "message": session.last_error},
-                )
-
+                self._set_error_state(session_id, session, stage="setup", exc=exc)
                 raise
+
+    def _ensure_step_allowed(self, session_id: str, session: Any) -> None:
+        """Validate one step request against adjudication/finished guards."""
+        if getattr(session.engine, "is_ready_for_adjudication", False):
+            self._set_status_unchecked(session, derive_status(session.engine))
+
+            self._record_event(
+                session_id,
+                event="step_blocked",
+                source="api",
+                data={
+                    "stage": "step",
+                    "reason": "ready_for_adjudication",
+                    "message": "Session already converged and is ready for adjudication.",
+                },
+            )
+
+            raise ValueError(
+                "Session already converged; step is disabled. Please adjudicate."
+            )
+
+        if getattr(session.engine, "is_finished", False):
+            self._set_status_unchecked(session, SessionStatus.FINISHED)
+
+            self._record_event(
+                session_id,
+                event="step_blocked",
+                source="api",
+                data={
+                    "stage": "step",
+                    "reason": "finished",
+                    "message": "Session already finished.",
+                },
+            )
+
+            raise ValueError("Session already finished; step is disabled.")
 
     async def step_session(self, session_id: str) -> Any:
         """Advance the debate by one turn for the given session."""
         session = self.get_session(session_id)
 
-        if session.status == "CREATED":
+        if self._validate_status_type(session) == SessionStatus.CREATED:
             await self.setup_session(session_id)
 
         async with session.lock:
-            if getattr(session.engine, "is_ready_for_adjudication", False):
-                session.status = derive_status(session.engine)
-                session.updated_at = self._utc_now_iso()
-
-                self._record_event(
-                    session_id,
-                    event="step_blocked",
-                    source="api",
-                    data={
-                        "stage": "step",
-                        "reason": "ready_for_adjudication",
-                        "message": (
-                            "Session already converged and is ready for adjudication."
-                        ),
-                    },
-                )
-
-                raise ValueError(
-                    "Session already converged; step is disabled. Please adjudicate."
-                )
-
-            if getattr(session.engine, "is_finished", False):
-                session.status = "FINISHED"
-                session.updated_at = self._utc_now_iso()
-
-                self._record_event(
-                    session_id,
-                    event="step_blocked",
-                    source="api",
-                    data={
-                        "stage": "step",
-                        "reason": "finished",
-                        "message": "Session already finished.",
-                    },
-                )
-
-                raise ValueError("Session already finished; step is disabled.")
+            self._ensure_step_allowed(session_id, session)
 
             try:
                 if session.failure_simulation.get("es_unavailable", False):
-                    self._record_event(
+                    self._emit_warning(
                         session_id,
-                        event="session_warning",
-                        source="api",
-                        data={
-                            "stage": "step",
-                            "kind": "es_unavailable",
-                            "message": "Simulated ES unavailable; degrade continue",
-                        },
+                        stage="step",
+                        kind="es_unavailable",
+                        message="Simulated ES unavailable; degrade continue",
                     )
 
                 if session.failure_simulation.get("llm_timeout", False):
-                    self._record_event(
+                    self._emit_warning(
                         session_id,
-                        event="session_warning",
-                        source="api",
-                        data={
-                            "stage": "step",
-                            "kind": "llm_timeout",
-                            "message": "Simulated LLM timeout; degrade continue",
-                        },
+                        stage="step",
+                        kind="llm_timeout",
+                        message="Simulated LLM timeout; degrade continue",
                     )
 
                 await session.engine.step()
-                session.last_error = ""
-                session.status = derive_status(session.engine)
-                session.updated_at = self._utc_now_iso()
+                self._mark_success_status(session)
                 return session
 
             except Exception as exc:
-                session.last_error = str(exc)
-                session.status = "ERROR"
-                session.updated_at = self._utc_now_iso()
-
-                self._record_event(
-                    session_id,
-                    event="session_error",
-                    source="api",
-                    data={"stage": "step", "message": session.last_error},
-                )
-
+                self._set_error_state(session_id, session, stage="step", exc=exc)
                 raise
 
     async def adjudicate_session(self, session_id: str) -> Any:
         """Run final adjudication for a session."""
         session = self.get_session(session_id)
 
-        if session.status == "CREATED":
+        if self._validate_status_type(session) == SessionStatus.CREATED:
             await self.setup_session(session_id)
 
         async with session.lock:
             if getattr(session.engine, "is_finished", False):
-                session.status = "FINISHED"
+                self._set_status_unchecked(session, SessionStatus.FINISHED)
                 return session
 
             try:
                 if session.failure_simulation.get("llm_timeout", False):
-                    self._record_event(
+                    self._emit_warning(
                         session_id,
-                        event="session_warning",
-                        source="api",
-                        data={
-                            "stage": "adjudicate",
-                            "kind": "llm_timeout",
-                            "message": "Simulated LLM timeout flag enabled",
-                        },
+                        stage="adjudicate",
+                        kind="llm_timeout",
+                        message="Simulated LLM timeout flag enabled",
                     )
 
                 await session.engine.adjudicate()
-                session.last_error = ""
-                session.status = derive_status(session.engine)
-                session.updated_at = self._utc_now_iso()
+                self._mark_success_status(session)
                 return session
 
             except Exception as exc:
-                session.last_error = str(exc)
-                session.status = "ERROR"
-                session.updated_at = self._utc_now_iso()
-
-                self._record_event(
-                    session_id,
-                    event="session_error",
-                    source="api",
-                    data={"stage": "adjudicate", "message": session.last_error},
-                )
-
+                self._set_error_state(session_id, session, stage="adjudicate", exc=exc)
                 raise
 
     async def reset_memory_storage(self) -> str:

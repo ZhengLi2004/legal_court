@@ -14,9 +14,8 @@ from mas.session.exporters import (
 )
 from mas.session.replay_restore import (
     apply_normalized_replay_bundle,
-    get_recent_loaded_session,
-    mark_recent_load,
 )
+from mas.session.session_status import SessionStatus
 from mas.session.snapshot_store import (
     extract_replay_metadata,
     frontend_snapshot_item,
@@ -41,19 +40,15 @@ class SnapshotService:
         create_session: Callable[..., Awaitable[Any]],
         get_event_history: Callable[..., List[Dict[str, Any]]],
         frontend_snapshots_dir: Path,
-        recent_frontend_snapshot_loads: Dict[str, Dict[str, Any]],
-        sessions: Dict[str, Any],
         to_json_safe: Callable[[Any], Any],
         utc_now_iso: Callable[[], str],
-        derive_status: Callable[[Any], str],
+        derive_status: Callable[[Any], SessionStatus],
     ):
         """Create snapshot service dependencies."""
         self._get_session = get_session
         self._create_session = create_session
         self._get_event_history = get_event_history
         self._frontend_snapshots_dir = frontend_snapshots_dir
-        self._recent_frontend_snapshot_loads = recent_frontend_snapshot_loads
-        self._sessions = sessions
         self._to_json_safe = to_json_safe
         self._utc_now_iso = utc_now_iso
         self._derive_status = derive_status
@@ -267,16 +262,6 @@ class SnapshotService:
             self._frontend_snapshots_dir, snapshot_id
         )
 
-        recent_session = get_recent_loaded_session(
-            snapshot_id=snapshot_id,
-            recent_loads=self._recent_frontend_snapshot_loads,
-            sessions=self._sessions,
-        )
-
-        if recent_session is not None:
-            recent_session.updated_at = self._utc_now_iso()
-            return frontend_snapshot_load_response(record, recent_session)
-
         replay_bundle = record.get("replay_bundle")
 
         if not isinstance(replay_bundle, dict):
@@ -291,12 +276,6 @@ class SnapshotService:
             derive_status=self._derive_status,
             to_json_safe=self._to_json_safe,
             utc_now_iso=self._utc_now_iso,
-        )
-
-        mark_recent_load(
-            snapshot_id=snapshot_id,
-            session_id=restored_session.session_id,
-            recent_loads=self._recent_frontend_snapshot_loads,
         )
 
         return frontend_snapshot_load_response(record, restored_session)

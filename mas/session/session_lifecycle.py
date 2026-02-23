@@ -7,6 +7,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict
 
+from .session_status import SessionStatus
+
 
 def default_case_path() -> Path:
     """Return the default bundled case JSONL path."""
@@ -76,18 +78,18 @@ def reset_memory_storage_dir(storage_root: str) -> str:
     return str(storage_dir)
 
 
-def derive_status(engine: Any) -> str:
+def derive_status(engine: Any) -> SessionStatus:
     """Derive API session status from engine runtime fields."""
     if getattr(engine, "is_finished", False):
-        return "FINISHED"
+        return SessionStatus.FINISHED
 
     if getattr(engine, "is_ready_for_adjudication", False):
-        return "READY_FOR_ADJUDICATION"
+        return SessionStatus.READY_FOR_ADJUDICATION
 
     if getattr(engine, "round_idx", 0) > 0:
-        return "DEBATING"
+        return SessionStatus.DEBATING
 
     if getattr(engine, "graph", None) is not None:
-        return "SETUP_DONE"
+        return SessionStatus.SETUP_DONE
 
-    return "CREATED"
+    return SessionStatus.CREATED

@@ -1,0 +1,69 @@
+"""Session status enum and transition constraints."""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import Dict, Set
+
+
+class SessionStatus(str, Enum):
+    """Canonical session lifecycle statuses."""
+
+    CREATED = "CREATED"
+    SETTING_UP = "SETTING_UP"
+    SETUP_DONE = "SETUP_DONE"
+    DEBATING = "DEBATING"
+    READY_FOR_ADJUDICATION = "READY_FOR_ADJUDICATION"
+    FINISHED = "FINISHED"
+    ERROR = "ERROR"
+
+
+ALLOWED_TRANSITIONS: Dict[SessionStatus, Set[SessionStatus]] = {
+    SessionStatus.CREATED: {SessionStatus.SETTING_UP, SessionStatus.ERROR},
+    SessionStatus.SETTING_UP: {
+        SessionStatus.SETUP_DONE,
+        SessionStatus.DEBATING,
+        SessionStatus.READY_FOR_ADJUDICATION,
+        SessionStatus.FINISHED,
+        SessionStatus.ERROR,
+    },
+    SessionStatus.SETUP_DONE: {
+        SessionStatus.DEBATING,
+        SessionStatus.READY_FOR_ADJUDICATION,
+        SessionStatus.FINISHED,
+        SessionStatus.ERROR,
+    },
+    SessionStatus.DEBATING: {
+        SessionStatus.DEBATING,
+        SessionStatus.READY_FOR_ADJUDICATION,
+        SessionStatus.FINISHED,
+        SessionStatus.ERROR,
+    },
+    SessionStatus.READY_FOR_ADJUDICATION: {
+        SessionStatus.FINISHED,
+        SessionStatus.ERROR,
+    },
+    SessionStatus.FINISHED: set(),
+    SessionStatus.ERROR: {
+        SessionStatus.SETTING_UP,
+        SessionStatus.SETUP_DONE,
+        SessionStatus.DEBATING,
+        SessionStatus.READY_FOR_ADJUDICATION,
+        SessionStatus.FINISHED,
+    },
+}
+
+
+def ensure_allowed_transition(
+    current: SessionStatus, target: SessionStatus
+) -> SessionStatus:
+    """Validate one status transition and return validated target."""
+    if current == target:
+        return target
+
+    allowed_targets = ALLOWED_TRANSITIONS.get(current, set())
+
+    if target not in allowed_targets:
+        raise ValueError(f"Illegal session status transition: {current} -> {target}")
+
+    return target

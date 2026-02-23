@@ -1,4 +1,4 @@
-"""Setup flow for DebateEngine."""
+"""Setup flow for `DebateEngine`."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from tools.llm import GPTChat
 
 from ..agents.narrator import GraphNarrator
 from ..agents.team import DebateTeam
-from .graph import NodeType
-from .system import LegalSystem
+from ..core.graph import NodeType
+from ..infrastructure import build_legal_system
 
 
 async def run_engine_setup(
@@ -34,7 +34,7 @@ async def run_engine_setup(
     try:
         agent_llm = GPTChat(model_name=engine.cfg.llm.model_name)
         engine.narrator = GraphNarrator(llm=agent_llm)
-        engine.legal_sys = LegalSystem(config=engine.cfg)
+        engine.legal_sys = build_legal_system(engine.cfg)
 
         engine.fact_es = FactEsTool(
             es_host=engine.cfg.es.host,

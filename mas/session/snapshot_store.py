@@ -150,7 +150,7 @@ def build_snapshot_payload(session: Any) -> Dict[str, Any]:
     payload = {
         **base,
         "session_id": session.session_id,
-        "status": session.status,
+        "status": session.status.value,
         "created_at": session.created_at,
         "updated_at": session.updated_at,
         "metrics": {
@@ -175,7 +175,7 @@ def frontend_snapshot_load_response(
         "frontend_state": to_json_safe(record.get("frontend_state", {})),
         "session": {
             "session_id": session.session_id,
-            "status": session.status,
+            "status": session.status.value,
             "current_round": int(getattr(session.engine, "round_idx", 0)),
             "updated_at": session.updated_at,
         },
@@ -184,22 +184,33 @@ def frontend_snapshot_load_response(
 
 
 def normalize_import_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize imported replay bundle into canonical structure."""
-    candidate: Any = bundle
-    replay_bundle = bundle.get("replay_bundle")
-
-    if isinstance(replay_bundle, dict):
-        candidate = replay_bundle
-
-    if not isinstance(candidate, dict):
+    """Validate imported replay bundle against canonical structure."""
+    if not isinstance(bundle, dict):
         raise ValueError("Imported bundle must be an object")
 
-    snapshots = candidate.get("snapshots")
+    snapshots = bundle.get("snapshots")
 
     if not isinstance(snapshots, list) or len(snapshots) == 0:
         raise ValueError("Imported bundle missing non-empty snapshots")
 
-    return to_json_safe(candidate)
+    session_row = bundle.get("session")
+    snapshot_row = bundle.get("snapshot")
+    events_row = bundle.get("events")
+    artifacts_row = bundle.get("turn_artifacts")
+
+    if not isinstance(session_row, dict):
+        raise ValueError("Imported bundle missing session object")
+
+    if not isinstance(snapshot_row, dict):
+        raise ValueError("Imported bundle missing snapshot object")
+
+    if not isinstance(events_row, list):
+        raise ValueError("Imported bundle missing events array")
+
+    if not isinstance(artifacts_row, list):
+        raise ValueError("Imported bundle missing turn_artifacts array")
+
+    return to_json_safe(bundle)
 
 
 def list_frontend_snapshots(

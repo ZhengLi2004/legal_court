@@ -29,7 +29,7 @@ class GraphProjector:
        and countered in the past.
     """
 
-    def __init__(self, matcher: SemanticMatcher, config: SystemConfig = None):
+    def __init__(self, matcher: SemanticMatcher, config: SystemConfig):
         """Initialize the GraphProjector.
 
         Args:
@@ -38,7 +38,7 @@ class GraphProjector:
             config: The system configuration object.
         """
         self.matcher = matcher
-        self.cfg = config or SystemConfig()
+        self.cfg = config
 
     def retrieve_historical_context(
         self,

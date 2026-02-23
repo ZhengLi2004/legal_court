@@ -6,16 +6,14 @@ operations. It serves as the primary interface for the `DebateEngine` to
 interact with the system's underlying functional modules.
 """
 
-from typing import Any, Dict, List, Tuple
+from dataclasses import dataclass
+from math import sqrt
+from typing import Any, Dict, List, Sequence, Tuple
 
 from metagpt.logs import logger
 
 from mas.core.schemas import AgentAction
-from tools.embedding import EmbeddingFunc, cosine_similarity
-from tools.llm import GPTChat
-from tools.matcher import SemanticMatcher
 
-from ..agents.judge import LLMJudge
 from ..analysis.backprop import BackPropagator
 from ..analysis.executor import GraphExecutor
 from ..config import SystemConfig
@@ -23,6 +21,33 @@ from ..memory.insights import InsightsManager
 from ..memory.legal_memory import LegalGMemory
 from ..memory.projection import GraphProjector
 from .graph import LegalMessage, NodeStatus, NodeType, ShadowGraph
+
+
+@dataclass(frozen=True)
+class LegalSystemDependencies:
+    """Runtime dependencies required by `LegalSystem`."""
+
+    llm: Any
+    embedding_func: Any
+    projection_matcher: Any
+    insight_matcher: Any
+    dedup_matcher: Any
+    judge: Any
+
+
+def _cosine_similarity(v1: Sequence[float], v2: Sequence[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    if not v1 or not v2 or len(v1) != len(v2):
+        return 0.0
+
+    numerator = sum(float(a) * float(b) for a, b in zip(v1, v2))
+    norm_v1 = sqrt(sum(float(a) * float(a) for a in v1))
+    norm_v2 = sqrt(sum(float(b) * float(b) for b in v2))
+
+    if norm_v1 == 0.0 or norm_v2 == 0.0:
+        return 0.0
+
+    return numerator / (norm_v1 * norm_v2)
 
 
 class LegalSystem:
@@ -46,21 +71,15 @@ class LegalSystem:
         step_counter: A counter for the number of turns in the current debate.
     """
 
-    def __init__(self, persist_dir: str = None, config: SystemConfig = None):
+    def __init__(self, config: SystemConfig, dependencies: LegalSystemDependencies):
         """Initialize all subsystems of the LegalSystem."""
-        self.cfg = config or SystemConfig()
-        self.llm = GPTChat(model_name=self.cfg.llm.model_name)
-        self.ef = EmbeddingFunc(model_path=self.cfg.path.embedding_model_path)
-
-        self.projection_matcher = SemanticMatcher(
-            self.ef, threshold=self.cfg.matcher.projection_threshold
-        )
-
-        self.insight_matcher = SemanticMatcher(
-            self.ef, threshold=self.cfg.matcher.insight_threshold
-        )
-
-        self.dedup_matcher = SemanticMatcher(self.ef)
+        self.cfg = config
+        self.llm = dependencies.llm
+        self.ef = dependencies.embedding_func
+        self.projection_matcher = dependencies.projection_matcher
+        self.insight_matcher = dependencies.insight_matcher
+        self.dedup_matcher = dependencies.dedup_matcher
+        self.judge = dependencies.judge
 
         self.memory = LegalGMemory(
             persist_dir=self.cfg.path.storage_root_dir, config=self.cfg
@@ -70,19 +89,6 @@ class LegalSystem:
             self.cfg.path.storage_root_dir, self.llm, self.insight_matcher, self.cfg
         )
 
-        judge_llm = GPTChat(
-            model_name=self.cfg.judge.model_name,
-            base_url=self.cfg.judge.base_url,
-            api_key=self.cfg.judge.api_key,
-        )
-
-        extraction_llm = GPTChat(
-            model_name=self.cfg.llm.model_name,
-            base_url=self.cfg.llm.base_url,
-            api_key=self.cfg.llm.api_key,
-        )
-
-        self.judge = LLMJudge(judge_llm=judge_llm, extraction_llm=extraction_llm)
         self.projector = GraphProjector(self.projection_matcher, config=self.cfg)
         self.backprop = BackPropagator()
         self.step_counter = 0
@@ -115,24 +121,14 @@ class LegalSystem:
                 self._static_history_cases.append(case)
                 existing_ids.add(case.case_id)
 
-    def _resolve_retrieval_top_k(self, key: str, default: int) -> int:
-        """Resolve retrieval top-k from config and fall back to default."""
-        retrieval_cfg = getattr(self.cfg, "retrieval", None)
+    def _get_retrieval_top_k(self, key: str) -> int:
+        """Read a retrieval top-k setting and enforce positive integer."""
+        value = int(getattr(self.cfg.retrieval, key))
 
-        if retrieval_cfg is not None:
-            raw_value = getattr(retrieval_cfg, key, None)
+        if value <= 0:
+            raise ValueError(f"cfg.retrieval.{key} must be > 0, got {value}")
 
-            if raw_value is not None:
-                try:
-                    parsed = int(raw_value)
-
-                except (TypeError, ValueError):
-                    parsed = 0
-
-                if parsed > 0:
-                    return parsed
-
-        return max(1, int(default))
+        return value
 
     def new_case(self, context: str) -> Tuple[ShadowGraph, Tuple[List[str], List[str]]]:
         """Set up the system for a new case.
@@ -153,12 +149,7 @@ class LegalSystem:
         self._static_history_cases = []
         self._dynamic_law_cases = []
         sg = ShadowGraph()
-
-        semantic_top_k = self._resolve_retrieval_top_k(
-            key="semantic_path_top_k",
-            default=3,
-        )
-
+        semantic_top_k = self._get_retrieval_top_k("semantic_path_top_k")
         initial_msgs, _ = self.memory.retrieve_memory(context, top_k=semantic_top_k)
         self._merge_static_cases(initial_msgs)
 
@@ -168,11 +159,7 @@ class LegalSystem:
 
         all_strategies = list(set(p_insights + d_insights))
         candidates_from_strategy = []
-
-        strategy_top_k = self._resolve_retrieval_top_k(
-            key="strategy_path_top_k",
-            default=9,
-        )
+        strategy_top_k = self._get_retrieval_top_k("strategy_path_top_k")
 
         if all_strategies:
             representatives = []
@@ -196,7 +183,7 @@ class LegalSystem:
 
                     for msg in candidate_msgs:
                         msg_vec = self.ef.embed_query(msg.case_context)
-                        sim = cosine_similarity(query_vec, msg_vec)
+                        sim = _cosine_similarity(query_vec, msg_vec)
                         scored_candidates.append((sim, msg))
 
                     scored_candidates.sort(key=lambda x: x[0], reverse=True)
@@ -304,11 +291,7 @@ class LegalSystem:
 
             return
 
-        jurisprudence_top_k = self._resolve_retrieval_top_k(
-            key="jurisprudence_path_top_k",
-            default=3,
-        )
-
+        jurisprudence_top_k = self._get_retrieval_top_k("jurisprudence_path_top_k")
         law_list = list(current_laws)
 
         retrieved_cases = self.memory.retrieve_cases_by_law_codes(

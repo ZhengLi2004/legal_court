@@ -27,6 +27,7 @@ from mas.session.session_lifecycle import (
 )
 from mas.session.session_lifecycle import derive_status
 from mas.session.session_service import SessionService
+from mas.session.session_status import SessionStatus
 from mas.session.snapshot_service import SnapshotService
 
 
@@ -53,7 +54,7 @@ class DebateSession:
 
     session_id: str
     engine: Any
-    status: str = "CREATED"
+    status: SessionStatus = SessionStatus.CREATED
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
     last_error: str = ""
@@ -92,7 +93,6 @@ class SessionManager:
             frontend_snapshots_dir or get_default_frontend_snapshots_dir()
         )
 
-        self._recent_frontend_snapshot_loads: Dict[str, Dict[str, Any]] = {}
         self._sessions: Dict[str, DebateSession] = {}
 
         self._session_service = SessionService(
@@ -114,8 +114,6 @@ class SessionManager:
             create_session=self.create_session,
             get_event_history=self.get_event_history,
             frontend_snapshots_dir=self._frontend_snapshots_dir,
-            recent_frontend_snapshot_loads=self._recent_frontend_snapshot_loads,
-            sessions=self._sessions,
             to_json_safe=_to_json_safe,
             utc_now_iso=utc_now_iso,
             derive_status=derive_status,

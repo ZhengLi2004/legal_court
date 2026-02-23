@@ -2,54 +2,17 @@
 
 from __future__ import annotations
 
-import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
 
+from .session_status import SessionStatus
 from .snapshot_store import normalize_restored_events, restore_round_index
-
-
-def get_recent_loaded_session(
-    *,
-    snapshot_id: str,
-    recent_loads: Dict[str, Dict[str, Any]],
-    sessions: Dict[str, Any],
-    now_ts: Optional[float] = None,
-    ttl_seconds: float = 8.0,
-) -> Optional[Any]:
-    """Return a recently restored session from short-term cache if available."""
-    now = time.time() if now_ts is None else float(now_ts)
-    cache_entry = recent_loads.get(snapshot_id, {})
-    recent_session_id = str(cache_entry.get("session_id", "")).strip()
-    recent_loaded_at = float(cache_entry.get("loaded_at", 0.0) or 0.0)
-
-    if not recent_session_id:
-        return None
-
-    if (now - recent_loaded_at) > ttl_seconds:
-        return None
-
-    return sessions.get(recent_session_id)
-
-
-def mark_recent_load(
-    *,
-    snapshot_id: str,
-    session_id: str,
-    recent_loads: Dict[str, Dict[str, Any]],
-    loaded_at: Optional[float] = None,
-) -> None:
-    """Write latest restore cache entry for one snapshot id."""
-    recent_loads[snapshot_id] = {
-        "session_id": session_id,
-        "loaded_at": time.time() if loaded_at is None else float(loaded_at),
-    }
 
 
 def apply_normalized_replay_bundle(
     *,
     restored_session: Any,
     normalized_bundle: Dict[str, Any],
-    derive_status: Callable[[Any], str],
+    derive_status: Callable[[Any], SessionStatus],
     to_json_safe: Callable[[Any], Any],
     utc_now_iso: Callable[[], str],
 ) -> None:
@@ -84,6 +47,7 @@ def apply_normalized_replay_bundle(
             is_ready = bool(ready_raw) and not bool(
                 getattr(engine, "is_finished", False)
             )
+
             engine.is_ready_for_adjudication = is_ready
 
             if isinstance(getattr(engine, "last_step_log", None), dict):

@@ -13,7 +13,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from metagpt.logs import logger
 from metagpt.schema import Message
 
-from roles.controller import ArgumentController, ControllerPipelineStep
+from mas.core.controller_pipeline import ControllerPipelineStep
+from roles.controller import ArgumentController
 from roles.worker import FactWorker, LawWorker, RecallWorker
 from tools.fact_es_tool import FactEsTool
 from tools.graph_tool import GraphTool
@@ -81,21 +82,9 @@ class DebateTeam:
         for action in self.controller.actions:
             action.llm = llm
 
-        worker_cfg = getattr(
-            getattr(legal_system, "cfg", None), "worker_threshold", None
-        )
-
-        try:
-            fact_threshold = float(getattr(worker_cfg, "fact_worker_threshold", 0.6))
-
-        except (TypeError, ValueError):
-            fact_threshold = 0.6
-
-        try:
-            law_threshold = float(getattr(worker_cfg, "law_worker_threshold", 0.6))
-
-        except (TypeError, ValueError):
-            law_threshold = 0.6
+        worker_cfg = legal_system.cfg.worker_threshold
+        fact_threshold = float(worker_cfg.fact_worker_threshold)
+        law_threshold = float(worker_cfg.law_worker_threshold)
 
         self.fact_worker = FactWorker(
             name=f"{side}_FactWorker",

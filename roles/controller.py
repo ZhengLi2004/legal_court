@@ -10,7 +10,6 @@ debate graph.
 
 import json
 import time
-from enum import Enum, auto
 from typing import Any, Dict, List
 
 from metagpt.logs import logger
@@ -27,6 +26,7 @@ from actions.controller_actions import (
     PushTool,
     VerifyAndDecide,
 )
+from mas.core.controller_pipeline import ControllerPipelineStep
 from mas.core.schemas import (
     AgentAction,
     ResourceRequirement,
@@ -37,17 +37,6 @@ from mas.core.schemas import (
 from tools.graph_tool import GraphTool
 from tools.initializer import AgentPersona
 from tools.llm import ToolCallContractError
-
-
-class ControllerPipelineStep(Enum):
-    """Enumeration for the internal states of the controller's turn-based pipeline."""
-
-    IDLE = auto()
-    ASSESS_NEEDS = auto()
-    WAIT_FOR_WORKERS = auto()
-    PLAN = auto()
-    PUSH = auto()
-    DONE = auto()
 
 
 class ArgumentController(Role):

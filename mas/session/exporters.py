@@ -122,7 +122,7 @@ def build_replay_bundle(
     return {
         "session": {
             "session_id": session.session_id,
-            "status": session.status,
+            "status": session.status.value,
             "created_at": session.created_at,
             "updated_at": session.updated_at,
             "failure_simulation": dict(session.failure_simulation),
@@ -139,4 +139,3 @@ def build_replay_bundle(
             "snapshot_count": len(snapshots),
         },
     }
-

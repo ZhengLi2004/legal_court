@@ -164,10 +164,9 @@ class ProjectAndAnalyze(Action):
         cls,
         legal_system: LegalSystem,
         primary_key: str,
-        alias_key: str,
         default: int,
     ) -> int:
-        """Resolve projection top-k from config with alias fallback.
+        """Resolve projection top-k from config.
 
         The paper describes projection over a bounded set of anchors and
         candidate history cases for engineering feasibility. This helper ensures
@@ -175,11 +174,8 @@ class ProjectAndAnalyze(Action):
         """
         retrieval_cfg = getattr(getattr(legal_system, "cfg", None), "retrieval", None)
 
-        for key in (primary_key, alias_key):
-            if retrieval_cfg is None:
-                break
-
-            parsed = cls._coerce_positive_int(getattr(retrieval_cfg, key, None))
+        if retrieval_cfg is not None:
+            parsed = cls._coerce_positive_int(getattr(retrieval_cfg, primary_key, None))
 
             if parsed is not None:
                 return parsed
@@ -225,7 +221,6 @@ class ProjectAndAnalyze(Action):
         configured_anchor_top_k = self._resolve_projection_top_k(
             legal_system=legal_system,
             primary_key="projection_anchor_top_k",
-            alias_key="project_anchor_top_k",
             default=3,
         )
 
@@ -257,7 +252,6 @@ class ProjectAndAnalyze(Action):
         case_top_k = self._resolve_projection_top_k(
             legal_system=legal_system,
             primary_key="projection_case_top_k",
-            alias_key="project_case_top_k",
             default=3,
         )
 

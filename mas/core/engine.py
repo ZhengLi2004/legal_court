@@ -12,19 +12,14 @@ from typing import Any, Callable, Dict, List, Optional
 from metagpt.logs import logger
 
 from mas.common.serialization import serialize_enum_like, to_json_safe
-from roles.controller import ControllerPipelineStep
-from tools.fact_es_tool import FactEsTool
-from tools.law_es_tool import LawEsTool
 
-from ..agents.narrator import GraphNarrator
-from ..agents.team import DebateTeam
 from ..config import SystemConfig
+from .controller_pipeline import ControllerPipelineStep
 from .engine_adjudication import run_engine_adjudication
 from .engine_convergence import (
     build_engine_convergence_config,
     calculate_engine_convergence_delta,
 )
-from .engine_setup import run_engine_setup
 from .engine_snapshot_codec import (
     build_engine_focus_node_ids,
     build_engine_graph_data,
@@ -76,8 +71,8 @@ class DebateEngine:
         self.cfg = config
         self.judge_config = judge_config
         self.legal_sys: Optional[LegalSystem] = None
-        self.p_team: Optional[DebateTeam] = None
-        self.d_team: Optional[DebateTeam] = None
+        self.p_team: Optional[Any] = None
+        self.d_team: Optional[Any] = None
         self.graph: Optional[ShadowGraph] = None
         self.raw_facts: str = ""
         self.current_case_id: str = ""
@@ -87,8 +82,8 @@ class DebateEngine:
         self.is_ready_for_adjudication: bool = False
         self.winner: str = "Unsettled"
         self.last_step_log: Dict[str, Any] = {}
-        self.fact_es: Optional[FactEsTool] = None
-        self.law_es: Optional[LawEsTool] = None
+        self.fact_es: Optional[Any] = None
+        self.law_es: Optional[Any] = None
         self.judgment_document: str = ""
         self.root_claims_status: Dict[str, NodeStatus] = {}
         self.convergence_history: List[float] = []
@@ -97,7 +92,7 @@ class DebateEngine:
         self.round_snapshots: List[Dict[str, Any]] = []
         self.turn_artifacts: List[Dict[str, Any]] = []
         self.latest_turn_uid: str = ""
-        self.narrator: Optional[GraphNarrator] = None
+        self.narrator: Optional[Any] = None
         self.on_state_change: Optional[Callable[[str, Any], None]] = None
         self._is_running: bool = False
 
@@ -192,6 +187,8 @@ class DebateEngine:
         Raises:
             ValueError: If neither case_data_path nor case_data is provided.
         """
+        from mas.application.engine_setup import run_engine_setup
+
         await run_engine_setup(
             self,
             case_data_path=case_data_path,

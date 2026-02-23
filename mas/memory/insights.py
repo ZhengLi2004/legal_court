@@ -95,7 +95,7 @@ class InsightsManager:
         working_dir: str,
         llm: GPTChat,
         matcher: SemanticMatcher,
-        config: SystemConfig = None,
+        config: SystemConfig,
     ):
         """Initialize the InsightsManager.
 
@@ -108,7 +108,7 @@ class InsightsManager:
         self.working_dir = working_dir
         self.llm = llm
         self.matcher = matcher
-        self.cfg = config or SystemConfig()
+        self.cfg = config
         self.file_path = os.path.join(working_dir, self.cfg.path.file_insight_graph)
         self._insights_repaired_on_load = False
         self.insights: List[Insight] = self._load_insights()
