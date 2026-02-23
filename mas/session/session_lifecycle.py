@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict
@@ -12,6 +13,11 @@ from .session_status import SessionStatus
 
 def default_case_path() -> Path:
     """Return the default bundled case JSONL path."""
+    configured_path = str(os.getenv("MAS_CASE_DATA_FILE", "")).strip()
+
+    if configured_path:
+        return Path(configured_path).expanduser().resolve()
+
     return (
         Path(__file__).resolve().parents[2]
         / "data"
@@ -22,6 +28,11 @@ def default_case_path() -> Path:
 
 def default_frontend_snapshots_dir() -> Path:
     """Return the directory used for persisted frontend snapshot files."""
+    configured_dir = str(os.getenv("MAS_FRONTEND_SNAPSHOTS_DIR", "")).strip()
+
+    if configured_dir:
+        return Path(configured_dir).expanduser().resolve()
+
     return Path(__file__).resolve().parents[2] / "tmp" / "frontend_snapshots"
 
 

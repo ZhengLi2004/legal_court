@@ -12,8 +12,8 @@ from metagpt.logs import logger
 
 from mas.core.graph import ShadowGraph
 from mas.core.schemas import AgentAction, AgentActionType
+from mas.infrastructure.llm import GPTChat
 from prompts.common_prompts import NARRATOR_POLISH_PROMPT, SYSTEM_PROMPT_NARRATOR
-from tools.llm import GPTChat
 
 
 class GraphNarrator:

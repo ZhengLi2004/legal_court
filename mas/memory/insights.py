@@ -13,13 +13,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from mas.infrastructure.embedding import cosine_similarity, file_lock
+from mas.infrastructure.llm import GPTChat, Message
+from mas.infrastructure.matcher import SemanticMatcher
 from prompts.common_prompts import (
     EXTRACT_ADVERSARIAL_INSIGHTS_PROMPT,
     SYSTEM_PROMPT_INSIGHT_EXTRACTOR,
 )
-from tools.embedding import cosine_similarity, file_lock
-from tools.llm import GPTChat, Message
-from tools.matcher import SemanticMatcher
 
 from ..config import SystemConfig
 

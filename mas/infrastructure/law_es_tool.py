@@ -1,29 +1,29 @@
-"""Provides a specialized tool for searching a legal cases index in Elasticsearch.
+"""Provides a specialized tool for searching a legal statutes index in Elasticsearch.
 
-This module defines `FactEsTool`, a concrete implementation of `BaseEsTool`
-configured specifically for querying an index of legal case documents.
+This module defines `LawEsTool`, a concrete implementation of `BaseEsTool`
+configured specifically for querying an index of legal articles and statutes.
 """
 
 from typing import Any, Dict, List
 
-from tools.embedding import EmbeddingFunc
+from mas.infrastructure.embedding import EmbeddingFunc
 
 from .base_es_tool import BaseEsTool
 
 
-class FactEsTool(BaseEsTool):
-    """An Elasticsearch tool for searching factual information in legal cases.
+class LawEsTool(BaseEsTool):
+    """An Elasticsearch tool for searching legal statutes.
 
     This class inherits from `BaseEsTool` and presets the index name, vector
-    field, and source fields for querying a pre-defined legal cases index.
+    field, and source fields for querying a pre-defined legal statutes index.
     """
 
-    INDEX_NAME = "rag_legal_cases"
-    VECTOR_FIELD = "combined_vector"
-    SOURCE_FIELDS = ["case_title", "analysis", "fact_finding"]
+    INDEX_NAME = "rag_legal_laws"
+    VECTOR_FIELD = "vector"
+    SOURCE_FIELDS = ["law_name", "article_id", "content"]
 
     def __init__(self, es_host: str, embedding_func: EmbeddingFunc):
-        """Initialize the FactEsTool.
+        """Initialize the LawEsTool.
 
         Args:
             es_host: The URL of the Elasticsearch host.
@@ -31,17 +31,17 @@ class FactEsTool(BaseEsTool):
         """
         super().__init__(es_host, embedding_func)
 
-    async def search_cases_raw(
+    async def search_laws_raw(
         self, query_text: str, top_k: int = 3
     ) -> List[Dict[str, Any]]:
-        """Search the legal cases index with a natural language query.
+        """Search the legal statutes index with a natural language query.
 
         This method converts the query text to an embedding vector and then calls
-        the underlying `_search` method to find the most relevant case documents.
+        the underlying `_search` method to find the most relevant statutes.
 
         Args:
             query_text: The natural language search query.
-            top_k: The number of top cases to return.
+            top_k: The number of top statutes to return.
 
         Returns:
             A list of hit dictionaries from the Elasticsearch response.

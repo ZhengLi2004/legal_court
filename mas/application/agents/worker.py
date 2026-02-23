@@ -16,22 +16,22 @@ from metagpt.logs import logger
 from metagpt.roles import Role
 from metagpt.schema import Message
 
-from actions.worker_actions import (
+from mas.application.agents.actions.worker_actions import (
     AnalyzeSearchResults,
     FormulateSearchQueries,
     ProjectAndAnalyze,
 )
 from mas.core.schemas import WorkerInstruction, WorkerReport, WorkerReportStatus
 from mas.core.system import LegalSystem
+from mas.infrastructure.embedding import deduplicate_and_rerank
+from mas.infrastructure.fact_es_tool import FactEsTool
+from mas.infrastructure.law_es_tool import LawEsTool
+from mas.infrastructure.llm import GPTChat
 from prompts.common_prompts import (
     ANALYZE_FACT_PROMPT,
     ANALYZE_LAW_PROMPT,
     DECOMPOSE_LAW_INTENT_PROMPT,
 )
-from tools.embedding import deduplicate_and_rerank
-from tools.fact_es_tool import FactEsTool
-from tools.law_es_tool import LawEsTool
-from tools.llm import GPTChat
 
 
 def truncate_text(text: str, max_len: int = 500) -> str:

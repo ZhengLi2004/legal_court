@@ -7,11 +7,11 @@ from typing import Any, Dict, Optional
 
 from metagpt.logs import logger
 
-from tools.fact_es_tool import FactEsTool
-from tools.graph_tool import GraphTool
-from tools.initializer import CaseInitializer
-from tools.law_es_tool import LawEsTool
-from tools.llm import GPTChat
+from mas.infrastructure.fact_es_tool import FactEsTool
+from mas.infrastructure.graph_tool import GraphTool
+from mas.infrastructure.initializer import CaseInitializer
+from mas.infrastructure.law_es_tool import LawEsTool
+from mas.infrastructure.llm import GPTChat
 
 from ..agents.narrator import GraphNarrator
 from ..agents.team import DebateTeam

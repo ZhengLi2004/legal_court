@@ -13,8 +13,8 @@ from typing import Dict, List, Optional, Tuple
 import networkx as nx
 
 from mas.core.schemas import AgentAction, AgentActionType
+from mas.infrastructure.matcher import SemanticMatcher
 from mas.infrastructure.settings_provider import DedupThresholds
-from tools.matcher import SemanticMatcher
 
 from ..core.graph import EdgeAddResult, EdgeType, NodeType, ShadowGraph
 

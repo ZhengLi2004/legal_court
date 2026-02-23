@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useRef } from "react";
-import { ForceArgumentGraph } from "../components/ForceArgumentGraph";
-import { ConvergenceSparkline } from "../components/ConvergenceSparkline";
-import { useDebate } from "../state/useDebate";
-import { asRecord, phaseLabel, unwrapPayload } from "../../shared/lib/payload";
+import { ForceArgumentGraph } from "../../../app/components/ForceArgumentGraph";
+import { ConvergenceSparkline } from "../../../app/components/ConvergenceSparkline";
+import { useDebate } from "../../../app/state/useDebate";
+
+import {
+  asRecord,
+  phaseLabel,
+  unwrapPayload,
+} from "../../../shared/lib/payload";
+
 type DialogueSide = "plaintiff" | "defendant" | "judge" | "system" | "other";
 
 interface DialogueRow {
@@ -102,6 +108,7 @@ function toDialogueRows(
     const match = line.match(/^\[(.+?)\]\s*(.*)$/);
     const speakerRaw = match ? match[1] : "";
     const text = (match ? match[2] : line).trim() || line.trim();
+
     const normalized = speakerRaw
       ? normalizeSpeaker(speakerRaw)
       : (inferSpeakerFromText(text) ?? { side: "other", label: "记录" });
@@ -263,6 +270,7 @@ export function LivePage() {
           >
             下一步辩论
           </button>
+
           <button
             disabled={Boolean(busyAction) || !canAdjudicate(snapshot.phase)}
             onClick={() => {

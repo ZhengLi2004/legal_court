@@ -14,13 +14,13 @@ from metagpt.actions import Action
 
 from mas.core.graph import ShadowGraph
 from mas.core.system import LegalSystem
+from mas.infrastructure.embedding import cosine_similarity
 from prompts.common_prompts import (
     ANALYZE_RECALL_PROMPT,
     DECOMPOSE_SEARCH_INTENT_PROMPT,
     SYSTEM_PROMPT_QUERY_DECOMPOSER,
     SYSTEM_PROMPT_WORKER_ANALYST,
 )
-from tools.embedding import cosine_similarity
 
 _SEARCH_QUERY_ARGS_SCHEMA = {
     "type": "object",

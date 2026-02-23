@@ -7,7 +7,7 @@ cases to inform its current strategy.
 
 from typing import List
 
-from tools.matcher import SemanticMatcher
+from mas.infrastructure.matcher import SemanticMatcher
 
 from ..config import SystemConfig
 from ..core.graph import LegalMessage, ShadowGraph

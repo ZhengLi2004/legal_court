@@ -3,14 +3,14 @@
 from mas.agents.judge import LLMJudge
 from mas.config import SystemConfig
 from mas.core.system import LegalSystem, LegalSystemDependencies
+from mas.infrastructure.embedding import EmbeddingFunc
+from mas.infrastructure.llm import GPTChat
+from mas.infrastructure.matcher import SemanticMatcher
 from mas.infrastructure.settings_provider import (
     build_dedup_thresholds,
     build_embedding_model_path,
     build_llm_config_view,
 )
-from tools.embedding import EmbeddingFunc
-from tools.llm import GPTChat
-from tools.matcher import SemanticMatcher
 
 
 def build_legal_system(config: SystemConfig) -> LegalSystem:

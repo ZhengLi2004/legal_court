@@ -13,7 +13,7 @@ from typing import List
 
 import networkx as nx
 
-from tools.embedding import file_lock
+from mas.infrastructure.embedding import file_lock
 
 
 @dataclass

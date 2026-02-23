@@ -17,7 +17,7 @@ from metagpt.roles import Role
 from metagpt.schema import Message
 from pydantic import ValidationError
 
-from actions.controller_actions import (
+from mas.application.agents.actions.controller_actions import (
     AssessFactNeeds,
     AssessLawNeeds,
     AssessRecallNeeds,
@@ -34,9 +34,9 @@ from mas.core.schemas import (
     WorkerReport,
     WorkerReportStatus,
 )
-from tools.graph_tool import GraphTool
-from tools.initializer import AgentPersona
-from tools.llm import ToolCallContractError
+from mas.infrastructure.graph_tool import GraphTool
+from mas.infrastructure.initializer import AgentPersona
+from mas.infrastructure.llm import ToolCallContractError
 
 
 class ArgumentController(Role):
@@ -341,9 +341,11 @@ class ArgumentController(Role):
 
             else:
                 inst = WorkerInstruction(intent=req_law.intent)
+
                 instructions.append(
                     {"target": "LawWorker", "instruction": inst.to_json()}
                 )
+
                 self.investigation_buffer["Law"] = (
                     f"⏳ [正在检索法条]: {req_law.intent}"
                 )

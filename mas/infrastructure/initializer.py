@@ -12,13 +12,13 @@ from typing import List
 
 from metagpt.logs import logger
 
+from mas.infrastructure.llm import GPTChat
 from prompts.common_prompts import (
     DECOMPOSE_FACTS_PROMPT,
     GENERATE_PERSONA_PROMPT,
     GENERATE_ROOT_CLAIM_PROMPT,
     SYSTEM_PROMPT_CASE_INITIALIZER,
 )
-from tools.llm import GPTChat
 
 _FACT_STATEMENTS_SCHEMA = {
     "name": "fact_statements",

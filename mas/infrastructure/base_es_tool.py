@@ -17,7 +17,7 @@ from elasticsearch import (
 )
 from metagpt.logs import logger
 
-from tools.embedding import EmbeddingFunc
+from mas.infrastructure.embedding import EmbeddingFunc
 
 
 class BaseEsTool:

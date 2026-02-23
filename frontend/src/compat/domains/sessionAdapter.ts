@@ -7,8 +7,12 @@ import {
   normalizeSnapshotList,
 } from "../protocol";
 
-import { withQuery } from "../client";
 import type { CompatClient } from "../client";
+
+import {
+  LegalCourtApiClient,
+  type CreateSessionRequest,
+} from "../../shared/api/generated";
 
 import type {
   CreateSessionInput,
@@ -21,65 +25,43 @@ import type {
 
 export class SessionDomainAdapter implements SessionAdapter {
   private readonly client: CompatClient;
+  private readonly generatedClient: LegalCourtApiClient;
 
   constructor(client: CompatClient) {
     this.client = client;
+    this.generatedClient = new LegalCourtApiClient({ baseUrl: client.baseUrl });
   }
 
   async createSession(input: CreateSessionInput = {}): Promise<DebateSnapshot> {
-    const body = {
+    const body: CreateSessionRequest = {
       case_data: input.caseData,
     };
 
-    const raw = await this.client.request({
-      method: "POST",
-      path: "/api/v1/sessions",
-      body,
-    });
-
+    const raw = await this.generatedClient.createSession(body);
     return normalizeSnapshot(raw);
   }
 
   async step(sessionId: string): Promise<DebateSnapshot> {
-    const raw = await this.client.request({
-      method: "POST",
-      path: `/api/v1/sessions/${sessionId}/step`,
-    });
-
+    const raw = await this.generatedClient.stepSession(sessionId);
     return normalizeSnapshot(raw);
   }
 
   async adjudicate(sessionId: string): Promise<DebateSnapshot> {
-    const raw = await this.client.request({
-      method: "POST",
-      path: `/api/v1/sessions/${sessionId}/adjudicate`,
-    });
-
+    const raw = await this.generatedClient.adjudicateSession(sessionId);
     return normalizeSnapshot(raw);
   }
 
   async resetMemory(): Promise<void> {
-    await this.client.request({
-      method: "POST",
-      path: "/api/v1/memory/reset-storage",
-    });
+    await this.generatedClient.resetMemoryStorage();
   }
 
   async getSnapshot(sessionId: string): Promise<DebateSnapshot> {
-    const raw = await this.client.request({
-      method: "GET",
-      path: `/api/v1/sessions/${sessionId}/snapshot`,
-    });
-
+    const raw = await this.generatedClient.getSessionSnapshot(sessionId);
     return normalizeSnapshot(raw);
   }
 
   async listSessions(): Promise<DebateSnapshot[]> {
-    const raw = await this.client.request({
-      method: "GET",
-      path: "/api/v1/sessions",
-    });
-
+    const raw = await this.generatedClient.listSessions();
     return normalizeSnapshotList(raw);
   }
 
@@ -97,14 +79,10 @@ export class SessionDomainAdapter implements SessionAdapter {
     label?: string;
     frontendState?: Record<string, unknown>;
   }): Promise<FrontendSnapshotListItem> {
-    const raw = await this.client.request({
-      method: "POST",
-      path: "/api/v1/frontend-snapshots",
-      body: {
-        session_id: input.sessionId,
-        label: input.label ?? "",
-        frontend_state: input.frontendState ?? {},
-      },
+    const raw = await this.generatedClient.saveFrontendSnapshot({
+      session_id: input.sessionId,
+      label: input.label ?? "",
+      frontend_state: input.frontendState ?? {},
     });
 
     return normalizeFrontendSnapshotItem(raw);
@@ -115,14 +93,10 @@ export class SessionDomainAdapter implements SessionAdapter {
     label?: string;
     frontendState?: Record<string, unknown>;
   }): Promise<FrontendSnapshotListItem> {
-    const raw = await this.client.request({
-      method: "POST",
-      path: "/api/v1/frontend-snapshots/import",
-      body: {
-        bundle: input.bundle,
-        label: input.label ?? "",
-        frontend_state: input.frontendState ?? {},
-      },
+    const raw = await this.generatedClient.importFrontendSnapshot({
+      bundle: input.bundle,
+      label: input.label ?? "",
+      frontend_state: input.frontendState ?? {},
     });
 
     return normalizeFrontendSnapshotItem(raw);
@@ -132,19 +106,14 @@ export class SessionDomainAdapter implements SessionAdapter {
     limit = 20,
     offset = 0,
   ): Promise<FrontendSnapshotListItem[]> {
-    const path = withQuery("/api/v1/frontend-snapshots", { limit, offset });
-    const raw = await this.client.request({ method: "GET", path });
+    const raw = await this.generatedClient.listFrontendSnapshots(limit, offset);
     return normalizeFrontendSnapshotList(raw);
   }
 
   async loadFrontendSnapshot(
     snapshotId: string,
   ): Promise<FrontendSnapshotLoadResult> {
-    const raw = await this.client.request({
-      method: "POST",
-      path: `/api/v1/frontend-snapshots/${snapshotId}/load`,
-    });
-
+    const raw = await this.generatedClient.loadFrontendSnapshot(snapshotId);
     return normalizeFrontendSnapshotLoadResult(raw);
   }
 }

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from mas.config import get_env_strict
 from mas.session.event_stream import infer_event_source
 from mas.session.session_lifecycle import (
     derive_status,
@@ -286,4 +286,4 @@ class SessionService:
                 "Active sessions exist. Close all sessions before clearing memory storage."
             )
 
-        return reset_memory_storage_dir(os.getenv("MAS_STORAGE_DIR", ""))
+        return reset_memory_storage_dir(get_env_strict("MAS_STORAGE_DIR"))

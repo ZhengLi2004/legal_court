@@ -1,6 +1,6 @@
 import { useState, type ChangeEvent } from "react";
-import { useDebate } from "../state/useDebate";
-import { phaseLabel } from "../../shared/lib/payload";
+import { useDebate } from "../../../app/state/useDebate";
+import { phaseLabel } from "../../../shared/lib/payload";
 
 interface LaunchPageProps {
   onGoLive: () => void;

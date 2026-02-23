@@ -6,13 +6,13 @@ from typing import Any, Dict
 
 from metagpt.logs import logger
 
+from mas.infrastructure.llm import GPTChat, Message
 from prompts.common_prompts import (
     JUDGE_EVALUATE_PROMPT,
     JUDGE_EXTRACT_VERDICT_PROMPT,
     SYSTEM_PROMPT_JUDGE_EXTRACTOR,
     SYSTEM_PROMPT_JUDGE_WRITER,
 )
-from tools.llm import GPTChat, Message
 
 from ..core.graph import NodeStatus, ShadowGraph
 

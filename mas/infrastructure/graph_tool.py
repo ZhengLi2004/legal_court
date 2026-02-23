@@ -12,7 +12,7 @@ from mas.analysis.executor import GraphExecutor
 from mas.core.graph import NodeType, ShadowGraph
 from mas.core.schemas import AgentAction
 from mas.core.system import LegalSystem
-from tools.llm import LLMCallable
+from mas.infrastructure.llm import LLMCallable
 
 
 class GraphTool:

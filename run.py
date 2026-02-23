@@ -9,11 +9,17 @@ GUI is not available.
 """
 
 import asyncio
+import os
+from pathlib import Path
 
 from mas.core.engine import DebateEngine
 from mas.infrastructure.settings_provider import build_system_config
 
-DATA_FILE = "data/sampling/cleaned_samples.jsonl"
+_DEFAULT_CASE_FILE = (
+    Path(__file__).resolve().parent / "data" / "sampling" / "cleaned_samples.jsonl"
+)
+
+DATA_FILE = str(os.getenv("MAS_CASE_DATA_FILE", str(_DEFAULT_CASE_FILE)))
 
 
 async def run_experiment():

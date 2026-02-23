@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from tools.embedding import EmbeddingFunc
+from mas.infrastructure.embedding import EmbeddingFunc
 
 from ..core.graph import LegalMessage
 

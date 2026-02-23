@@ -17,7 +17,7 @@ from chromadb.config import Settings as ChromaSettings
 from chromadb.utils import embedding_functions
 from metagpt.logs import logger
 
-from tools.embedding import file_lock
+from mas.infrastructure.embedding import file_lock
 
 from ..config import SystemConfig
 from ..core.graph import LegalMessage, NodeStatus, NodeType, ShadowGraph

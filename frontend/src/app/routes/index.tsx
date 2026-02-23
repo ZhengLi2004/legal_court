@@ -14,13 +14,13 @@ import { MainShell } from "../components/MainShell";
 import { APP_ROUTES, normalizeAppPath, type AppRoute } from "./routeConfig";
 
 const LaunchPage = lazy(() =>
-  import("../pages/LaunchPage").then((module) => ({
+  import("../../features/launch/ui/LaunchPage").then((module) => ({
     default: module.LaunchPage,
   })),
 );
 
 const LivePage = lazy(() =>
-  import("../pages/LivePage").then((module) => ({
+  import("../../features/live/ui/LivePage").then((module) => ({
     default: module.LivePage,
   })),
 );

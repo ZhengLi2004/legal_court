@@ -13,14 +13,14 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from metagpt.logs import logger
 from metagpt.schema import Message
 
+from mas.application.agents.controller import ArgumentController
+from mas.application.agents.worker import FactWorker, LawWorker, RecallWorker
 from mas.core.controller_pipeline import ControllerPipelineStep
-from roles.controller import ArgumentController
-from roles.worker import FactWorker, LawWorker, RecallWorker
-from tools.fact_es_tool import FactEsTool
-from tools.graph_tool import GraphTool
-from tools.initializer import AgentPersona
-from tools.law_es_tool import LawEsTool
-from tools.llm import GPTChat
+from mas.infrastructure.fact_es_tool import FactEsTool
+from mas.infrastructure.graph_tool import GraphTool
+from mas.infrastructure.initializer import AgentPersona
+from mas.infrastructure.law_es_tool import LawEsTool
+from mas.infrastructure.llm import GPTChat
 
 from ..core.graph import ShadowGraph
 from ..core.schemas import WorkerReport
