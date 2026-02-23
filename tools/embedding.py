@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Union
 import numpy as np
 import portalocker
 import yaml
+from metagpt.logs import logger
 
 from mas.config import SystemConfig
 
@@ -191,7 +192,7 @@ class EmbeddingFunc:
         from chromadb.utils import embedding_functions
 
         if self.model_path not in _EMBEDDING_MODEL_CACHE:
-            print(f"[EmbeddingFunc] Loading model from: {self.model_path}")
+            logger.info(f"[EmbeddingFunc] Loading model from: {self.model_path}")
 
             if not os.path.exists(self.model_path):
                 raise FileNotFoundError(

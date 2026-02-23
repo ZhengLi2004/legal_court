@@ -15,6 +15,7 @@ from typing import Dict, List, Set, Tuple
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from chromadb.utils import embedding_functions
+from metagpt.logs import logger
 
 from tools.embedding import file_lock
 
@@ -90,7 +91,7 @@ class LegalGMemory(MASMemoryBase):
                         self.case_law_index[k] = set(v)
 
             except (OSError, TypeError, ValueError, json.JSONDecodeError) as e:
-                print(f"[Memory] Failed to load indices: {e}")
+                logger.warning(f"[Memory] Failed to load indices: {e}")
 
     def _save_indices(self):
         """Save the law-to-case indices to a JSON file."""
@@ -340,7 +341,7 @@ class LegalGMemory(MASMemoryBase):
                 ValueError,
                 json.JSONDecodeError,
             ) as e:
-                print(f"Error loading memory {final_results['ids'][i]}: {e}")
+                logger.warning(f"Error loading memory {final_results['ids'][i]}: {e}")
                 continue
 
         return messages

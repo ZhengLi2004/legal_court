@@ -46,7 +46,15 @@ class TaskLayer:
                 with open(self._graph_path, "rb") as f:
                     self.graph = pickle.load(f)
 
-            except Exception:
+            except (
+                OSError,
+                EOFError,
+                pickle.PickleError,
+                AttributeError,
+                ImportError,
+                TypeError,
+                ValueError,
+            ):
                 self.graph = nx.Graph()
 
         else:

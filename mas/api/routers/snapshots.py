@@ -27,7 +27,7 @@ def build_snapshots_router(manager: SessionManager) -> APIRouter:
                 frontend_state=body.frontend_state,
             )
 
-        except Exception as exc:
+        except (KeyError, ValueError) as exc:
             raise raise_as_http(
                 exc,
                 action="Save frontend snapshot",
@@ -46,7 +46,7 @@ def build_snapshots_router(manager: SessionManager) -> APIRouter:
                 frontend_state=body.frontend_state,
             )
 
-        except Exception as exc:
+        except ValueError as exc:
             raise raise_as_http(
                 exc,
                 action="Import frontend snapshot",
@@ -67,7 +67,7 @@ def build_snapshots_router(manager: SessionManager) -> APIRouter:
         try:
             return await manager.load_frontend_snapshot(snapshot_id)
 
-        except Exception as exc:
+        except (FileNotFoundError, ValueError) as exc:
             raise raise_as_http(
                 exc,
                 action="Load frontend snapshot",

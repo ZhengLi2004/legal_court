@@ -159,10 +159,10 @@ def record_event(
                 queue.get_nowait()
                 queue.put_nowait(envelope)
 
-            except Exception:
+            except (asyncio.QueueEmpty, asyncio.QueueFull, AttributeError, TypeError):
                 stale_queues.append(queue)
 
-        except Exception:
+        except (AttributeError, TypeError):
             stale_queues.append(queue)
 
     if stale_queues:
@@ -172,4 +172,3 @@ def record_event(
 
     session.next_seq += 1
     session.updated_at = utc_now_iso()
-

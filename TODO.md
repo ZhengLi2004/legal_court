@@ -2,7 +2,7 @@
 
 ## 1) 仓库概览
 
-仓库是 Python 后端 + React 前端的单仓结构。后端入口为 `run.py`（CLI）与 `run_api.py`（FastAPI），HTTP/WS 路由已拆分到 `mas/api/routers/*`；核心辩论流程在 `mas/core/`，但当前 `mas/core` 仍直接依赖 `roles/actions/tools`，存在跨层耦合。最突出的 3 个剩余风险：1）安全风险：`config/config2.yaml:3` 存在明文 API Key；2）架构风险：导入图存在跨包强连通环（`mas.core -> roles -> actions -> tools -> mas.core`）；3）可维护性风险：超大模块集中（`mas/api/session_manager.py` 794 行，`mas/api/serializers.py` 968 行），且测试基线薄（`pytest.ini` 仅匹配一个后端测试文件，前端 vitest 当前无测试文件）。
+仓库是 Python 后端 + React 前端的单仓结构。后端入口为 `run.py`（CLI）与 `run_api.py`（FastAPI），HTTP/WS 路由已拆分到 `mas/api/routers/*`，`SessionManager` 已下沉为 facade 并委托 `mas/session/*_service.py`；核心辩论流程在 `mas/core/`，但当前 `mas/core` 仍直接依赖 `roles/actions/tools`，存在跨层耦合。最突出的 3 个剩余风险：1）安全风险：`config/config2.yaml:3` 存在明文 API Key；2）架构风险：导入图存在跨包强连通环（`mas.core -> roles -> actions -> tools -> mas.core`）；3）可维护性风险：`mas/api/serializers.py` 仍为 900+ 行超大模块，且测试基线薄（`pytest.ini` 仅匹配一个后端测试文件，前端 vitest 当前无测试文件）。
 
 ## 2) TODO List（按 P0/P1/P2）
 
@@ -38,16 +38,16 @@
 
 ### P1
 
-#### [RF-102]
+#### [RF-102-b]
 
 - [优先级] P1
 - [类别] Code Smell, Folder Structure
-- [证据] `mas/api/session_manager.py` 794 行；同类同时处理会话生命周期、事件流、快照导入导出（如 `save_frontend_snapshot`、`load_frontend_snapshot`）。
-- [症状] God Class，职责过载。
-- [影响] 任一功能变更都触及大文件，缺陷定位慢。
-- [建议改法] 拆分为 `SessionService`、`EventService`、`SnapshotService`，`SessionManager` 退化为 facade。保持行为不变策略：对外方法签名保持兼容。
-- [变更范围] `mas/api/session_manager.py`, `mas/session/`。
-- [验收标准] 对外 API 无破坏；历史回放/快照导入导出回归用例通过。
+- [证据] `mas/api/session_manager.py:98` 已注入 `SessionService/EventService/SnapshotService`；`mas/session/session_service.py:18`、`mas/session/event_service.py:19`、`mas/session/snapshot_service.py:34` 已建立服务边界。
+- [症状] 已完成 facade 化第一阶段，但 `SessionService` 仍承载 `setup/step/adjudicate` 大方法，服务内部边界仍可继续细化。
+- [影响] 会话核心流程可维护性改善，但后续状态机与回归测试拆分成本仍偏高。
+- [建议改法] 基于现有三服务继续拆分 `SessionService` 中大方法（如前置校验、失败写回、状态迁移）到独立 helper/策略模块，并补充服务层单测。保持行为不变策略：`SessionManager` 公开方法签名与返回 payload 保持不变。
+- [变更范围] `mas/session/session_service.py`, `mas/api/session_manager.py`, `tests/`。
+- [验收标准] `SessionManager` 仅保留 facade/事件桥接职责；会话关键路径回归通过且 `python -m pytest tests -q` 全绿。
 - [工作量] M
 - [风险与回滚] 风险：服务边界划分不当；回滚：facade 继续代理旧实现。
 - [依赖/前置] 无。
@@ -64,7 +64,7 @@
 - [验收标准] 关键接口 snapshot 对比一致；回归测试字段 diff 为 0。
 - [工作量] M
 - [风险与回滚] 风险：字段默认值变化；回滚：保留旧函数包装新实现并逐端点切换。
-- [依赖/前置] RF-102。
+- [依赖/前置] RF-102-b。
 
 #### [RF-104]
 
@@ -78,7 +78,7 @@
 - [验收标准] 非法状态迁移触发显式错误；裸字符串状态引用降为 0（枚举模块除外）。
 - [工作量] M
 - [风险与回滚] 风险：旧分支未覆盖迁移；回滚：兼容层接受字符串并映射 enum。
-- [依赖/前置] RF-102。
+- [依赖/前置] RF-102-b。
 
 #### [RF-105]
 
@@ -110,19 +110,19 @@
 
 ### P2
 
-#### [RF-202]
+#### [RF-202-b]
 
 - [优先级] P2
 - [类别] Observability
-- [证据] `tools/llm.py:250`, `tools/llm.py:259` 使用 `print`；`tools/base_es_tool.py:100`、`mas/memory/legal_memory.py:93` 也使用 `print`；前端 `frontend/src/app/state/errorUtils.ts:6` 使用 `console.warn`。
+- [证据] 后端 `print` 已替换为 logger（`tools/llm.py`, `tools/base_es_tool.py`, `mas/memory/legal_memory.py`, `tools/embedding.py`）；前端 `frontend/src/app/state/errorUtils.ts:6` 仍使用 `console.warn`。
 - [症状] 日志出口不统一，结构化字段缺失。
 - [影响] 排障链路断裂，难按 `session/turn` 聚合分析。
-- [建议改法] 统一后端 logger（带 `session_id/turn_uid/stage` 字段），前端统一封装 warning reporter。保持行为不变策略：仅替换日志输出通道，不改变控制流。
-- [变更范围] `tools/`, `mas/memory/`, `frontend/src/app/state/`。
-- [验收标准] 生产代码 `print(` 清零；关键日志字段覆盖率达标。
+- [建议改法] 保持后端 logger 收敛成果，补齐前端 warning reporter（统一 `console.warn` 出口）。保持行为不变策略：仅替换日志输出通道，不改变控制流。
+- [变更范围] `frontend/src/app/state/`。
+- [验收标准] 前端生产路径 `console.warn` 清零；后端不回退到 `print(`。
 - [工作量] S
 - [风险与回滚] 风险：日志量突增；回滚：按模块降级日志级别。
-- [依赖/前置] RF-102。
+- [依赖/前置] RF-106。
 
 #### [RF-203]
 
@@ -165,20 +165,6 @@
 - [工作量] M
 - [风险与回滚] 风险：前进/后退导航兼容性；回滚：保留 `AppLegacy`。
 - [依赖/前置] RF-106。
-
-#### [RF-206]
-
-- [优先级] P2
-- [类别] Security
-- [证据] `mas/api/server.py:81` 当前 `allow_origins=["*"]`。
-- [症状] CORS 策略在非开发环境过宽。
-- [影响] 增加跨站调用面，策略治理困难。
-- [建议改法] CORS 来源改为环境变量白名单，开发默认 localhost，生产必须显式配置。保持行为不变策略：dev 默认值保持当前联调可用。
-- [变更范围] `mas/api/server.py`, 配置文档。
-- [验收标准] 生产配置下仅允许白名单域；开发联调不受影响。
-- [工作量] S
-- [风险与回滚] 风险：白名单误配导致前端不可访问；回滚：临时启用通配并补齐配置。
-- [依赖/前置] RF-102。
 
 ## 3) 文件夹结构专项建议
 
@@ -289,7 +275,7 @@ frontend/src/
 
 ### Milestone 3（API 与会话模块化）
 
-- TODO：RF-102, RF-103, RF-104, RF-202, RF-206
+- TODO：RF-102-b, RF-103, RF-104, RF-202-b（RF-102-a、RF-202-a、RF-206 已完成）
 - 预期收益：后端结构清晰，异常与日志可观测性提升。
 - 验证步骤：执行 QG-1、QG-4、QG-7。
 - 回滚点：`SessionManager` facade 保持旧签名，可逐服务回退。
@@ -319,10 +305,10 @@ frontend/src/
 - 已覆盖：`mas/api`, `mas/session`
 - 下一批：`frontend/src`
 - 当前覆盖率估计：69%
-- 发现：`server.py` 路由内联过多，`SessionManager`/`serializers` 过载，异常处理过粗。
-- 证据：`mas/api/server.py:64`, `mas/api/server.py:90`, `mas/api/session_manager.py:159`, `mas/api/session_manager.py:625`, `mas/api/serializers.py:522`。
-- 行动：RF-101、RF-201 已完成并从待办移除；后续为 RF-102、RF-103、RF-104、RF-202、RF-206。
-- 验证：路由统计 25 条、后端测试基线执行完成。
+- 发现：`server.py` 路由内联与 CORS 通配已完成治理；`SessionManager` 已 facade 化并拆出三服务，`serializers` 过载仍待后续处理。
+- 证据：`mas/api/server.py:22`, `mas/api/server.py:52`, `mas/api/session_manager.py:98`, `mas/session/session_service.py:18`, `mas/session/event_service.py:19`, `mas/session/snapshot_service.py:34`, `mas/api/serializers.py:522`。
+- 行动：已完成 RF-101、RF-201、RF-102-a、RF-202-a、RF-206；后续为 RF-102-b、RF-103、RF-104、RF-202-b。
+- 验证：`python -m pytest tests -q` 通过；路由统计 25 条；`rg -n "except Exception(?: as \\w+)?" mas/api/routers mas/api/serializers.py mas/session/event_stream.py actions/controller_actions.py mas/memory/topology.py` 结果为 0；`rg -n "print\\(" tools mas/memory` 结果为 0。
 - 剩余风险：模块拆分前接口稳定性需快照对比保障。
 
 ### Batch 3
@@ -349,19 +335,47 @@ frontend/src/
 
 ## 6) 运行清单（供本地执行）
 
-| 命令                                                                      | 目的                                                                                    | 期望输出 / 替代                                |
-| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------- | ------------------------------------- |
-| `python -m pytest tests -q`                                               | 后端回归基线                                                                            | 全绿；当前基线为 `1 passed`                    |
-| `npm --prefix frontend run lint`                                          | 前端静态检查                                                                            | 0 error；当前有 `MemoryPage.tsx:69`            |
-| `npm --prefix frontend run test:unit`                                     | 前端单测基线                                                                            | 通过且有测试；当前为 0 测试文件                |
-| `npm --prefix frontend run build`                                         | 类型检查+打包性能                                                                       | 成功且最大 chunk 下降（目标 `<900kB`）         |
-| `rg -n "^\\s\*@app\\.(get                                                 | post                                                                                    | websocket)\\(" mas/api/server.py`              | 统计 API 路由数量 | 数量稳定（当前 25）                   |
-| `rg -n "except Exception                                                  | except Exception as" mas/api/server.py mas/session/snapshot_store.py mas/core/graph.py` | 异常粗粒度扫描                                 | 数量逐步下降      |
-| `rg -n "print\\(                                                          | console.warn\\(" tools mas frontend/src/app/state/errorUtils.ts`                        | 日志出口统一性扫描                             | 生产路径逐步清零  |
-| `rg -n "SystemConfig\\(\\)" tools mas/analysis mas/core`                  | 配置注入收敛检查                                                                        | 调用点收敛到装配入口                           |
-| `rg -n "sk-[A-Za-z0-9]{20,}" config mas frontend`                         | 明文密钥扫描                                                                            | 应为空；误报可用 `gitleaks detect`             |
-| `python <SCC-检查脚本>`                                                   | 验证核心依赖环是否打破                                                                  | `mas.core` 不再与 `roles/actions/tools` 同 SCC |
-| `rg --files frontend/src \| rg "\\.test\\.(ts                             | tsx)$" \| wc -l`                                                                        | 前端测试文件计数                               | 目标 >= 8         |
-| `bash -lc 'command -v lizard >/dev/null && lizard mas roles actions tools |                                                                                         | echo "lizard not installed"'`                  | 复杂度/长函数检查 | 若无 lizard，可用 `rg` + 手工阈值替代 |
+1. `python -m pytest tests -q`  
+   目的：后端回归基线。  
+   期望：全绿（当前基线 `1 passed`）。
+2. `npm --prefix frontend run lint`  
+   目的：前端静态检查。  
+   期望：0 error（当前仍有 `MemoryPage.tsx:69`）。
+3. `npm --prefix frontend run test:unit`  
+   目的：前端单测基线。  
+   期望：通过且有测试（当前为 0 测试文件）。
+4. `npm --prefix frontend run build`  
+   目的：类型检查 + 打包性能。  
+   期望：成功且最大 chunk 下降（目标 `<900kB`）。
+5. `rg -n "^\\s*@(?:app|router)\\.(get|post|websocket)\\(" mas/api/server.py mas/api/routers | wc -l`  
+   目的：统计 API 路由数量。  
+   期望：数量稳定（当前 25）。
+6. `rg -n "except Exception(:| as )" mas/api/routers mas/api/serializers.py mas/session/event_stream.py actions/controller_actions.py mas/memory/topology.py`  
+   目的：异常粗粒度扫描。  
+   期望：结果为 0。
+7. `rg -n "print\\(" tools mas/memory`  
+   目的：后端日志出口统一性扫描。  
+   期望：结果为 0。
+8. `rg -n "console\\.warn\\(" frontend/src/app/state`  
+   目的：前端 warning 出口统一性扫描（RF-202-b）。  
+   期望：结果逐步降至 0。
+9. `rg -n "MAS_CORS_ORIGINS|allow_origins" mas/api/server.py`  
+   目的：CORS 白名单配置检查。  
+   期望：可见 `MAS_CORS_ORIGINS` 且不再是 `allow_origins=[\"*\"]`。
+10. `rg -n "SystemConfig\\(\\)" tools mas/analysis mas/core`  
+    目的：配置注入收敛检查。  
+    期望：调用点收敛到装配入口。
+11. `rg -n "sk-[A-Za-z0-9]{20,}" config mas frontend`  
+    目的：明文密钥扫描。  
+    期望：为空；误报可用 `gitleaks detect` 复核。
+12. `python <SCC-检查脚本>`  
+    目的：验证核心依赖环是否打破。  
+    期望：`mas.core` 不再与 `roles/actions/tools` 同 SCC。
+13. `rg --files frontend/src | rg "\\.test\\.(ts|tsx)$" | wc -l`  
+    目的：前端测试文件计数。  
+    期望：目标 `>= 8`。
+14. `bash -lc 'command -v lizard >/dev/null && lizard mas roles actions tools || echo "lizard not installed"'`  
+    目的：复杂度/长函数检查。  
+    期望：若未安装则输出提示，安装后用于阈值治理。
 
 ---

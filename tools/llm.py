@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Protocol
 
+from metagpt.logs import logger
 from openai import OpenAI
 
 from mas.config import SystemConfig
@@ -247,17 +248,19 @@ class GPTChat(LLM):
                     completion_tokens += response.usage.completion_tokens
 
                 if answer is None:
-                    print("Error: LLM returned None")
+                    logger.warning("[LLM] Returned None content from chat completion.")
                     continue
 
                 return answer
 
             except Exception as e:
-                import traceback
-
                 error_msg = str(e)
-                print(f"⚠️ [LLM Error] Attempt {attempt + 1}/{max_retries}: {error_msg}")
-                traceback.print_exc()
+
+                logger.warning(
+                    f"[LLM Error] Attempt {attempt + 1}/{max_retries}: {error_msg}"
+                )
+
+                logger.exception("[LLM Error] chat completion call failed.")
 
                 if "rate limit" in error_msg.lower() or "429" in error_msg:
                     time.sleep(wait_time * (attempt + 1))
@@ -434,12 +437,14 @@ class GPTChat(LLM):
                 raise
 
             except Exception as e:
-                import traceback
-
                 last_error = e
                 error_msg = str(e)
-                print(f"⚠️ [LLM Error] Attempt {attempt + 1}/{max_retries}: {error_msg}")
-                traceback.print_exc()
+
+                logger.warning(
+                    f"[LLM Error] Attempt {attempt + 1}/{max_retries}: {error_msg}"
+                )
+
+                logger.exception("[LLM Error] tool-call completion failed.")
 
                 if "rate limit" in error_msg.lower() or "429" in error_msg:
                     time.sleep(wait_time * (attempt + 1))

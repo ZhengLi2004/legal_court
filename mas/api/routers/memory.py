@@ -43,9 +43,6 @@ def build_memory_router(manager: SessionManager) -> APIRouter:
                 mappings=((ValueError, 409),),
             ) from exc
 
-        except Exception as exc:
-            raise raise_as_http(exc, action="Reset memory storage") from exc
-
     @router.get("/api/v1/sessions/{session_id}/memory/cases/{case_id}/graph")
     async def get_memory_case_graph(session_id: str, case_id: str) -> Dict[str, Any]:
         """Return one historical-case argument graph for memory-page inspection."""

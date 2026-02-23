@@ -15,6 +15,7 @@ from elasticsearch import (
     SerializationError,
     TransportError,
 )
+from metagpt.logs import logger
 
 from tools.embedding import EmbeddingFunc
 
@@ -97,7 +98,7 @@ class BaseEsTool:
             return response["hits"]["hits"]
 
         except (ApiError, ConnectionError, SerializationError, TransportError) as e:
-            print(f"Error during ES search in index '{index_name}': {e}")
+            logger.warning(f"Error during ES search in index '{index_name}': {e}")
             return []
 
     async def close(self):

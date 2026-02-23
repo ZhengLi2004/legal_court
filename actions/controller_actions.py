@@ -429,7 +429,7 @@ class PlanTool(Action):
         try:
             parsed_actions = [AgentAction.model_validate(item) for item in raw_actions]
 
-        except Exception as exc:
+        except (TypeError, ValueError) as exc:
             return False, [], [f"Action Validation Failed: {exc}"]
 
         is_valid, errors = graph_tool.validate_actions(parsed_actions)

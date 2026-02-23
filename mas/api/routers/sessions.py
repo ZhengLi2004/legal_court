@@ -25,16 +25,12 @@ def build_sessions_router(
         """Create a debate session and auto-run setup."""
         case_data = body.case_data if body.case_data is not None else default_case_data
 
-        try:
-            session = await manager.create_session(
-                case_data=case_data,
-                auto_setup=True,
-            )
+        session = await manager.create_session(
+            case_data=case_data,
+            auto_setup=True,
+        )
 
-            return snapshot_response(session)
-
-        except Exception as exc:
-            raise raise_as_http(exc, action="Create session") from exc
+        return snapshot_response(session)
 
     @router.get("/api/v1/sessions")
     async def list_sessions() -> Dict[str, Any]:
@@ -64,7 +60,7 @@ def build_sessions_router(
             session = await manager.step_session(session_id)
             return snapshot_response(session)
 
-        except Exception as exc:
+        except (KeyError, ValueError) as exc:
             raise raise_as_http(
                 exc,
                 action="Step session",
@@ -78,7 +74,7 @@ def build_sessions_router(
             session = await manager.adjudicate_session(session_id)
             return snapshot_response(session)
 
-        except Exception as exc:
+        except KeyError as exc:
             raise raise_as_http(
                 exc,
                 action="Adjudicate session",

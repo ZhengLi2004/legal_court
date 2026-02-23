@@ -779,20 +779,28 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
 
                 referenced_case_ids.add(case_id)
 
-                try:
-                    has_case = bool(graph is not None and graph.has_node(case_id))
+                has_node = getattr(graph, "has_node", None)
+                has_case = False
 
-                except Exception:
-                    has_case = False
+                if callable(has_node):
+                    try:
+                        has_case = bool(has_node(case_id))
+
+                    except (TypeError, ValueError):
+                        has_case = False
 
                 if not has_case:
                     continue
 
-                try:
-                    neighbors = list(graph.neighbors(case_id))
+                neighbors = []
+                neighbors_fn = getattr(graph, "neighbors", None)
 
-                except Exception:
-                    neighbors = []
+                if callable(neighbors_fn):
+                    try:
+                        neighbors = list(neighbors_fn(case_id))
+
+                    except (KeyError, TypeError, ValueError):
+                        neighbors = []
 
                 for neighbor in neighbors:
                     neighbor_id = str(neighbor).strip()
@@ -819,7 +827,7 @@ def memory_response(session: DebateSession) -> Dict[str, Any]:
             try:
                 fetched_rows = fetch_messages(missing_case_ids)
 
-            except Exception:
+            except (AttributeError, TypeError, ValueError, RuntimeError):
                 fetched_rows = []
 
             for row in _as_list(fetched_rows):
