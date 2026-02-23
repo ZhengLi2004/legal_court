@@ -59,7 +59,7 @@ class LLMConfig:
 
     temperature: float = 0.1
     max_tokens: int = 8192
-    model_name: str = "DeepSeek-V3.2"
+    model_name: str = "Kimi-K2.5-Instruct"
     api_key: str = get_env_strict("LEGAL_LLM_KEY")
     base_url: str = get_env_strict("LEGAL_LLM_URL")
 

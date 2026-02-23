@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from metagpt.logs import logger
+
 from mas.common.serialization import as_non_negative_int, to_json_safe
 
 
@@ -230,7 +232,13 @@ def list_frontend_snapshots(
 
             items.append(frontend_snapshot_item(payload))
 
-        except Exception:
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "[snapshot_store] Skip invalid snapshot file {}: {}",
+                path,
+                exc,
+            )
+
             continue
 
     total = len(items)

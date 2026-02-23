@@ -429,7 +429,7 @@ class ShadowGraph:
         try:
             centrality = nx.pagerank(self.graph)
 
-        except Exception:
+        except (nx.NetworkXException, ZeroDivisionError):
             centrality = nx.degree_centrality(self.graph)
 
         clusters = []
@@ -531,7 +531,6 @@ class ShadowGraph:
             nodes_to_keep.update(ancestors)
             successors = self.graph.successors(node)
             nodes_to_keep.update(successors)
-            pass
 
         return self.get_subgraph(list(nodes_to_keep))
 

@@ -2,7 +2,7 @@
 
 ## 1) 仓库概览
 
-仓库是 Python 后端 + React 前端的单仓结构。后端入口为 `run.py`（CLI）与 `run_api.py`（FastAPI），HTTP/WS 路由集中在 `mas/api/server.py` 的 `create_app` 内；核心辩论流程在 `mas/core/`，但当前 `mas/core` 直接依赖 `roles/actions/tools`，形成跨层耦合。最突出的 3 个风险：1）安全风险：`config/config2.yaml:3` 存在明文 API Key；2）架构风险：导入图存在跨包强连通环（`mas.core -> roles -> actions -> tools -> mas.core`）；3）可维护性风险：超大模块集中（`roles/controller.py` 950 行，`mas/api/session_manager.py` 794 行，`mas/api/serializers.py` 968 行），且测试基线薄（`pytest.ini` 仅匹配一个后端测试文件，前端 vitest 当前无测试文件）。
+仓库是 Python 后端 + React 前端的单仓结构。后端入口为 `run.py`（CLI）与 `run_api.py`（FastAPI），HTTP/WS 路由已拆分到 `mas/api/routers/*`；核心辩论流程在 `mas/core/`，但当前 `mas/core` 仍直接依赖 `roles/actions/tools`，存在跨层耦合。最突出的 3 个剩余风险：1）安全风险：`config/config2.yaml:3` 存在明文 API Key；2）架构风险：导入图存在跨包强连通环（`mas.core -> roles -> actions -> tools -> mas.core`）；3）可维护性风险：超大模块集中（`mas/api/session_manager.py` 794 行，`mas/api/serializers.py` 968 行），且测试基线薄（`pytest.ini` 仅匹配一个后端测试文件，前端 vitest 当前无测试文件）。
 
 ## 2) TODO List（按 P0/P1/P2）
 
@@ -36,40 +36,7 @@
 - [风险与回滚] 风险：依赖注入遗漏；回滚：保留 legacy factory（环境开关回退）。
 - [依赖/前置] 无。
 
-#### [RF-003-b] ✅ 已完成（2026-02-22）
-
-- [优先级] P0
-- [类别] Code Smell, Reliability
-- [证据] 重构前 `_act` 覆盖 `roles/controller.py:194-780`；重构后 `_act` 仅保留编排（`roles/controller.py:194-232`），并提取为 `roles/controller.py:251` (`_act_assess_needs`)、`roles/controller.py:393` (`_act_plan`)、`roles/controller.py:668` (`_act_push`)。
-- [症状] （已解决）超长函数 + 高时序耦合（Temporal Coupling）。
-- [影响] 代码可读性和可测性差，修复错误成本高。
-- [建议改法] 按阶段拆分 `_act` 为纯函数化步骤（评估、规划、执行、收尾），主函数只保留流程编排。保持行为不变策略：阶段函数入参与返回结构与原日志键一致。
-- [变更范围] `roles/controller.py`。
-- [验收标准] `_act` 长度 <= 120 行；`python -m pytest tests -q` 全绿；关键日志字段不变。
-- [工作量] M
-- [风险与回滚] 风险：状态推进顺序改变；回滚：保留旧 `_act_legacy` 并通过开关切换。
-- [依赖/前置] 无。
-- [实际完成内容]
-  - 将 `_act` 改为状态分发入口：`ASSESS_NEEDS/PLAN/PUSH/DONE`。
-  - 新增 `_sync_pipeline_step_from_system_start`，保持系统启动信号处理逻辑。
-  - 将原始分支逻辑迁移到 `_act_assess_needs`、`_act_plan`、`_act_push`，保留原返回消息、错误处理、状态切换与缓存写入语义。
-  - 回归验证：`python -m pytest tests -q`，结果 `1 passed`。
-
 ### P1
-
-#### [RF-101]
-
-- [优先级] P1
-- [类别] Folder Structure, Architecture
-- [证据] `mas/api/server.py` 共 679 行；`@app.get/post/websocket` 路由共 25 条（起于 `mas/api/server.py:90`）。
-- [症状] 单文件承载 app 初始化、路由、错误映射、WS 处理，边界不清。
-- [影响] API 改动冲突频繁，代码审查粒度过粗。
-- [建议改法] 拆为 `routers/sessions.py`, `routers/memory.py`, `routers/snapshots.py`, `routers/events.py`；`create_app` 仅做装配。保持行为不变策略：路径、请求/响应 DTO、状态码不变。
-- [变更范围] `mas/api/server.py`, 新增 `mas/api/routers/`。
-- [验收标准] OpenAPI 路径数量保持 25；现有 API smoke 脚本通过。
-- [工作量] M
-- [风险与回滚] 风险：路由注册遗漏；回滚：保留旧 `server.py` 路由映射，逐组切换。
-- [依赖/前置] 无。
 
 #### [RF-102]
 
@@ -83,7 +50,7 @@
 - [验收标准] 对外 API 无破坏；历史回放/快照导入导出回归用例通过。
 - [工作量] M
 - [风险与回滚] 风险：服务边界划分不当；回滚：facade 继续代理旧实现。
-- [依赖/前置] RF-101。
+- [依赖/前置] 无。
 
 #### [RF-103]
 
@@ -142,20 +109,6 @@
 - [依赖/前置] RF-103（后端 payload 稳定后进行）。
 
 ### P2
-
-#### [RF-201]
-
-- [优先级] P2
-- [类别] Reliability
-- [证据] 粗粒度捕获：`mas/api/server.py:137`, `mas/api/server.py:159`, `mas/api/server.py:274`；裸吞异常：`mas/session/snapshot_store.py:233`；空 `pass`：`mas/core/graph.py:534`。
-- [症状] 异常语义丢失，定位困难。
-- [影响] 线上故障可观测性下降，错误恢复策略不明确。
-- [建议改法] 按场景定义异常类型并最小化 catch 范围；吞异常位置改为记录告警。保持行为不变策略：HTTP 状态码映射保持不变。
-- [变更范围] `mas/api/server.py`, `mas/session/snapshot_store.py`, `mas/core/graph.py`。
-- [验收标准] 关键路径 `except Exception` 数量下降并有注释豁免；回归测试通过。
-- [工作量] S
-- [风险与回滚] 风险：异常暴露面变大；回滚：恢复旧 catch 并记录问题样本。
-- [依赖/前置] RF-101, RF-102。
 
 #### [RF-202]
 
@@ -225,7 +178,7 @@
 - [验收标准] 生产配置下仅允许白名单域；开发联调不受影响。
 - [工作量] S
 - [风险与回滚] 风险：白名单误配导致前端不可访问；回滚：临时启用通配并补齐配置。
-- [依赖/前置] RF-101。
+- [依赖/前置] RF-102。
 
 ## 3) 文件夹结构专项建议
 
@@ -336,7 +289,7 @@ frontend/src/
 
 ### Milestone 3（API 与会话模块化）
 
-- TODO：RF-101, RF-102, RF-103, RF-104, RF-201, RF-202, RF-206
+- TODO：RF-102, RF-103, RF-104, RF-202, RF-206
 - 预期收益：后端结构清晰，异常与日志可观测性提升。
 - 验证步骤：执行 QG-1、QG-4、QG-7。
 - 回滚点：`SessionManager` facade 保持旧签名，可逐服务回退。
@@ -368,7 +321,7 @@ frontend/src/
 - 当前覆盖率估计：69%
 - 发现：`server.py` 路由内联过多，`SessionManager`/`serializers` 过载，异常处理过粗。
 - 证据：`mas/api/server.py:64`, `mas/api/server.py:90`, `mas/api/session_manager.py:159`, `mas/api/session_manager.py:625`, `mas/api/serializers.py:522`。
-- 行动：RF-101、RF-102、RF-103、RF-104、RF-201、RF-202、RF-206。
+- 行动：RF-101、RF-201 已完成并从待办移除；后续为 RF-102、RF-103、RF-104、RF-202、RF-206。
 - 验证：路由统计 25 条、后端测试基线执行完成。
 - 剩余风险：模块拆分前接口稳定性需快照对比保障。
 
@@ -390,7 +343,7 @@ frontend/src/
 - 当前覆盖率估计：93%（忽略生成物/资产目录）
 - 发现：测试入口过窄、明文密钥、运行产物目录膨胀。
 - 证据：`pytest.ini:3`, `config/config2.yaml:3`, `scripts/start_dev.sh:10`。
-- 行动：RF-001、RF-003-a 已按当前决策从待办移除；本轮已完成 RF-003-b。
+- 行动：RF-001、RF-003-a 已按当前决策从待办移除；已完成 RF-003-b、RF-101、RF-201。
 - 验证：后端基线 `1 passed`；前端 lint/test/build 基线已记录。
 - 剩余风险：`bge-m3/`、`demo/` 资产目录较大，后续可做仓库瘦身治理。
 
