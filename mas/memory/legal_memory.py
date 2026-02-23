@@ -45,7 +45,7 @@ class LegalGMemory(MASMemoryBase):
         case_law_index: Maps case IDs to a set of cited law contents.
     """
 
-    config: SystemConfig = field(default_factory=SystemConfig)
+    config: SystemConfig
     collection_name: str = "legal_cases"
 
     def __post_init__(self):

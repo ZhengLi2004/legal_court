@@ -13,9 +13,9 @@ from typing import Dict, List, Optional, Tuple
 import networkx as nx
 
 from mas.core.schemas import AgentAction, AgentActionType
+from mas.infrastructure.settings_provider import DedupThresholds
 from tools.matcher import SemanticMatcher
 
-from ..config import SystemConfig
 from ..core.graph import EdgeAddResult, EdgeType, NodeType, ShadowGraph
 
 
@@ -32,15 +32,22 @@ class GraphExecutor:
         matcher: An optional `SemanticMatcher` for node deduplication.
     """
 
-    def __init__(self, graph: ShadowGraph, matcher: SemanticMatcher = None):
+    def __init__(
+        self,
+        graph: ShadowGraph,
+        matcher: SemanticMatcher = None,
+        dedup_thresholds: Optional[DedupThresholds] = None,
+    ):
         """Initialize the GraphExecutor.
 
         Args:
             graph: The `ShadowGraph` to be operated on.
             matcher: The `SemanticMatcher` used for deduplicating new nodes.
+            dedup_thresholds: Optional injected dedup thresholds for FACT/other nodes.
         """
         self.graph = graph
         self.matcher = matcher
+        self.dedup_thresholds = dedup_thresholds
 
     def _validate_action_static(self, action: AgentAction, index: int) -> Optional[str]:
         """Perform static validation on a single AgentAction.
@@ -195,14 +202,12 @@ class GraphExecutor:
             A tuple containing the new node's ID and a log message.
         """
         try:
-            if self.matcher:
-                cfg = SystemConfig().dedup
-
+            if self.matcher and self.dedup_thresholds:
                 if node_type == NodeType.FACT:
-                    self.matcher.threshold = cfg.fact_threshold
+                    self.matcher.threshold = self.dedup_thresholds.fact_threshold
 
                 else:
-                    self.matcher.threshold = cfg.other_threshold
+                    self.matcher.threshold = self.dedup_thresholds.other_threshold
 
             node_id, is_new = self.graph.add_node(
                 content=content,

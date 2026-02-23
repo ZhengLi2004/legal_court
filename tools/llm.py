@@ -15,9 +15,8 @@ from typing import Any, Dict, List, Literal, Optional, Protocol
 from metagpt.logs import logger
 from openai import OpenAI
 
-from mas.config import SystemConfig
+from mas.infrastructure.settings_provider import LLMConfigView
 
-_CONFIG = SystemConfig().llm
 completion_tokens, prompt_tokens = 0, 0
 
 
@@ -139,19 +138,28 @@ class LLM(ABC):
     """Abstract base class for a language model client."""
 
     def __init__(
-        self, model_name: str = None, base_url: str = None, api_key: str = None
+        self,
+        defaults: LLMConfigView,
+        model_name: str = None,
+        base_url: str = None,
+        api_key: str = None,
     ):
         """Initialize the LLM client.
 
         Args:
+            defaults: Default LLM settings resolved at process startup.
             model_name: The name of the model to use.
             base_url: The base URL of the API endpoint.
             api_key: The API key for authentication.
         """
+        if defaults is None:
+            raise ValueError("`defaults` must be provided for LLM initialization.")
+
+        self._defaults = defaults
         self.model_name = model_name
-        self._base_url = base_url if base_url else _CONFIG.base_url
-        self._api_key = api_key if api_key else _CONFIG.api_key
-        self._model_name = model_name or _CONFIG.model_name
+        self._base_url = base_url if base_url else self._defaults.base_url
+        self._api_key = api_key if api_key else self._defaults.api_key
+        self._model_name = model_name or self._defaults.model_name
         self.client = OpenAI(base_url=self._base_url, api_key=self._api_key)
 
     @abstractmethod
@@ -181,10 +189,19 @@ class GPTChat(LLM):
     """
 
     def __init__(
-        self, model_name: str = None, base_url: str = None, api_key: str = None
+        self,
+        defaults: LLMConfigView,
+        model_name: str = None,
+        base_url: str = None,
+        api_key: str = None,
     ):
         """Initialize the GPTChat client."""
-        super().__init__(model_name=model_name, base_url=base_url, api_key=api_key)
+        super().__init__(
+            defaults=defaults,
+            model_name=model_name,
+            base_url=base_url,
+            api_key=api_key,
+        )
 
     def __call__(
         self,
@@ -211,8 +228,14 @@ class GPTChat(LLM):
             string if the request fails after all retries.
         """
         global prompt_tokens, completion_tokens
-        final_temp = temperature if temperature is not None else _CONFIG.temperature
-        final_max_tokens = max_tokens if max_tokens is not None else _CONFIG.max_tokens
+
+        final_temp = (
+            temperature if temperature is not None else self._defaults.temperature
+        )
+
+        final_max_tokens = (
+            max_tokens if max_tokens is not None else self._defaults.max_tokens
+        )
 
         openai_messages = [
             {"role": msg.role, "content": msg.content} for msg in messages
@@ -391,8 +414,14 @@ class GPTChat(LLM):
                 violates the strict single-tool-call contract.
         """
         global prompt_tokens, completion_tokens
-        final_temp = temperature if temperature is not None else _CONFIG.temperature
-        final_max_tokens = max_tokens if max_tokens is not None else _CONFIG.max_tokens
+
+        final_temp = (
+            temperature if temperature is not None else self._defaults.temperature
+        )
+
+        final_max_tokens = (
+            max_tokens if max_tokens is not None else self._defaults.max_tokens
+        )
 
         if not tools:
             raise ToolCallContractError("`tools` must contain at least one function.")

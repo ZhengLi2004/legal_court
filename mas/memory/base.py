@@ -14,7 +14,6 @@ from typing import List, Tuple
 
 from tools.embedding import EmbeddingFunc
 
-from ..config import SystemConfig
 from ..core.graph import LegalMessage
 
 
@@ -34,12 +33,12 @@ class MASMemoryBase(ABC):
     """
 
     persist_dir: str
-    embedding_model_path: str = None
+    embedding_model_path: str
 
     def __post_init__(self):
         """Initialize the embedding function and ensures the persist directory exists."""
-        if self.embedding_model_path is None:
-            self.embedding_model_path = SystemConfig().path.embedding_model_path
+        if not self.embedding_model_path:
+            raise ValueError("`embedding_model_path` must be provided.")
 
         self.embedding_func = EmbeddingFunc(model_path=self.embedding_model_path)
 

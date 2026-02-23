@@ -27,10 +27,10 @@ def default_frontend_snapshots_dir() -> Path:
 
 def default_engine_factory() -> Any:
     """Build a default `DebateEngine` instance for API sessions."""
-    from mas.config import SystemConfig
     from mas.core.engine import DebateEngine
+    from mas.infrastructure.settings_provider import build_system_config
 
-    return DebateEngine(config=SystemConfig(), judge_config={})
+    return DebateEngine(config=build_system_config(), judge_config={})
 
 
 def load_case_from_jsonl(path: Path) -> Dict[str, Any]:

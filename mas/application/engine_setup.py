@@ -16,7 +16,8 @@ from tools.llm import GPTChat
 from ..agents.narrator import GraphNarrator
 from ..agents.team import DebateTeam
 from ..core.graph import NodeType
-from ..infrastructure import build_legal_system
+from ..infrastructure.legal_system_factory import build_legal_system
+from ..infrastructure.settings_provider import build_llm_config_view
 
 
 async def run_engine_setup(
@@ -32,7 +33,8 @@ async def run_engine_setup(
     engine._is_running = True
 
     try:
-        agent_llm = GPTChat(model_name=engine.cfg.llm.model_name)
+        llm_defaults = build_llm_config_view(engine.cfg)
+        agent_llm = GPTChat(defaults=llm_defaults, model_name=engine.cfg.llm.model_name)
         engine.narrator = GraphNarrator(llm=agent_llm)
         engine.legal_sys = build_legal_system(engine.cfg)
 

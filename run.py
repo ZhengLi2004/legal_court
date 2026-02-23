@@ -10,8 +10,8 @@ GUI is not available.
 
 import asyncio
 
-from mas.config import SystemConfig
 from mas.core.engine import DebateEngine
+from mas.infrastructure.settings_provider import build_system_config
 
 DATA_FILE = "data/sampling/cleaned_samples.jsonl"
 
@@ -29,7 +29,8 @@ async def run_experiment():
         of the root claims.
     6.  Ensures that all resources (like database connections) are closed properly.
     """
-    engine = DebateEngine(config=SystemConfig(), judge_config={})
+    config = build_system_config()
+    engine = DebateEngine(config=config, judge_config={})
 
     try:
         import json

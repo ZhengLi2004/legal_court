@@ -73,9 +73,13 @@ class GraphTool:
                 return False, ["当前图谱上下文未设置。"]
 
             actions_list = self._normalize_actions(actions)
+
             executor = GraphExecutor(
-                self.current_graph, matcher=self.system.dedup_matcher
+                self.current_graph,
+                matcher=self.system.dedup_matcher,
+                dedup_thresholds=self.system.dedup_thresholds,
             )
+
             errors = executor.validate_batch(actions_list)
 
             if errors:
@@ -131,7 +135,12 @@ class GraphTool:
         if not self.current_graph:
             return "Error: Graph not set."
 
-        executor = GraphExecutor(self.current_graph, matcher=self.system.dedup_matcher)
+        executor = GraphExecutor(
+            self.current_graph,
+            matcher=self.system.dedup_matcher,
+            dedup_thresholds=self.system.dedup_thresholds,
+        )
+
         current_step = self.system.step_counter
         count = 0
         logs = []

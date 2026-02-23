@@ -19,8 +19,6 @@ import portalocker
 import yaml
 from metagpt.logs import logger
 
-from mas.config import SystemConfig
-
 
 @contextlib.contextmanager
 def file_lock(lock_path: str, timeout: int = 10):
@@ -182,12 +180,12 @@ class EmbeddingFunc:
         func: The loaded embedding function object from `chromadb.utils`.
     """
 
-    model_path: str = None
+    model_path: str
 
     def __post_init__(self):
         """Load the embedding model or retrieves it from the cache."""
-        if self.model_path is None:
-            self.model_path = SystemConfig().path.embedding_model_path
+        if not self.model_path:
+            raise ValueError("EmbeddingFunc requires a non-empty `model_path`.")
 
         from chromadb.utils import embedding_functions
 

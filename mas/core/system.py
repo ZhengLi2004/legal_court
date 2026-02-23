@@ -32,6 +32,7 @@ class LegalSystemDependencies:
     projection_matcher: Any
     insight_matcher: Any
     dedup_matcher: Any
+    dedup_thresholds: Any
     judge: Any
 
 
@@ -79,10 +80,13 @@ class LegalSystem:
         self.projection_matcher = dependencies.projection_matcher
         self.insight_matcher = dependencies.insight_matcher
         self.dedup_matcher = dependencies.dedup_matcher
+        self.dedup_thresholds = dependencies.dedup_thresholds
         self.judge = dependencies.judge
 
         self.memory = LegalGMemory(
-            persist_dir=self.cfg.path.storage_root_dir, config=self.cfg
+            persist_dir=self.cfg.path.storage_root_dir,
+            embedding_model_path=self.cfg.path.embedding_model_path,
+            config=self.cfg,
         )
 
         self.insights = InsightsManager(
@@ -325,7 +329,13 @@ class LegalSystem:
             A list of log strings from the execution.
         """
         current_step = self.step_counter
-        executor = GraphExecutor(graph, matcher=self.dedup_matcher)
+
+        executor = GraphExecutor(
+            graph,
+            matcher=self.dedup_matcher,
+            dedup_thresholds=self.dedup_thresholds,
+        )
+
         logs = executor.execute_batch(actions, agent_id, current_step=self.step_counter)
         graph.refresh_context(current_step)
         return logs

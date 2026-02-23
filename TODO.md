@@ -2,7 +2,7 @@
 
 ## 1) 仓库概览
 
-仓库是 Python 后端 + React 前端的单仓结构。后端入口为 `run.py`（CLI）与 `run_api.py`（FastAPI），HTTP/WS 路由已拆分到 `mas/api/routers/*`，`SessionManager` 已下沉为 facade 并委托 `mas/session/*_service.py`，`serializers` 也已拆分为 `mas/api/serializers/*`；本轮已完成核心解耦：`ControllerPipelineStep` 下沉到 `mas/core/controller_pipeline.py`，引擎 setup 迁移到 `mas/application/engine_setup.py`，`LegalSystem` 改为依赖注入并由 `mas/infrastructure/legal_system_factory.py` 装配，`mas/core` 已去除对 `roles/tools` 的直接导入。最突出的 3 个剩余风险：1）安全风险：`config/config2.yaml:3` 存在明文 API Key；2）质量风险：测试基线仍薄（`pytest.ini` 仅匹配一个后端测试文件，前端 vitest 当前无测试文件）；3）前端架构风险：状态管理与路由仍集中在重型模块（`frontend/src/app/state/*`, `frontend/src/App.tsx`）。
+仓库是 Python 后端 + React 前端的单仓结构。后端入口为 `run.py`（CLI）与 `run_api.py`（FastAPI），HTTP/WS 路由已拆分到 `mas/api/routers/*`，`SessionManager` 已下沉为 facade 并委托 `mas/session/*_service.py`，`serializers` 也已拆分为 `mas/api/serializers/*`；本轮继续完成 RF-105：新增 `mas/infrastructure/settings_provider.py`，移除 `tools/llm.py` 模块级 `_CONFIG`，去除 `EmbeddingFunc/MASMemoryBase/GraphExecutor` 的 `SystemConfig()` 隐式读取，改为启动期配置注入。最突出的 3 个剩余风险：1）安全风险：`config/config2.yaml:3` 存在明文 API Key；2）质量风险：测试入口仍集中在 `tests/test_backend_system_suite.py`（虽已扩到 4 个用例）；3）前端架构风险：状态管理与路由仍集中在重型模块（`frontend/src/app/state/*`, `frontend/src/App.tsx`）。
 
 ## 2) TODO List（按 P0/P1/P2）
 
@@ -12,19 +12,8 @@
 
 ### P1
 
-#### [RF-105]
-
-- [优先级] P1
-- [类别] Architecture, DX
-- [证据] `tools/llm.py:19` 模块加载即 `SystemConfig()`；`mas/analysis/executor.py:199` 热路径里创建 `SystemConfig()`；`tools/embedding.py:189` `__post_init__` 回退到全局配置。
-- [症状] 隐式依赖与配置生命周期分散。
-- [影响] 测试注入困难，运行时配置一致性难保证。
-- [建议改法] 建立统一 `SettingsProvider`（启动时构建一次），通过构造函数传入依赖组件。保持行为不变策略：默认 provider 值与当前 `SystemConfig()` 一致。
-- [变更范围] `tools/`, `mas/analysis/`, `mas/core/`, 启动装配点。
-- [验收标准] 除装配入口外 `SystemConfig()` 调用点显著收敛；集成测试通过。
-- [工作量] M
-- [风险与回滚] 风险：注入链变长；回滚：按模块粒度回滚到上一个稳定提交，不保留双实现。
-- [依赖/前置] RF-002-b（已完成）。
+- 已完成：`RF-105`（硬切，不保留兼容实现）。
+- [证据] `mas/infrastructure/settings_provider.py:1` 新增集中配置提供器；`tools/llm.py:17` 改为显式 `defaults` 注入；`tools/embedding.py:174` 与 `mas/memory/base.py:37` 移除 fallback；`mas/analysis/executor.py:205` 改为注入阈值；`python -m pytest tests -q` -> `4 passed`。
 
 #### [RF-106]
 
@@ -200,7 +189,7 @@ frontend/src/
 
 ### Milestone 2（核心依赖解耦）
 
-- TODO：RF-105（RF-002-a、RF-002-b、RF-003-b 已完成）
+- TODO：已完成（RF-002-a、RF-002-b、RF-003-b、RF-105）
 - 预期收益：核心层依赖方向收敛，可测性提升。
 - 验证步骤：执行 QG-1、QG-4、QG-5。
 - 回滚点：按模块粒度回滚到上一个稳定提交，不保留 legacy 分支。
@@ -226,11 +215,11 @@ frontend/src/
 - 已覆盖：`run.py`, `run_api.py`, `mas/core`, `roles`, `actions`, `tools`
 - 下一批：`mas/api`, `mas/session`
 - 当前覆盖率估计：43%
-- 发现：核心层反向依赖已完成切断（`ControllerPipelineStep` 下沉、`LegalSystem` 依赖注入化、setup 迁移到 application）；`_act` 长函数问题仍待后续 RF-105/前端批次并行治理。
-- 证据：`mas/core/controller_pipeline.py:1`, `mas/core/engine.py:190`, `mas/application/engine_setup.py:22`, `mas/core/system.py:22`, `mas/infrastructure/legal_system_factory.py:11`, `roles/controller.py:21`。
-- 行动：已完成 RF-002-a、RF-002-b、RF-003-b；下一步 RF-105。
-- 验证：`python -m pytest tests -q` 通过；`rg -n "from roles\\.controller import ControllerPipelineStep" mas/core` 结果为 0；`rg -n "from tools|import tools|tools\\." mas/core/system.py` 结果为 0；模块级 SCC 检查 `bad_scc_count=0`。
-- 剩余风险：配置注入仍未统一收敛（`SystemConfig()` 多点实例化仍存在）。
+- 发现：核心层反向依赖已完成切断，且配置注入已收敛：`SettingsProvider` 生效、`GPTChat/EmbeddingFunc/GraphExecutor` 不再隐式读取全局配置。
+- 证据：`mas/infrastructure/settings_provider.py:1`, `tools/llm.py:17`, `tools/embedding.py:174`, `mas/memory/base.py:37`, `mas/analysis/executor.py:205`, `run.py:14`。
+- 行动：已完成 RF-002-a、RF-002-b、RF-003-b、RF-105。
+- 验证：`python -m pytest tests -q` -> `4 passed`；`rg -n "SystemConfig\\(\\)" tools mas/analysis mas/core mas/memory mas/session run.py` 结果为 0；`rg -n "_CONFIG" tools/llm.py` 结果为 0；`python - <<...create_app...>>` 路由数 29。
+- 剩余风险：前端重构项（RF-106/203/204/205）尚未开始。
 
 ### Batch 2
 
@@ -262,14 +251,14 @@ frontend/src/
 - 发现：测试入口过窄、明文密钥、运行产物目录膨胀。
 - 证据：`pytest.ini:3`, `config/config2.yaml:3`, `scripts/start_dev.sh:10`。
 - 行动：RF-001、RF-003-a 已按当前决策从待办移除；已完成 RF-003-b、RF-101、RF-201。
-- 验证：后端基线 `1 passed`；前端 lint/test/build 基线已记录。
+- 验证：后端基线 `4 passed`；前端 lint/test/build 基线已记录。
 - 剩余风险：`bge-m3/`、`demo/` 资产目录较大，后续可做仓库瘦身治理。
 
 ## 6) 运行清单（供本地执行）
 
 1. `python -m pytest tests -q`  
    目的：后端回归基线。  
-   期望：全绿（当前基线 `1 passed`）。
+   期望：全绿（当前基线 `4 passed`）。
 2. `npm --prefix frontend run lint`  
    目的：前端静态检查。  
    期望：0 error（当前仍有 `MemoryPage.tsx:69`）。
@@ -297,9 +286,9 @@ frontend/src/
 10. `rg -n "_recent_frontend_snapshot_loads|get_recent_loaded_session|mark_recent_load|alias_key" mas actions`  
     目的：后端兼容分支剔除检查。  
     期望：结果为 0。
-11. `rg -n "SystemConfig\\(\\)" tools mas/analysis mas/core`  
+11. `rg -n "SystemConfig\\(\\)" tools mas/analysis mas/core mas/memory mas/session run.py`  
     目的：配置注入收敛检查。  
-    期望：调用点收敛到装配入口。
+    期望：结果为 0（`SystemConfig()` 仅允许出现在 `mas/infrastructure/settings_provider.py` 等装配提供器）。
 12. `rg -n "sk-[A-Za-z0-9]{20,}" config mas frontend`  
     目的：明文密钥扫描。  
     期望：为空；误报可用 `gitleaks detect` 复核。

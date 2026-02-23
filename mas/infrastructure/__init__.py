@@ -1,5 +1,5 @@
-"""Infrastructure wiring and concrete adapter factories."""
+"""Infrastructure package.
 
-from .legal_system_factory import build_legal_system
-
-__all__ = ["build_legal_system"]
+Keep this module side-effect free to avoid import cycles between core/analysis
+and infrastructure wiring modules.
+"""
