@@ -13,7 +13,7 @@ export function MemoryPage() {
     loadMemoryCaseGraph,
   } = useDebate();
 
-  const [selectedCaseId, setSelectedCaseId] = useState<string>("");
+  const [pendingCaseId, setPendingCaseId] = useState<string>("");
 
   useEffect(() => {
     if (!sessionId) {
@@ -36,6 +36,18 @@ export function MemoryPage() {
       })),
     [memoryView?.caseCatalog, recalledCaseIds],
   );
+
+  const selectedCaseId = useMemo(() => {
+    if (!recalledRows.length) {
+      return "";
+    }
+
+    if (recalledRows.some((item) => item.caseId === pendingCaseId)) {
+      return pendingCaseId;
+    }
+
+    return recalledRows[0].caseId;
+  }, [pendingCaseId, recalledRows]);
 
   const selectedCaseSummary = useMemo(() => {
     if (!selectedCaseId) {
@@ -63,19 +75,6 @@ export function MemoryPage() {
 
     return "通用";
   };
-
-  useEffect(() => {
-    if (!recalledRows.length) {
-      setSelectedCaseId("");
-      return;
-    }
-
-    const exists = recalledRows.some((item) => item.caseId === selectedCaseId);
-
-    if (!exists) {
-      setSelectedCaseId(recalledRows[0].caseId);
-    }
-  }, [recalledRows, selectedCaseId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -168,7 +167,7 @@ export function MemoryPage() {
           <span>选择案例</span>
 
           <select
-            onChange={(event) => setSelectedCaseId(event.target.value)}
+            onChange={(event) => setPendingCaseId(event.target.value)}
             value={selectedCaseId}
           >
             {!recalledRows.length ? <option value="">暂无案例</option> : null}

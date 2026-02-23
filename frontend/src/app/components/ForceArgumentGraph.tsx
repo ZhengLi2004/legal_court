@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import * as echarts from "echarts";
-import type { EChartsOption, EChartsType } from "echarts";
+import { useMemo, useState } from "react";
+import type { EChartsOption } from "echarts";
 import type { GraphEdge, GraphNode, GraphView } from "../../compat";
 
 import {
@@ -10,6 +9,7 @@ import {
   toNodeFamily,
   type DebateNodeFamily,
 } from "../graph/echarts/debateGraphEcharts";
+import { useEChart } from "../hooks/useEChart";
 
 import { renderScrollableNodeTooltip } from "../graph/echarts/tooltip";
 
@@ -223,8 +223,6 @@ export function ForceArgumentGraph({
   title = "论证图（ECharts）",
   cardClassName = "ux-card",
 }: ForceArgumentGraphProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<EChartsType | null>(null);
   const model = useMemo(() => (graph ? mapGraphToModel(graph) : null), [graph]);
   const hasModel = Boolean(model);
 
@@ -248,31 +246,9 @@ export function ForceArgumentGraph({
 
     return { nodes: model.nodes.length, edges: model.edges.length };
   }, [model]);
-
-  useEffect(() => {
-    const container = containerRef.current;
-
-    if (!container || chartRef.current) {
-      return;
-    }
-
-    const chart = echarts.init(container);
-    chartRef.current = chart;
-    const observer = new ResizeObserver(() => chart.resize());
-    observer.observe(container);
-
-    return () => {
-      observer.disconnect();
-      chart.dispose();
-      chartRef.current = null;
-    };
-  }, [hasModel]);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-
-    if (!chart || !model) {
-      return;
+  const option = useMemo<EChartsOption | null>(() => {
+    if (!model) {
+      return null;
     }
 
     const categoryIndex = new Map(
@@ -345,7 +321,7 @@ export function ForceArgumentGraph({
         };
       });
 
-    const option = {
+    return {
       backgroundColor: "#ffffff",
       animationDurationUpdate: 420,
       animationEasingUpdate: "quarticInOut",
@@ -417,9 +393,12 @@ export function ForceArgumentGraph({
         },
       ],
     } as EChartsOption;
-
-    chart.setOption(option, true);
   }, [activeCategories, activeRelations, focusNodeIds, model]);
+
+  const { containerRef } = useEChart({
+    option,
+    enabled: hasModel,
+  });
 
   return (
     <article className={cardClassName}>

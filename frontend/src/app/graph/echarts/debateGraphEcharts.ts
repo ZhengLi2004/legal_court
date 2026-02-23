@@ -1,5 +1,6 @@
 import Graph from "graphology";
 import louvain from "graphology-communities-louvain";
+import { warnFrontend } from "../../utils/warning";
 export type DebateNodeFamily = "FACT" | "LAW" | "CLAIM" | "OTHER";
 export type DebateEdgeRelation = "support" | "attack" | "cite";
 
@@ -133,10 +134,10 @@ export function buildLouvainCommunities(
 
     return result;
   } catch (error) {
-    console.warn(
-      `[debateGraphEcharts] louvain clustering failed, using BFS fallback: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+    warnFrontend(
+      "debateGraphEcharts",
+      "louvain clustering failed, using BFS fallback",
+      error,
     );
 
     const adjacency = new Map<string, Set<string>>();

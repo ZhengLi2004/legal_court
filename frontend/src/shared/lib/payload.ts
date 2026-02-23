@@ -4,8 +4,30 @@ export function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+export function asMaybeRecord(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Record<string, unknown>;
+}
+
 export function asString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return String(value);
+  }
+
+  return fallback;
 }
 
 export function unwrapPayload(raw: unknown): Record<string, unknown> {

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef } from "react";
-import * as echarts from "echarts";
-import type { EChartsOption, EChartsType } from "echarts";
+import { useMemo } from "react";
+import type { EChartsOption } from "echarts";
 import type { GraphView } from "../../compat";
+import { useEChart } from "../hooks/useEChart";
 
 import {
   shortText,
@@ -10,7 +10,7 @@ import {
 } from "../graph/echarts/debateGraphEcharts";
 
 import { renderScrollableNodeTooltip } from "../graph/echarts/tooltip";
-import { nodeStatusLabel } from "../utils/payload";
+import { nodeStatusLabel } from "../../shared/lib/payload";
 
 interface SimpleBafGraphProps {
   graph: GraphView | null;
@@ -23,9 +23,6 @@ export function SimpleBafGraph({
   preferredExtension,
   rootClaimStatusMap,
 }: SimpleBafGraphProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<EChartsType | null>(null);
-
   const model = useMemo(() => {
     if (!graph) {
       return null;
@@ -66,31 +63,9 @@ export function SimpleBafGraph({
       statusMap: rootClaimStatusMap,
     };
   }, [graph, preferredExtension, rootClaimStatusMap]);
-
-  useEffect(() => {
-    const container = containerRef.current;
-
-    if (!container) {
-      return;
-    }
-
-    const chart = echarts.init(container);
-    chartRef.current = chart;
-    const observer = new ResizeObserver(() => chart.resize());
-    observer.observe(container);
-
-    return () => {
-      observer.disconnect();
-      chart.dispose();
-      chartRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-
-    if (!chart || !model) {
-      return;
+  const option = useMemo<EChartsOption | null>(() => {
+    if (!model) {
+      return null;
     }
 
     const nodes = model.nodes.map((node) => {
@@ -126,7 +101,7 @@ export function SimpleBafGraph({
       },
     }));
 
-    const option = {
+    return {
       backgroundColor: "#f8fafc",
       tooltip: {
         trigger: "item",
@@ -176,9 +151,12 @@ export function SimpleBafGraph({
         },
       ],
     } as EChartsOption;
-
-    chart.setOption(option, true);
   }, [model]);
+
+  const { containerRef } = useEChart({
+    option,
+    enabled: Boolean(model),
+  });
 
   return (
     <article className="ux-card">

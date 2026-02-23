@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { ForceArgumentGraph } from "../components/ForceArgumentGraph";
 import { ConvergenceSparkline } from "../components/ConvergenceSparkline";
 import { useDebate } from "../state/useDebate";
-import { asRecord, phaseLabel, unwrapPayload } from "../utils/payload";
+import { asRecord, phaseLabel, unwrapPayload } from "../../shared/lib/payload";
 type DialogueSide = "plaintiff" | "defendant" | "judge" | "system" | "other";
 
 interface DialogueRow {

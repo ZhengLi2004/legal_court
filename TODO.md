@@ -1,305 +1,123 @@
-# 可执行重构 TODO List（行为不变前提）
+# 可执行重构 TODO List（仅保留未完成项）
 
 ## 1) 仓库概览
 
-仓库是 Python 后端 + React 前端的单仓结构。后端入口为 `run.py`（CLI）与 `run_api.py`（FastAPI），HTTP/WS 路由已拆分到 `mas/api/routers/*`，`SessionManager` 已下沉为 facade 并委托 `mas/session/*_service.py`，`serializers` 也已拆分为 `mas/api/serializers/*`；本轮继续完成 RF-105：新增 `mas/infrastructure/settings_provider.py`，移除 `tools/llm.py` 模块级 `_CONFIG`，去除 `EmbeddingFunc/MASMemoryBase/GraphExecutor` 的 `SystemConfig()` 隐式读取，改为启动期配置注入。最突出的 3 个剩余风险：1）安全风险：`config/config2.yaml:3` 存在明文 API Key；2）质量风险：测试入口仍集中在 `tests/test_backend_system_suite.py`（虽已扩到 4 个用例）；3）前端架构风险：状态管理与路由仍集中在重型模块（`frontend/src/app/state/*`, `frontend/src/App.tsx`）。
+仓库为 Python 后端 + React 前端单仓结构。当前后端主线重构已落地，剩余主要风险集中在前端装配层：
+1. 路由逻辑仍在 `frontend/src/App.tsx` 手写维护，页面装配与导航状态耦合。
+2. 前端构建主 chunk 体积仍偏大（当前约 `1,469.76 kB`），首屏加载与缓存效率受限。
+3. 前端测试规模仍偏小（当前 `1` 个测试文件、`3` 个用例），对后续结构调整的回归保障不足。
 
 ## 2) TODO List（按 P0/P1/P2）
 
-### P0
-
-- 已完成：`RF-002-a`、`RF-002-b`（硬切，不保留兼容实现）。
-
-### P1
-
-- 已完成：`RF-105`（硬切，不保留兼容实现）。
-- [证据] `mas/infrastructure/settings_provider.py:1` 新增集中配置提供器；`tools/llm.py:17` 改为显式 `defaults` 注入；`tools/embedding.py:174` 与 `mas/memory/base.py:37` 移除 fallback；`mas/analysis/executor.py:205` 改为注入阈值；`python -m pytest tests -q` -> `4 passed`。
-
-#### [RF-106]
-
-- [优先级] P1
-- [类别] Architecture, Testing
-- [证据] `frontend/src/app/state/useSnapshotActions.ts` 407 行；`frontend/src/app/state/DebateContext.tsx` 298 行；`frontend/src/app/pages/MemoryPage.tsx:69` 触发 `react-hooks/set-state-in-effect`。
-- [症状] 状态管理 Hook 过重，副作用与 UI 状态耦合。
-- [影响] 前端 bug 修复成本高，lint 阻塞交付。
-- [建议改法] 拆分为 session/memory/snapshot 三个 hooks，移除 effect 内同步 setState，补充 hook 单测。保持行为不变策略：Context 对外 API（方法名/返回值）保持稳定，不引入并行旧实现。
-- [变更范围] `frontend/src/app/state/`, `frontend/src/app/pages/MemoryPage.tsx`。
-- [验收标准] `npm --prefix frontend run lint` 0 error；新增前端单测并通过。
-- [工作量] M
-- [风险与回滚] 风险：状态来源改变引发 UI 细节差异；回滚：按功能点回滚对应提交，不保留旧 hook 分支。
-- [依赖/前置] 后端 payload 稳定（已满足）。
-
 ### P2
-
-#### [RF-202-b]
-
-- [优先级] P2
-- [类别] Observability
-- [证据] 后端 `print` 已替换为 logger（`tools/llm.py`, `tools/base_es_tool.py`, `mas/memory/legal_memory.py`, `tools/embedding.py`）；前端 `frontend/src/app/state/errorUtils.ts:6` 仍使用 `console.warn`。
-- [症状] 日志出口不统一，结构化字段缺失。
-- [影响] 排障链路断裂，难按 `session/turn` 聚合分析。
-- [建议改法] 保持后端 logger 收敛成果，补齐前端 warning reporter（统一 `console.warn` 出口）。保持行为不变策略：仅替换日志输出通道，不改变控制流。
-- [变更范围] `frontend/src/app/state/`。
-- [验收标准] 前端生产路径 `console.warn` 清零；后端不回退到 `print(`。
-- [工作量] S
-- [风险与回滚] 风险：日志量突增；回滚：按模块降级日志级别。
-- [依赖/前置] RF-106。
-
-#### [RF-203]
-
-- [优先级] P2
-- [类别] Code Smell
-- [证据] `frontend/src/compat/protocol.ts:21` 与 `frontend/src/app/utils/payload.ts:1` 重复 `asRecord/asString/unwrapPayload`。
-- [症状] 重复概念与重复实现。
-- [影响] 修复解析 bug 时易漏改，前后行为分叉。
-- [建议改法] 抽到单一 shared 解析工具并统一引用，直接删除重复 helper 定义。保持行为不变策略：解析语义与字段优先级不变。
-- [变更范围] `frontend/src/compat/`, `frontend/src/app/utils/`, 新增 `frontend/src/shared/lib/`。
-- [验收标准] 重复 helper 定义仅保留 1 份；协议解析回归通过。
-- [工作量] S
-- [风险与回滚] 风险：少量边界值解析差异；回滚：逐文件恢复旧 helper。
-- [依赖/前置] RF-106。
-
-#### [RF-204]
-
-- [优先级] P2
-- [类别] Code Smell, Performance
-- [证据] 三个图组件重复 ECharts 生命周期：`frontend/src/app/components/ForceArgumentGraph.tsx:259`、`frontend/src/app/components/TaskLayerGraph.tsx:111`、`frontend/src/app/components/SimpleBafGraph.tsx:77` 均包含 `init/resize/dispose/setOption`。
-- [症状] 重复样板代码，维护成本高。
-- [影响] 图渲染问题需多处修补，潜在性能回退。
-- [建议改法] 抽象 `useEchartsGraph` hook 统一初始化和 resize observer。保持行为不变策略：option 构建逻辑保持在各组件。
-- [变更范围] `frontend/src/app/components/`, 新增 `frontend/src/app/hooks/`。
-- [验收标准] 3 个组件接入共享 hook；交互与渲染结果一致。
-- [工作量] S
-- [风险与回滚] 风险：生命周期时序变化；回滚：单组件独立回退。
-- [依赖/前置] RF-106。
 
 #### [RF-205]
 
 - [优先级] P2
 - [类别] Folder Structure, Performance
-- [证据] `frontend/src/App.tsx:12` 手写 `normalizeRoute`，`frontend/src/App.tsx:62` 手动 `history.pushState`；构建产物主 chunk 约 `1,468.86 kB`。
-- [症状] 路由逻辑与页面装配耦合，且页面未懒加载。
-- [影响] 可维护性一般，首屏包体偏大。
-- [建议改法] 引入路由层（React Router 或等价轻量方案）+ 页面级动态导入。保持行为不变策略：URL 与页面映射保持一致。
-- [变更范围] `frontend/src/App.tsx`, `frontend/src/app/pages/`。
-- [验收标准] 主 chunk 降至 `< 900kB`；路由行为回归用例通过。
+- [证据] `frontend/src/App.tsx:12` 手写 `normalizeRoute`；`frontend/src/App.tsx:62` 手动 `history.pushState`；`npm --prefix frontend run build` 显示主 chunk 约 `1,469.76 kB`。
+- [症状] 路由逻辑与页面装配耦合，页面未按路由边界懒加载。
+- [影响] 可维护性一般，首屏包体偏大，后续页面演进会继续推高主包体积。
+- [建议改法] 引入路由层（React Router 或等价轻量方案）并改为页面级动态导入。保持行为不变策略：URL 与页面映射、现有导航行为、回退/前进语义保持一致。
+- [变更范围] `frontend/src/App.tsx`, `frontend/src/app/pages/`, `frontend/src/app/components/MainShell.tsx`。
+- [验收标准] 
+  1. 主 chunk 降至 `< 900kB`。
+  2. 路由行为回归通过（启动页/直播页/协作页/记忆页/裁判页切换正确）。
+  3. `npm --prefix frontend run lint`、`npm --prefix frontend run test:unit`、`npm --prefix frontend run build` 全通过。
 - [工作量] M
-- [风险与回滚] 风险：前进/后退导航时序变化；回滚：按页面路由提交回滚，不保留双路由实现。
-- [依赖/前置] RF-106。
+- [风险与回滚] 风险：浏览器前进/后退时序变化。回滚策略：按“路由层接入提交 / 页面懒加载提交”拆分提交，异常时按提交粒度回滚。
+- [依赖/前置] 无。
 
 ## 3) 文件夹结构专项建议
 
-### 目标目录结构草案
+### 目标目录结构草案（针对前端剩余工作）
 
 ```text
-mas/
-  app/
-    api/
-      main.py
-      routers/
-        health.py
-        sessions.py
-        snapshots.py
-        memory.py
-        events.py
-    cli/
-      run_experiment.py
-  domain/
-    debate/
-      graph.py
-      schemas.py
-    memory/
-      insights.py
-      projection.py
-  application/
-    debate/
-      engine.py
-      turn_runner.py
-    session/
-      service.py
-      events.py
-      snapshots.py
-    controller/
-      pipeline.py
-  infrastructure/
-    llm/
-      client.py
-    retrieval/
-      es/
-        fact_tool.py
-        law_tool.py
-    storage/
-      snapshot_store.py
-  shared/
-    serialization.py
-
 frontend/src/
   app/
-    providers/
     routes/
+      index.tsx
+      routeConfig.ts
+    layout/
+      MainShell.tsx
   features/
     launch/
+      LaunchPage.tsx
     live/
-    memory/
+      LivePage.tsx
     teamflow/
+      TeamFlowPage.tsx
+    memory/
+      MemoryPage.tsx
     judgment/
-  infra/
-    api/
-      client.ts
-      protocol.ts
+      JudgmentPage.tsx
   shared/
-    ui/
     lib/
+      payload.ts
+    ui/
 ```
 
 ### 迁移策略
 
-1. 先加边界再搬迁：先引入 ports/contracts，不立即移动大文件。
-2. 禁止转发层：迁移完成即切换到新路径，不保留 re-export。
-3. 分目录迁移：先 `mas/api`，再 `mas/core+roles/actions/tools`，最后 `frontend`。
-4. 每次迁移只改一条调用链（一个 PR 一条主链）。
-5. 迁移与清理同批完成：删除旧模块与兼容分支，不延后。
+1. 先引入路由配置层，再逐页迁移，不做一次性大搬迁。
+2. 每迁移 1 个页面就跑一次 `lint + test + build`，保证可回滚。
+3. 页面拆分为动态导入后，再做主包体积复测，避免混合变量过多。
 
 ### 命名与分层规则
 
-1. 采用“领域 + 应用 + 基础设施”混合：`domain` 不依赖 `infrastructure`。
-2. `application` 负责流程编排，不直接做 HTTP/DB/ES SDK 调用。
-3. `infrastructure` 实现端口，不承载业务决策。
-4. 禁止泛化 `utils` 垃圾桶：共享函数必须归类到 `shared/lib/<topic>`。
-5. 反例：一个模块同时承担领域决策与工具调用器职责。
+1. `app/routes` 仅负责路由注册与导航编排，不承载业务渲染逻辑。
+2. 页面按 `features/<domain>/<Page>.tsx` 组织，禁止继续向 `App.tsx` 堆叠页面条件分支。
+3. `shared/lib` 只放跨 feature 的纯函数工具，避免重新引入 `utils` 大杂烩。
 
-## 4) 分阶段里程碑（最多 4 个）
+## 4) 分阶段里程碑
 
 ### 量化质量门槛
 
-1. QG-1 后端测试：`python -m pytest tests -q` 全绿，且测试用例数 >= 20。
-2. QG-2 前端 lint：`npm --prefix frontend run lint` 错误数 = 0。
-3. QG-3 前端单测：`npm --prefix frontend run test:unit` 通过，测试文件数 >= 8。
-4. QG-4 依赖环：核心层强连通分量中不再出现 `mas.core` 与 `roles/actions/tools` 同环。
-5. QG-5 复杂度：`roles/controller.py` 中单函数长度 <= 120 行。
-6. QG-6 构建性能：前端最大单 chunk < 900kB。
-7. QG-7 安全扫描：`config/` 与源码目录无明文 `sk-` 密钥。
+1. QG-1：`npm --prefix frontend run lint` 错误数 = 0。
+2. QG-2：`npm --prefix frontend run test:unit` 全通过。
+3. QG-3：`npm --prefix frontend run build` 成功。
+4. QG-4：主 chunk `< 900kB`。
+5. QG-5：路由回归检查覆盖 5 个主页面跳转与浏览器前进/后退。
 
-### Milestone 1（安全与防回归护栏）
+### Milestone 1（前端路由与包体治理）
 
-- TODO：已按当前决策移除（RF-001、RF-003-a 不执行）
-- 预期收益：先压住高风险泄漏与“无测试重构”风险。
-- 验证步骤：执行 QG-1、QG-7。
-- 回滚点：保留旧配置模板与原测试入口，失败时仅回滚新增校验脚本与测试改动。
-
-### Milestone 2（核心依赖解耦）
-
-- TODO：已完成（RF-002-a、RF-002-b、RF-003-b、RF-105）
-- 预期收益：核心层依赖方向收敛，可测性提升。
-- 验证步骤：执行 QG-1、QG-4、QG-5。
-- 回滚点：按模块粒度回滚到上一个稳定提交，不保留 legacy 分支。
-
-### Milestone 3（API 与会话模块化）
-
-- TODO：RF-202-b（RF-102-a、RF-102-b、RF-103、RF-104、RF-202-a、RF-206 已完成）
-- 预期收益：后端结构清晰，异常与日志可观测性提升。
-- 验证步骤：执行 QG-1、QG-4、QG-7。
-- 回滚点：按 `mas/session/*` 服务级提交回滚，不保留旧签名并行分支。
-
-### Milestone 4（前端结构与性能）
-
-- TODO：RF-106, RF-203, RF-204, RF-205
-- 预期收益：前端状态层更可测，包体下降，路由清晰。
-- 验证步骤：执行 QG-2、QG-3、QG-6。
-- 回滚点：按页面/功能提交回滚，不保留并行旧实现。
+- TODO：RF-205
+- 预期收益：路由职责清晰、页面装配解耦、首屏包体下降。
+- 验证步骤：执行 QG-1~QG-5。
+- 回滚点：
+  1. 路由层接入提交。
+  2. 页面懒加载提交。
 
 ## 5) 批次进度
 
-### Batch 1
+### Batch 1（当前待执行）
 
-- 已覆盖：`run.py`, `run_api.py`, `mas/core`, `roles`, `actions`, `tools`
-- 下一批：`mas/api`, `mas/session`
-- 当前覆盖率估计：43%
-- 发现：核心层反向依赖已完成切断，且配置注入已收敛：`SettingsProvider` 生效、`GPTChat/EmbeddingFunc/GraphExecutor` 不再隐式读取全局配置。
-- 证据：`mas/infrastructure/settings_provider.py:1`, `tools/llm.py:17`, `tools/embedding.py:174`, `mas/memory/base.py:37`, `mas/analysis/executor.py:205`, `run.py:14`。
-- 行动：已完成 RF-002-a、RF-002-b、RF-003-b、RF-105。
-- 验证：`python -m pytest tests -q` -> `4 passed`；`rg -n "SystemConfig\\(\\)" tools mas/analysis mas/core mas/memory mas/session run.py` 结果为 0；`rg -n "_CONFIG" tools/llm.py` 结果为 0；`python - <<...create_app...>>` 路由数 29。
-- 剩余风险：前端重构项（RF-106/203/204/205）尚未开始。
-
-### Batch 2
-
-- 已覆盖：`mas/api`, `mas/session`
-- 下一批：`frontend/src`
-- 当前覆盖率估计：69%
-- 发现：`server.py` 路由内联与 CORS 通配已完成治理；`SessionManager` 已 facade 化并完成状态枚举化，`serializers` 已拆分为包结构，且后端导入兼容分支已移除。
-- 证据：`mas/api/server.py:22`, `mas/api/server.py:52`, `mas/api/session_manager.py:57`, `mas/session/session_status.py:9`, `mas/session/session_service.py:18`, `mas/api/serializers/__init__.py:1`, `mas/session/snapshot_store.py:186`, `actions/worker_actions.py:163`。
-- 行动：已完成 RF-101、RF-201、RF-102-a、RF-102-b、RF-103、RF-104、RF-202-a、RF-206；后续为 RF-202-b。
-- 验证：`python -m pytest tests -q` 通过；路由统计 25 条；`rg -n "except Exception(?: as \\w+)?" mas/api/routers mas/api/serializers mas/session/event_stream.py actions/controller_actions.py mas/memory/topology.py` 结果为 0；`rg -n "print\\(" tools mas/memory` 结果为 0；`rg -n "_recent_frontend_snapshot_loads|get_recent_loaded_session|mark_recent_load|alias_key" mas actions` 结果为 0。
-- 剩余风险：前端 compat 适配层与状态管理重构仍待后续批次完成。
-
-### Batch 3
-
-- 已覆盖：`frontend/src`
-- 下一批：`tests/scripts/config/data/docs`
-- 当前覆盖率估计：86%
-- 发现：状态 Hook 过重、路由手写、图组件重复、单测缺失、包体偏大。
-- 证据：`frontend/src/app/state/useSnapshotActions.ts:1`, `frontend/src/App.tsx:12`, `frontend/src/app/components/ForceArgumentGraph.tsx:259`, `frontend/src/app/pages/MemoryPage.tsx:69`。
-- 行动：RF-106、RF-203、RF-204、RF-205。
-- 验证：已执行 lint/test:unit/build，确认 lint error、0 测试文件、chunk 告警。
-- 剩余风险：前端重构体量较大，需控制 UI 行为与包体回归。
-
-### Batch 4
-
-- 已覆盖：`tests`, `scripts`, `config`, `data`, `docs` 与运行目录
-- 下一批：无
-- 当前覆盖率估计：93%（忽略生成物/资产目录）
-- 发现：测试入口过窄、明文密钥、运行产物目录膨胀。
-- 证据：`pytest.ini:3`, `config/config2.yaml:3`, `scripts/start_dev.sh:10`。
-- 行动：RF-001、RF-003-a 已按当前决策从待办移除；已完成 RF-003-b、RF-101、RF-201。
-- 验证：后端基线 `4 passed`；前端 lint/test/build 基线已记录。
-- 剩余风险：`bge-m3/`、`demo/` 资产目录较大，后续可做仓库瘦身治理。
+- 已覆盖：`frontend/src/App.tsx`, `frontend/src/app/pages/*`, `frontend/src/app/components/MainShell.tsx`
+- 下一批：无（完成 RF-205 后关闭当前 TODO）
+- 当前覆盖率估计：93%
+- 发现：路由装配耦合与主包体积偏大是当前主要未完项。
+- 行动：执行 RF-205。
+- 验证：以 `lint/test/build + 主 chunk 体积 + 路由回归` 为准。
+- 剩余风险：若仅做懒加载不做路由层整理，后续可维护性改善有限。
 
 ## 6) 运行清单（供本地执行）
 
-1. `python -m pytest tests -q`  
-   目的：后端回归基线。  
-   期望：全绿（当前基线 `4 passed`）。
-2. `npm --prefix frontend run lint`  
+1. `npm --prefix frontend run lint`  
    目的：前端静态检查。  
-   期望：0 error（当前仍有 `MemoryPage.tsx:69`）。
-3. `npm --prefix frontend run test:unit`  
-   目的：前端单测基线。  
-   期望：通过且有测试（当前为 0 测试文件）。
-4. `npm --prefix frontend run build`  
-   目的：类型检查 + 打包性能。  
-   期望：成功且最大 chunk 下降（目标 `<900kB`）。
-5. `rg -n "^\\s*@(?:app|router)\\.(get|post|websocket)\\(" mas/api/server.py mas/api/routers | wc -l`  
-   目的：统计 API 路由数量。  
-   期望：数量稳定（当前 25）。
-6. `rg -n "except Exception(:| as )" mas/api/routers mas/api/serializers mas/session/event_stream.py actions/controller_actions.py mas/memory/topology.py`  
-   目的：异常粗粒度扫描。  
-   期望：结果为 0。
-7. `rg -n "print\\(" tools mas/memory`  
-   目的：后端日志出口统一性扫描。  
-   期望：结果为 0。
-8. `rg -n "console\\.warn\\(" frontend/src/app/state`  
-   目的：前端 warning 出口统一性扫描（RF-202-b）。  
-   期望：结果逐步降至 0。
-9. `rg -n "MAS_CORS_ORIGINS|allow_origins" mas/api/server.py`  
-   目的：CORS 白名单配置检查。  
-   期望：可见 `MAS_CORS_ORIGINS` 且不再是 `allow_origins=[\"*\"]`。
-10. `rg -n "_recent_frontend_snapshot_loads|get_recent_loaded_session|mark_recent_load|alias_key" mas actions`  
-    目的：后端兼容分支剔除检查。  
-    期望：结果为 0。
-11. `rg -n "SystemConfig\\(\\)" tools mas/analysis mas/core mas/memory mas/session run.py`  
-    目的：配置注入收敛检查。  
-    期望：结果为 0（`SystemConfig()` 仅允许出现在 `mas/infrastructure/settings_provider.py` 等装配提供器）。
-12. `rg -n "sk-[A-Za-z0-9]{20,}" config mas frontend`  
-    目的：明文密钥扫描。  
-    期望：为空；误报可用 `gitleaks detect` 复核。
-13. `python <SCC-检查脚本>`  
-    目的：验证核心依赖环是否打破。  
-    期望：`mas.core` 不再与 `roles/actions/tools` 同 SCC。
-14. `rg --files frontend/src | rg "\\.test\\.(ts|tsx)$" | wc -l`  
-    目的：前端测试文件计数。  
-    期望：目标 `>= 8`。
-15. `bash -lc 'command -v lizard >/dev/null && lizard mas roles actions tools || echo "lizard not installed"'`  
-    目的：复杂度/长函数检查。  
-    期望：若未安装则输出提示，安装后用于阈值治理。
+   期望：0 error。
 
----
+2. `npm --prefix frontend run test:unit`  
+   目的：前端单测回归。  
+   期望：全部通过。
+
+3. `npm --prefix frontend run build`  
+   目的：类型检查 + 产物构建。  
+   期望：构建成功，最大 chunk 下降至目标阈值。
+
+4. `rg -n "normalizeRoute|history.pushState|popstate" frontend/src/App.tsx`  
+   目的：检查是否仍保留手写路由核心逻辑。  
+   期望：迁移后显著减少或移入路由层文件。
+
+5. `ls -lh frontend/dist/assets/*.js`  
+   目的：确认构建后主包体积变化。  
+   期望：最大主包满足 `< 900kB`。

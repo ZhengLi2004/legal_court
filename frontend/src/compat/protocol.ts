@@ -18,19 +18,12 @@ import type {
   TurnArtifact,
 } from "./types";
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function asMaybeRecord(value: unknown): Record<string, unknown> | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-
-  return value as Record<string, unknown>;
-}
+import {
+  asMaybeRecord,
+  asRecord,
+  asString,
+  unwrapPayload,
+} from "../shared/lib/payload";
 
 function asBoolean(value: unknown): boolean {
   return value === true;
@@ -47,22 +40,6 @@ function asNumber(value: unknown, fallback = 0): number {
     if (Number.isFinite(parsed)) {
       return parsed;
     }
-  }
-
-  return fallback;
-}
-
-function asString(value: unknown, fallback = ""): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (
-    typeof value === "number" ||
-    typeof value === "boolean" ||
-    typeof value === "bigint"
-  ) {
-    return String(value);
   }
 
   return fallback;
@@ -316,10 +293,6 @@ function requireNonEmptyString(value: string, fieldName: string): string {
   }
 
   return text;
-}
-
-export function unwrapPayload(raw: unknown): Record<string, unknown> {
-  return asRecord(raw);
 }
 
 function derivePhase(payload: Record<string, unknown>): DebatePhase {

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef } from "react";
-import * as echarts from "echarts";
-import type { EChartsOption, EChartsType } from "echarts";
+import { useMemo } from "react";
+import type { EChartsOption } from "echarts";
 import type { MemoryView } from "../../compat";
+import { useEChart } from "../hooks/useEChart";
 import { shortText } from "../graph/echarts/debateGraphEcharts";
 import { renderScrollableNodeTooltip } from "../graph/echarts/tooltip";
 
@@ -59,9 +59,6 @@ function formatNodeKind(kindRaw?: string): string {
 }
 
 export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<EChartsType | null>(null);
-
   const model = useMemo(() => {
     if (!memoryView) {
       return null;
@@ -101,30 +98,9 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
 
   const hasModel = Boolean(model);
 
-  useEffect(() => {
-    const container = containerRef.current;
-
-    if (!container || chartRef.current) {
-      return;
-    }
-
-    const chart = echarts.init(container);
-    chartRef.current = chart;
-    const observer = new ResizeObserver(() => chart.resize());
-    observer.observe(container);
-
-    return () => {
-      observer.disconnect();
-      chart.dispose();
-      chartRef.current = null;
-    };
-  }, [hasModel]);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-
-    if (!chart || !model) {
-      return;
+  const option = useMemo<EChartsOption | null>(() => {
+    if (!model) {
+      return null;
     }
 
     const nodes = model.nodes.map((node) => {
@@ -163,7 +139,7 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
       };
     });
 
-    const option = {
+    return {
       backgroundColor: "#f1f5f9",
       tooltip: {
         trigger: "item",
@@ -209,9 +185,12 @@ export function TaskLayerGraph({ memoryView }: TaskLayerGraphProps) {
         },
       ],
     } as EChartsOption;
-
-    chart.setOption(option, true);
   }, [model]);
+
+  const { containerRef } = useEChart({
+    option,
+    enabled: hasModel,
+  });
 
   return (
     <article className="ux-card ux-card-full">

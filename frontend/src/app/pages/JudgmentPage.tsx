@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useDebate } from "../state/useDebate";
-import { asRecord, asString, unwrapPayload } from "../utils/payload";
+import { asRecord, asString, unwrapPayload } from "../../shared/lib/payload";
 
 export function JudgmentPage() {
   const { sessionId, snapshot } = useDebate();
