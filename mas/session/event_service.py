@@ -20,7 +20,11 @@ class EventService:
     """Encapsulate event query and subscriber operations per session."""
 
     def __init__(self, *, get_session: Callable[[str], Any]):
-        """Create event service dependencies."""
+        """Initialize event service dependencies.
+
+        Args:
+            get_session: Callable that resolves session object by identifier.
+        """
         self._get_session = get_session
 
     def get_event_history(
@@ -30,7 +34,17 @@ class EventService:
         from_seq: Optional[int] = None,
         to_seq: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """Return filtered event history for one session."""
+        """Return filtered event history for one session.
+
+        Args:
+            session_id: Session identifier.
+            limit: Maximum number of events to return.
+            from_seq: Optional inclusive lower sequence bound.
+            to_seq: Optional inclusive upper sequence bound.
+
+        Returns:
+            Filtered event rows in original sequence order.
+        """
         session = self._get_session(session_id)
 
         return get_session_event_history(
@@ -43,7 +57,15 @@ class EventService:
     def register_event_subscriber(
         self, session_id: str, max_queue_size: int = 200
     ) -> asyncio.Queue:
-        """Register one live event queue subscriber."""
+        """Register one live-event queue subscriber.
+
+        Args:
+            session_id: Session identifier.
+            max_queue_size: Queue capacity for subscriber backpressure.
+
+        Returns:
+            Newly allocated subscriber queue.
+        """
         session = self._get_session(session_id)
 
         return register_session_event_subscriber(
@@ -54,6 +76,11 @@ class EventService:
     def unregister_event_subscriber(
         self, session_id: str, queue: asyncio.Queue
     ) -> None:
-        """Remove one previously registered queue subscriber."""
+        """Remove one previously registered queue subscriber.
+
+        Args:
+            session_id: Session identifier.
+            queue: Queue instance to remove.
+        """
         session = self._get_session(session_id)
         unregister_session_event_subscriber(session.event_subscribers, queue)

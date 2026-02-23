@@ -81,7 +81,17 @@ class ShadowNode:
 
 
 def ensure_node_type(val: Any) -> NodeType:
-    """Casts a value to a NodeType enum member if possible."""
+    """Convert a value to `NodeType`.
+
+    Args:
+        val: Candidate value, expected as `NodeType` or matching string key.
+
+    Returns:
+        Parsed `NodeType` enum value.
+
+    Raises:
+        ValueError: If the value cannot be resolved to any `NodeType`.
+    """
     if isinstance(val, NodeType):
         return val
 
@@ -92,7 +102,17 @@ def ensure_node_type(val: Any) -> NodeType:
 
 
 def ensure_edge_type(val: Any) -> EdgeType:
-    """Casts a value to an EdgeType enum member if possible."""
+    """Convert a value to `EdgeType`.
+
+    Args:
+        val: Candidate value, expected as `EdgeType` or matching string key.
+
+    Returns:
+        Parsed `EdgeType` enum value.
+
+    Raises:
+        ValueError: If the value cannot be resolved to any `EdgeType`.
+    """
     if isinstance(val, EdgeType):
         return val
 
@@ -120,7 +140,11 @@ class ShadowGraph:
     latest_context: str = field(default="")
 
     def __post_init__(self):
-        """Ensure the graph attribute is properly initialized."""
+        """Ensure graph-level attribute storage exists.
+
+        Returns:
+            None.
+        """
         if not hasattr(self.graph, "graph"):
             self.graph.graph = {}
 
@@ -162,7 +186,10 @@ class ShadowGraph:
 
         Args:
             current_step: The current step index of the debate engine.
-        """
+
+        Returns:
+            None.
+    """
         focus_nodes = self._calculate_focus_nodes(current_step)
 
         if focus_nodes:
@@ -180,7 +207,10 @@ class ShadowGraph:
         Args:
             node_ids: A list of node IDs to update.
             step_index: The current step index to set as the last modified time.
-        """
+
+        Returns:
+            None.
+    """
         for nid in node_ids:
             if self.graph.has_node(nid):
                 current_step = (
@@ -225,8 +255,9 @@ class ShadowGraph:
             metadata: Optional dictionary of metadata for the node.
 
         Returns:
-            A tuple containing the node ID (either new or existing) and a
-            boolean indicating if a new node was created.
+            A tuple of `(node_id, created)` where `created` indicates whether a
+            new node was inserted (`True`) or an existing node was reused
+            (`False`).
         """
         node_type = ensure_node_type(node_type)
         existing_id = None
@@ -331,7 +362,8 @@ class ShadowGraph:
             edge_type: The type of the edge (SUPPORT or CONFLICT).
 
         Returns:
-            An `EdgeAddResult` enum member indicating the outcome.
+            `EdgeAddResult` indicating `CREATED`, `DUPLICATE`, `TYPE_CLASH`,
+            or `SELF_LOOP`.
 
         Raises:
             ValueError: If the source or target node does not exist, or if the
@@ -366,7 +398,14 @@ class ShadowGraph:
         return EdgeAddResult.CREATED
 
     def get_subgraph(self, node_ids: List[str]) -> "ShadowGraph":
-        """Create a new ShadowGraph containing only the specified nodes."""
+        """Create a new `ShadowGraph` containing only the specified nodes.
+
+        Args:
+            node_ids: Node ids retained in the subgraph.
+
+        Returns:
+            A copied `ShadowGraph` subgraph over `node_ids`.
+        """
         sub_nx = self.graph.subgraph(node_ids).copy()
         new_sg = ShadowGraph()
         new_sg.graph = sub_nx
@@ -392,19 +431,37 @@ class ShadowGraph:
 
     @staticmethod
     def to_dict(sg: "ShadowGraph") -> dict:
-        """Serialize the graph to a dictionary."""
+        """Serialize a shadow graph to a dictionary payload.
+
+        Args:
+            sg: Shadow graph instance.
+
+        Returns:
+            Dict containing node-link graph data under `graph_data`.
+        """
         graph_data = json_graph.node_link_data(sg.graph)
         return {"graph_data": graph_data}
 
     @staticmethod
     def from_dict(data: dict) -> "ShadowGraph":
-        """Deserialize a dictionary into a ShadowGraph object."""
+        """Deserialize dictionary payload into `ShadowGraph`.
+
+        Args:
+            data: Dict produced by `ShadowGraph.to_dict`.
+
+        Returns:
+            Reconstructed `ShadowGraph` instance.
+        """
         sg = ShadowGraph()
         sg.graph = json_graph.node_link_graph(data["graph_data"])
         return sg
 
     def to_json(self) -> str:
-        """Serialize the graph to a JSON string."""
+        """Serialize this graph to a JSON string.
+
+        Returns:
+            UTF-8 JSON text generated from `ShadowGraph.to_dict`.
+        """
         return json.dumps(self.to_dict(self), ensure_ascii=False)
 
     def to_recursive_text(self) -> str:
@@ -506,7 +563,14 @@ class ShadowGraph:
         return "\n".join(final_text_blocks).strip()
 
     def get_tactical_subgraph(self, focus_nodes: List[str]) -> "ShadowGraph":
-        """Extract a subgraph centered around a set of focus nodes."""
+        """Extract tactical subgraph around focus nodes and root claims.
+
+        Args:
+            focus_nodes: Candidate focus node ids.
+
+        Returns:
+            Subgraph containing root claims and neighborhood of valid focus nodes.
+        """
         nodes_to_keep = set()
 
         roots = [
@@ -535,7 +599,14 @@ class ShadowGraph:
         return self.get_subgraph(list(nodes_to_keep))
 
     def to_tactical_text(self, focus_nodes: List[str]) -> str:
-        """Generate a text representation of the tactical subgraph."""
+        """Render tactical subgraph as recursive text.
+
+        Args:
+            focus_nodes: Candidate focus node ids.
+
+        Returns:
+            Recursive textual representation of tactical subgraph.
+        """
         subgraph = self.get_tactical_subgraph(focus_nodes)
         return subgraph.to_recursive_text()
 
@@ -613,7 +684,11 @@ class ShadowGraph:
         return result
 
     def get_simple_id_list(self) -> str:
-        """Generate a simple list of node IDs and their types."""
+        """Generate a simple list of node ids and node types.
+
+        Returns:
+            Multiline text where each line is `- <id> (<type>)`.
+        """
         ids = []
 
         for n, d in self.graph.nodes(data=True):
@@ -630,7 +705,14 @@ class ShadowGraph:
         return "\n".join(ids)
 
     def get_nodes_by_step(self, step_index: int) -> List[str]:
-        """Get all nodes that were last modified at a specific step."""
+        """Get node ids last modified at one specific step.
+
+        Args:
+            step_index: Target step index.
+
+        Returns:
+            Node id list whose metadata `last_modified_step` equals `step_index`.
+        """
         target_nodes = []
 
         for nid, data in self.graph.nodes(data=True):
@@ -662,7 +744,14 @@ class LegalMessage:
 
     @staticmethod
     def to_dict(msg: "LegalMessage") -> dict:
-        """Serialize the LegalMessage to a dictionary."""
+        """Serialize a `LegalMessage` object to dict.
+
+        Args:
+            msg: Message object to serialize.
+
+        Returns:
+            Dict with `case_id`, `case_context`, and serialized graph JSON.
+        """
         return {
             "case_id": msg.case_id,
             "case_context": msg.case_context,
@@ -671,7 +760,14 @@ class LegalMessage:
 
     @staticmethod
     def from_dict(data: dict) -> "LegalMessage":
-        """Deserialize a dictionary into a LegalMessage object."""
+        """Deserialize dict payload into `LegalMessage`.
+
+        Args:
+            data: Dict with `case_id`, `case_context`, and `graph_json`.
+
+        Returns:
+            Reconstructed `LegalMessage` instance.
+        """
         sg = ShadowGraph.from_dict(json.loads(data["graph_json"]))
 
         return LegalMessage(

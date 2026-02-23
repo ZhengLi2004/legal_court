@@ -9,7 +9,18 @@ from metagpt.logs import logger
 
 
 def run_post_adjudication_learning(engine: Any) -> Dict[str, Any]:
-    """Run learning pass after adjudication and emit state callback."""
+    """Run post-adjudication learning and emit completion callback.
+
+    Args:
+        engine: Debate engine instance.
+
+    Returns:
+        Learning result dict containing `case_id`, `success`, and optional error.
+
+    Side Effects:
+        Calls `engine.legal_sys.learn`, writes `learning_result` into
+        `engine.last_step_log`, and emits `learning_complete` state event.
+    """
     learning_case_id = str(getattr(engine, "current_case_id", "")).strip()
 
     if not learning_case_id:

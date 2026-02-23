@@ -17,7 +17,19 @@ def build_sessions_router(
     *,
     default_case_data: Optional[Dict[str, Any]] = None,
 ) -> APIRouter:
-    """Build the session router with injected manager dependencies."""
+    """Build session-related API router.
+
+    Args:
+        manager: Session manager dependency used by route handlers.
+        default_case_data: Optional fallback case payload for session creation.
+
+    Returns:
+        Configured `APIRouter` instance with session endpoints.
+
+    Raises:
+        Assumption/Unverified: Exceptions are raised within nested request
+            handlers and converted to `HTTPException` there.
+    """
     router = APIRouter()
 
     @router.post("/api/v1/sessions")

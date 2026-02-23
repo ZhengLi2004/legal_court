@@ -101,7 +101,12 @@ class LegalSystem:
 
     @property
     def active_history_cases(self) -> List[LegalMessage]:
-        """Return a unified list of all relevant historical cases for the current debate."""
+        """Return deduplicated historical cases currently active for debate.
+
+        Returns:
+            Unified list containing static retrieval cases and dynamic law-based
+            retrieval cases, deduplicated by `case_id`.
+        """
         unique_map = {}
 
         for c in self._static_history_cases:
@@ -312,7 +317,11 @@ class LegalSystem:
         self._dynamic_law_cases = new_dynamic_cases
 
     def advance_step(self):
-        """Increment the internal step counter."""
+        """Increment internal debate step counter.
+
+        Returns:
+            None.
+        """
         self.step_counter += 1
 
     def execute_action(

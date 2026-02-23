@@ -13,7 +13,18 @@ from ..session_manager import SessionManager
 
 
 def build_events_router(manager: SessionManager) -> APIRouter:
-    """Build event and artifact router with injected manager dependency."""
+    """Build event, artifact, and timeline API router.
+
+    Args:
+        manager: Session manager dependency used by route handlers.
+
+    Returns:
+        Configured `APIRouter` instance with event-stream endpoints.
+
+    Raises:
+        Assumption/Unverified: Exceptions are raised within nested request and
+            websocket handlers rather than by this builder function.
+    """
     router = APIRouter()
 
     @router.get("/api/v1/sessions/{session_id}/events")

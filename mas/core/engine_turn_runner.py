@@ -16,7 +16,21 @@ async def run_engine_step(
     controller_idle_step: Any,
     persist_snapshot: bool = True,
 ) -> None:
-    """Execute a single turn of the debate."""
+    """Execute one engine turn, update state, and optionally persist snapshot.
+
+    Args:
+        engine: Debate engine instance.
+        turn_enum: Enum class providing `PLAINTIFF` and `DEFENDANT`.
+        controller_idle_step: Controller idle-state enum/value to reset after turn.
+        persist_snapshot: Whether to persist round snapshot after execution.
+
+    Returns:
+        None.
+
+    Side Effects:
+        Mutates engine turn/round status, transcript, convergence payload, turn
+        artifacts, callbacks, and resource lifecycle.
+    """
     if engine.is_finished:
         return
 

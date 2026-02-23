@@ -12,7 +12,18 @@ from ..session_manager import SessionManager
 
 
 def build_memory_router(manager: SessionManager) -> APIRouter:
-    """Build memory-related router with injected manager dependency."""
+    """Build memory-related API router.
+
+    Args:
+        manager: Session manager dependency used by route handlers.
+
+    Returns:
+        Configured `APIRouter` instance with memory endpoints.
+
+    Raises:
+        Assumption/Unverified: Exceptions raised during request handling are
+            converted inside nested handlers rather than by this builder itself.
+    """
     router = APIRouter()
 
     @router.get("/api/v1/sessions/{session_id}/memory")

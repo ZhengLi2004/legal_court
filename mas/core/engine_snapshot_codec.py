@@ -13,7 +13,17 @@ from .graph import EdgeType, NodeStatus, ShadowGraph
 
 
 def create_engine_snapshot(engine: Any, round_idx: int, turn: str) -> Dict[str, Any]:
-    """Create a snapshot of the current debate state."""
+    """Create one persisted round snapshot from engine runtime state.
+
+    Args:
+        engine: Debate engine instance.
+        round_idx: Round index to persist.
+        turn: Turn label (`"plaintiff"` or `"defendant"`).
+
+    Returns:
+        Snapshot dict containing graph payload, convergence payload, transcript,
+        root-claim status map, and summary stats.
+    """
     graph_data = {
         "nodes": [
             {"id": node_id, **{k: engine._serialize_value(v) for k, v in data.items()}}
@@ -69,7 +79,14 @@ def create_engine_snapshot(engine: Any, round_idx: int, turn: str) -> Dict[str, 
 
 
 def count_engine_conflict_edges(engine: Any) -> int:
-    """Count CONFLICT edges in the current graph."""
+    """Count CONFLICT edges in the current graph.
+
+    Args:
+        engine: Debate engine instance.
+
+    Returns:
+        Number of edges whose type resolves to `EdgeType.CONFLICT`.
+    """
     if not engine.graph or not engine.graph.graph:
         return 0
 
@@ -88,7 +105,14 @@ def count_engine_conflict_edges(engine: Any) -> int:
 
 
 def build_engine_graph_data(engine: Any) -> Dict[str, Any]:
-    """Build JSON-safe graph payload for API/transport usage."""
+    """Build JSON-safe graph payload for transport or API responses.
+
+    Args:
+        engine: Debate engine instance.
+
+    Returns:
+        Dict with `nodes` and `edges` arrays containing JSON-safe values.
+    """
     if not engine.graph:
         return {"nodes": [], "edges": []}
 
@@ -109,7 +133,15 @@ def build_engine_graph_data(engine: Any) -> Dict[str, Any]:
 
 
 def build_engine_focus_node_ids(engine: Any) -> List[str]:
-    """Return current focus-node ids used by tactical linearization."""
+    """Build ordered focus-node identifiers for tactical context rendering.
+
+    Args:
+        engine: Debate engine instance.
+
+    Returns:
+        Deduplicated focus node id list. Returns empty list on missing graph or
+        when focus-node calculation fails.
+    """
     if not engine.graph:
         return []
 
@@ -147,7 +179,14 @@ def build_engine_focus_node_ids(engine: Any) -> List[str]:
 
 
 def count_support_edges_from_graph_data(graph_data: Dict[str, Any]) -> int:
-    """Count SUPPORT edges from serialized graph data."""
+    """Count SUPPORT edges from serialized graph payload.
+
+    Args:
+        graph_data: Graph payload containing edge rows.
+
+    Returns:
+        Number of edges whose serialized type is support.
+    """
     count = 0
 
     for edge in graph_data.get("edges", []):
@@ -161,7 +200,16 @@ def build_engine_graph_stats(
     engine: Any,
     graph_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, int]:
-    """Build a unified graph stats payload for snapshots and APIs."""
+    """Build unified graph stats payload for snapshots and APIs.
+
+    Args:
+        engine: Debate engine instance.
+        graph_data: Optional pre-built graph payload. When omitted, the function
+            builds graph data from engine state.
+
+    Returns:
+        Dict containing node/edge counts and conflict/support derived counts.
+    """
     graph_payload = (
         graph_data if graph_data is not None else build_engine_graph_data(engine)
     )
@@ -181,7 +229,15 @@ def build_engine_graph_stats(
 
 
 def collect_engine_agent_memories(engine: Any) -> Dict[str, List[Dict[str, Any]]]:
-    """Collect serializable controller memories from both teams."""
+    """Collect serializable controller memories from both teams.
+
+    Args:
+        engine: Debate engine instance.
+
+    Returns:
+        Dict with `plaintiff` and `defendant` memory item arrays. Missing or
+        invalid controller memory sources produce empty arrays.
+    """
     plaintiff_memories: List[Dict[str, Any]] = []
 
     if engine.p_team and engine.p_team.controller:
@@ -213,7 +269,17 @@ def build_engine_turn_artifact(
     turn_result: Dict[str, Any],
     narrative_text: str,
 ) -> Dict[str, Any]:
-    """Build a JSON-safe turn artifact record."""
+    """Build one JSON-safe turn artifact record.
+
+    Args:
+        engine: Debate engine instance.
+        turn: Turn side label.
+        turn_result: Raw turn execution payload.
+        narrative_text: Polished narrative text for this turn.
+
+    Returns:
+        Normalized turn artifact dict with stable `turn_uid` and timestamp.
+    """
     turn_uid = str(turn_result.get("turn_uid", "")).strip()
 
     if not turn_uid:
@@ -253,7 +319,16 @@ def get_engine_turn_artifacts(
     turn_uid: Optional[str] = None,
     limit: int = 50,
 ) -> List[Dict[str, Any]]:
-    """Return stored turn artifacts, optionally filtered by turn UID."""
+    """Return stored turn artifacts, optionally filtered by turn UID.
+
+    Args:
+        engine: Debate engine instance.
+        turn_uid: Optional turn UID filter.
+        limit: Maximum number of artifact rows to return.
+
+    Returns:
+        Tail slice of artifact rows in chronological order.
+    """
     rows = list(engine.turn_artifacts)
 
     if turn_uid:
@@ -264,7 +339,19 @@ def get_engine_turn_artifacts(
 
 
 def restore_engine_snapshot(engine: Any, round_idx: int) -> bool:
-    """Restore the graph state from a snapshot."""
+    """Restore engine runtime state from one stored round snapshot.
+
+    Args:
+        engine: Debate engine instance.
+        round_idx: Zero-based snapshot index in `engine.round_snapshots`.
+
+    Returns:
+        `True` when restore succeeds; `False` when index is out of range.
+
+    Side Effects:
+        Replaces `engine.graph`, updates round/turn/convergence/session fields,
+        recalculates `prev_stats`, and updates `engine.last_step_log`.
+    """
     if round_idx < 0 or round_idx >= len(engine.round_snapshots):
         return False
 
@@ -418,7 +505,14 @@ def restore_engine_snapshot(engine: Any, round_idx: int) -> bool:
 
 
 def build_engine_snapshot_state(engine: Any) -> Dict[str, Any]:
-    """Return a JSON-safe state snapshot for API responses."""
+    """Build JSON-safe live state snapshot for API responses.
+
+    Args:
+        engine: Debate engine instance.
+
+    Returns:
+        JSON-safe state payload with graph/convergence/transcript/summary fields.
+    """
     graph_data = build_engine_graph_data(engine)
     graph_stats = build_engine_graph_stats(engine, graph_data)
     transcript_rows = list(engine.transcript)

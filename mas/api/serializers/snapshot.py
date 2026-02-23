@@ -8,7 +8,14 @@ from ..session_manager import DebateSession
 
 
 def snapshot_response(session: DebateSession) -> Dict[str, Any]:
-    """Build a session snapshot response with normalized metrics."""
+    """Build session snapshot response with normalized metrics.
+
+    Args:
+        session: Runtime debate session.
+
+    Returns:
+        Snapshot payload merged from engine state and session metadata.
+    """
     base = session.engine.get_serializable_snapshot()
     graph_stats = base.get("graph_stats", {})
 

@@ -35,7 +35,15 @@ from prompts.common_prompts import (
 
 
 def truncate_text(text: str, max_len: int = 500) -> str:
-    """Truncate a string to a maximum length, adding an ellipsis."""
+    """Truncate a string to a maximum length with ellipsis suffix.
+
+    Args:
+        text: Raw text to truncate.
+        max_len: Maximum output length including ellipsis.
+
+    Returns:
+        Trimmed string. Empty input returns an empty string.
+    """
     if not text:
         return ""
 

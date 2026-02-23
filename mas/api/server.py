@@ -44,6 +44,13 @@ def create_app(
 
     CORS origins are controlled by `MAS_CORS_ORIGINS` (comma-separated).
     When unset, localhost origins are allowed for local frontend development.
+
+    Args:
+        engine_factory: Optional custom engine factory for dependency injection.
+        case_rows: Optional preloaded case rows; first row is used as default case.
+
+    Returns:
+        Configured `FastAPI` application instance.
     """
     app = FastAPI(title="Legal Court API", version="0.1.0")
 

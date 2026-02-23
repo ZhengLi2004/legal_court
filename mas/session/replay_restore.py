@@ -16,7 +16,23 @@ def apply_normalized_replay_bundle(
     to_json_safe: Callable[[Any], Any],
     utc_now_iso: Callable[[], str],
 ) -> None:
-    """Apply normalized replay-bundle state to a newly created session."""
+    """Apply normalized replay-bundle state to a newly created session.
+
+    Args:
+        restored_session: Newly created session that will receive restored state.
+        normalized_bundle: Validated replay bundle payload.
+        derive_status: Callable that maps engine state to `SessionStatus`.
+        to_json_safe: Serializer for artifact payload normalization.
+        utc_now_iso: Timestamp factory for `updated_at`.
+
+    Raises:
+        ValueError: If engine snapshot restore is unavailable or fails.
+
+    Side Effects:
+        Mutates engine snapshots/artifacts/current state, replaces session event
+        history and counters, updates failure simulation flags, and refreshes
+        session status/timestamp.
+    """
     engine = restored_session.engine
     snapshots = normalized_bundle.get("snapshots", [])
     turn_artifacts = normalized_bundle.get("turn_artifacts", [])

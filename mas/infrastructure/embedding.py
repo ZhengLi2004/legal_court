@@ -70,7 +70,18 @@ def load_config(config_path: str = "configs/configs.yaml"):
 
 
 def load_json(file_name: str) -> Union[list, dict]:
-    """Load a JSON file."""
+    """Load JSON file content.
+
+    Args:
+        file_name: JSON file path.
+
+    Returns:
+        Parsed JSON object/list, or `None` when file does not exist.
+
+    Raises:
+        json.JSONDecodeError: If file content is invalid JSON.
+        OSError: If file exists but cannot be read.
+    """
     if not os.path.exists(file_name):
         return None
 
@@ -79,7 +90,19 @@ def load_json(file_name: str) -> Union[list, dict]:
 
 
 def random_divide_list(lst: list[Any], k: int) -> list[list]:
-    """Randomly divide a list into chunks of a maximum size k."""
+    """Randomly divide a list into chunks with size close to `k`.
+
+    Args:
+        lst: Source list.
+        k: Target maximum chunk size.
+
+    Returns:
+        List of shuffled chunks. Empty input returns an empty list.
+
+    Raises:
+        Assumption/Unverified: Behavior for `k <= 0` is not guarded and may
+            raise division errors from internal math operations.
+    """
     if len(lst) == 0:
         return []
 

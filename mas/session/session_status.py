@@ -7,7 +7,7 @@ from typing import Dict, Set
 
 
 class SessionStatus(str, Enum):
-    """Canonical session lifecycle statuses."""
+    """Define canonical lifecycle statuses for one runtime session."""
 
     CREATED = "CREATED"
     SETTING_UP = "SETTING_UP"
@@ -57,7 +57,18 @@ ALLOWED_TRANSITIONS: Dict[SessionStatus, Set[SessionStatus]] = {
 def ensure_allowed_transition(
     current: SessionStatus, target: SessionStatus
 ) -> SessionStatus:
-    """Validate one status transition and return validated target."""
+    """Validate a session status transition against allowed edges.
+
+    Args:
+        current: Current session status.
+        target: Desired next session status.
+
+    Returns:
+        `target` when transition is valid.
+
+    Raises:
+        ValueError: If transition `current -> target` is not allowed.
+    """
     if current == target:
         return target
 

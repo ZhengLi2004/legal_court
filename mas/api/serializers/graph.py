@@ -16,7 +16,16 @@ from .snapshot import snapshot_response
 def graph_response(
     session: DebateSession, round_idx: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Build graph payload for the latest state or a historical round."""
+    """Build graph payload for latest state or one historical round.
+
+    Args:
+        session: Runtime debate session.
+        round_idx: Optional round snapshot index.
+
+    Returns:
+        Payload containing `session_id`, resolved `round_idx`, `graph_data`,
+        and `focus_node_ids`.
+    """
     if round_idx is None:
         snap = snapshot_response(session)
         graph_data = _safe_graph_from_snapshot(snap)

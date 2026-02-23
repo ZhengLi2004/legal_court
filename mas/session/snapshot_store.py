@@ -13,13 +13,34 @@ from mas.common.serialization import as_non_negative_int, to_json_safe
 
 
 def ensure_frontend_snapshots_dir(frontend_snapshots_dir: Path) -> Path:
-    """Ensure the frontend snapshot directory exists on disk."""
+    """Create the frontend snapshot directory when it does not exist.
+
+    Args:
+        frontend_snapshots_dir: Target directory used to persist snapshot JSON files.
+
+    Returns:
+        The same directory path after ensuring it exists.
+
+    Side Effects:
+        Creates directories on disk via `Path.mkdir(parents=True, exist_ok=True)`.
+    """
     frontend_snapshots_dir.mkdir(parents=True, exist_ok=True)
     return frontend_snapshots_dir
 
 
 def frontend_snapshot_path(frontend_snapshots_dir: Path, snapshot_id: str) -> Path:
-    """Build a sanitized filesystem path for one snapshot ID."""
+    """Build a sanitized snapshot file path for one snapshot identifier.
+
+    Args:
+        frontend_snapshots_dir: Base directory for snapshot files.
+        snapshot_id: Raw snapshot identifier from request or stored record.
+
+    Returns:
+        Absolute snapshot JSON path under `frontend_snapshots_dir`.
+
+    Raises:
+        ValueError: If `snapshot_id` becomes empty after sanitization.
+    """
     safe_id = "".join(
         ch for ch in str(snapshot_id).strip() if ch.isalnum() or ch in {"-", "_"}
     )
@@ -31,7 +52,19 @@ def frontend_snapshot_path(frontend_snapshots_dir: Path, snapshot_id: str) -> Pa
 
 
 def extract_replay_metadata(bundle: Dict[str, Any]) -> Dict[str, int]:
-    """Derive replay counts from bundle content and metadata fallback."""
+    """Extract replay counters from a replay bundle.
+
+    The function prefers actual list lengths (`events`, `turn_artifacts`,
+    `snapshots`). When those fields are not lists, it falls back to numeric values
+    in `bundle["metadata"]`.
+
+    Args:
+        bundle: Replay bundle payload.
+
+    Returns:
+        A dict containing non-negative `event_count`, `artifact_count`, and
+        `snapshot_count` integers.
+    """
     metadata_raw = bundle.get("metadata", {})
 
     if not isinstance(metadata_raw, dict):
@@ -67,7 +100,14 @@ def extract_replay_metadata(bundle: Dict[str, Any]) -> Dict[str, int]:
 
 
 def frontend_snapshot_item(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert a raw snapshot record into API list-item shape."""
+    """Convert one raw snapshot record to list-item response shape.
+
+    Args:
+        record: Persisted snapshot record loaded from disk or newly created.
+
+    Returns:
+        A normalized metadata row used by snapshot list APIs.
+    """
     metadata = record.get("metadata", {})
 
     if not isinstance(metadata, dict):
@@ -97,7 +137,15 @@ def write_frontend_snapshot_record(
     frontend_snapshots_dir: Path,
     record: Dict[str, Any],
 ) -> None:
-    """Persist a frontend snapshot record as JSON."""
+    """Write one snapshot record to disk as UTF-8 JSON.
+
+    Args:
+        frontend_snapshots_dir: Root directory for snapshot JSON files.
+        record: Snapshot payload containing at least `snapshot_id`.
+
+    Side Effects:
+        Creates missing parent directories and overwrites the target JSON file.
+    """
     target = frontend_snapshot_path(
         frontend_snapshots_dir,
         str(record.get("snapshot_id", "")),
@@ -111,7 +159,20 @@ def read_frontend_snapshot_record(
     frontend_snapshots_dir: Path,
     snapshot_id: str,
 ) -> Dict[str, Any]:
-    """Load and validate one frontend snapshot record from disk."""
+    """Load and validate one snapshot record from disk.
+
+    Args:
+        frontend_snapshots_dir: Root directory for snapshot JSON files.
+        snapshot_id: Snapshot identifier to load.
+
+    Returns:
+        Parsed snapshot object. If the stored object misses `snapshot_id`, the
+        function fills it using the requested identifier.
+
+    Raises:
+        FileNotFoundError: If the corresponding snapshot file does not exist.
+        ValueError: If the file content is invalid JSON or not a JSON object.
+    """
     target = frontend_snapshot_path(frontend_snapshots_dir, snapshot_id)
 
     if not target.exists():
@@ -136,7 +197,16 @@ def read_frontend_snapshot_record(
 
 
 def build_snapshot_payload(session: Any) -> Dict[str, Any]:
-    """Build the API-facing snapshot payload for a session."""
+    """Build a JSON-safe API payload from runtime session state.
+
+    Args:
+        session: Runtime session object with `engine` and session metadata fields.
+
+    Returns:
+        Snapshot payload merged from engine snapshot data and session-level
+        metadata. The payload always includes `metrics` and may include `error`
+        when `session.last_error` is non-empty.
+    """
     base = session.engine.get_serializable_snapshot()
 
     if not isinstance(base, dict):
@@ -169,7 +239,16 @@ def build_snapshot_payload(session: Any) -> Dict[str, Any]:
 def frontend_snapshot_load_response(
     record: Dict[str, Any], session: Any
 ) -> Dict[str, Any]:
-    """Build response payload returned after loading a frontend snapshot."""
+    """Assemble API response after restoring one frontend snapshot.
+
+    Args:
+        record: Persisted snapshot record.
+        session: Restored runtime session.
+
+    Returns:
+        Response payload containing snapshot metadata, frontend state, compact
+        session info, and engine snapshot payload for frontend bootstrap.
+    """
     return {
         "snapshot": frontend_snapshot_item(record),
         "frontend_state": to_json_safe(record.get("frontend_state", {})),
@@ -184,7 +263,17 @@ def frontend_snapshot_load_response(
 
 
 def normalize_import_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate imported replay bundle against canonical structure."""
+    """Validate required replay-bundle fields and normalize JSON shape.
+
+    Args:
+        bundle: Imported replay-bundle payload.
+
+    Returns:
+        JSON-safe bundle ready for restore and persistence.
+
+    Raises:
+        ValueError: If required top-level fields are missing or have wrong types.
+    """
     if not isinstance(bundle, dict):
         raise ValueError("Imported bundle must be an object")
 
@@ -218,7 +307,19 @@ def list_frontend_snapshots(
     limit: int = 20,
     offset: int = 0,
 ) -> Dict[str, Any]:
-    """List persisted frontend snapshots with pagination."""
+    """List stored snapshot records with offset/limit pagination.
+
+    Args:
+        frontend_snapshots_dir: Root directory that contains snapshot JSON files.
+        limit: Maximum number of items to return. Values < 1 are clamped to 1.
+        offset: Start offset in sorted result. Values < 0 are clamped to 0.
+
+    Returns:
+        Dict with `items` (paged rows) and `total` (all valid rows count).
+
+    Side Effects:
+        Logs and skips malformed files instead of failing the whole listing.
+    """
     limit_value = max(1, int(limit))
     offset_value = max(0, int(offset))
     snapshot_dir = ensure_frontend_snapshots_dir(frontend_snapshots_dir)
@@ -258,7 +359,16 @@ def list_frontend_snapshots(
 
 
 def normalize_restored_events(session_id: str, events: Any) -> List[Dict[str, Any]]:
-    """Normalize replay events into internal event-envelope format."""
+    """Normalize imported replay events to internal event-envelope rows.
+
+    Args:
+        session_id: Session identifier assigned to restored runtime session.
+        events: Imported events payload, expected to be a list of dict objects.
+
+    Returns:
+        Ordered event rows with regenerated `event_id` and sequential `seq`
+        values. Invalid event rows are skipped.
+    """
     if not isinstance(events, list):
         return []
 
@@ -310,7 +420,24 @@ def normalize_restored_events(session_id: str, events: Any) -> List[Dict[str, An
 
 
 def restore_round_index(bundle: Dict[str, Any], snapshots: Any) -> int:
-    """Choose the best snapshot index to restore from replay data."""
+    """Choose snapshot index for replay restoration.
+
+    Resolution order:
+    1. Match `bundle["snapshot"]["latest_turn_uid"]` against snapshot rows.
+    2. Match `bundle["snapshot"]["current_round"]` or `round_idx`.
+    3. Clamp round value into valid range.
+    4. Fallback to the last snapshot row.
+
+    Args:
+        bundle: Normalized replay bundle.
+        snapshots: Snapshot rows from the bundle.
+
+    Returns:
+        Zero-based snapshot index used by engine restore.
+
+    Raises:
+        ValueError: If `snapshots` is empty or not restorable.
+    """
     rows = snapshots if isinstance(snapshots, list) else []
     snapshot_count = len(rows)
 

@@ -12,7 +12,18 @@ from ..session_manager import SessionManager
 
 
 def build_snapshots_router(manager: SessionManager) -> APIRouter:
-    """Build frontend snapshot router with injected manager dependency."""
+    """Build frontend-snapshot API router.
+
+    Args:
+        manager: Session manager dependency used by route handlers.
+
+    Returns:
+        Configured `APIRouter` instance with snapshot persistence endpoints.
+
+    Raises:
+        Assumption/Unverified: Exceptions are raised and converted inside nested
+            route handlers rather than by this builder function.
+    """
     router = APIRouter()
 
     @router.post("/api/v1/frontend-snapshots")

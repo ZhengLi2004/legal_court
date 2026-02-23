@@ -12,7 +12,16 @@ from .graph import graph_response
 def graph_diff_response(
     session: DebateSession, from_round: int, to_round: int
 ) -> Dict[str, Any]:
-    """Compute structural and status differences between two rounds."""
+    """Compute structural and status differences between two rounds.
+
+    Args:
+        session: Runtime debate session.
+        from_round: Baseline round index.
+        to_round: Target round index.
+
+    Returns:
+        Diff payload containing added/removed nodes and edges plus status changes.
+    """
     from_graph = graph_response(session, from_round)["graph_data"]
     to_graph = graph_response(session, to_round)["graph_data"]
     from_nodes = _as_list(from_graph.get("nodes"))

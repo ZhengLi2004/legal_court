@@ -10,7 +10,20 @@ import networkx as nx
 
 
 def graph_data_for_export(session: Any, round_idx: Optional[int] = None) -> Dict[str, Any]:
-    """Resolve graph payload used by export endpoints."""
+    """Resolve graph payload for export endpoints.
+
+    The function first tries historical snapshot graph data when `round_idx` is
+    provided and valid. Otherwise it falls back to
+    `session.engine.get_serializable_snapshot()["graph_data"]`.
+
+    Args:
+        session: Runtime session object.
+        round_idx: Optional historical snapshot index.
+
+    Returns:
+        Graph payload dict with `nodes` and `edges` keys. Returns empty lists
+        when no graph data can be resolved.
+    """
     snapshots = getattr(session.engine, "round_snapshots", [])
 
     if isinstance(round_idx, int) and isinstance(snapshots, list):
@@ -42,7 +55,16 @@ def export_graph_gexf(
     round_idx: Optional[int],
     to_json_safe: Callable[[Any], Any],
 ) -> bytes:
-    """Export current or historical graph as GEXF bytes."""
+    """Export current or historical graph as GEXF bytes.
+
+    Args:
+        session: Runtime session object.
+        round_idx: Optional historical snapshot index.
+        to_json_safe: Serializer used for non-scalar node/edge attributes.
+
+    Returns:
+        UTF-8 encoded GEXF bytes representing the graph.
+    """
     graph_data = graph_data_for_export(session, round_idx=round_idx)
     graph = nx.DiGraph()
 
@@ -107,7 +129,20 @@ def build_replay_bundle(
     utc_now_iso: Callable[[], str],
     to_json_safe: Callable[[Any], Any],
 ) -> Dict[str, Any]:
-    """Build a complete replay bundle for offline analysis."""
+    """Build replay bundle payload for persistence or transfer.
+
+    Args:
+        session: Runtime session object.
+        snapshot_index: Compact index rows for snapshots.
+        events: Session event rows.
+        artifacts: Turn artifact rows.
+        utc_now_iso: Timestamp factory for metadata generation time.
+        to_json_safe: Serializer for non-JSON-safe values.
+
+    Returns:
+        Canonical replay bundle containing session metadata, snapshots, events,
+        artifacts, and aggregate counts.
+    """
     getter = getattr(session.engine, "get_serializable_snapshot", None)
     snapshot_payload = getter() if callable(getter) else {}
 

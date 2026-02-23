@@ -9,7 +9,19 @@ from .engine_post_learning import run_post_adjudication_learning
 
 
 async def run_engine_adjudication(engine: Any) -> None:
-    """Execute the adjudication process."""
+    """Execute adjudication flow and finalize engine state.
+
+    Args:
+        engine: Debate engine instance.
+
+    Returns:
+        None.
+
+    Side Effects:
+        Performs graph garbage collection, calls judge adjudication, updates
+        convergence/adjudication logs, triggers post-learning, and marks engine
+        as finished.
+    """
     removed_count = engine.graph.garbage_collect()
     raw_convergence = {}
 

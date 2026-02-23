@@ -8,7 +8,14 @@ ScalarSerializer = Callable[[Any], Any]
 
 
 def serialize_value_attr(value: Any) -> Any:
-    """Serialize enum-like values using `.value` when available."""
+    """Serialize enum-like objects using `.value` when safely scalar.
+
+    Args:
+        value: Arbitrary value.
+
+    Returns:
+        `value.value` when present and scalar-like; otherwise original `value`.
+    """
     scalar = getattr(value, "value", None)
 
     if isinstance(scalar, (str, int, float, bool)) or scalar is None:
@@ -19,7 +26,14 @@ def serialize_value_attr(value: Any) -> Any:
 
 
 def serialize_enum_like(value: Any) -> Any:
-    """Serialize enum-like values using `.value`/`.name` best effort."""
+    """Serialize enum-like objects using `.value` or `.name`.
+
+    Args:
+        value: Arbitrary value.
+
+    Returns:
+        `value.value`, or `value.name`, or original `value`.
+    """
     if hasattr(value, "value"):
         return value.value
 
@@ -33,7 +47,15 @@ def to_json_safe(
     value: Any,
     scalar_serializer: Optional[ScalarSerializer] = None,
 ) -> Any:
-    """Recursively convert values into JSON-serializable structures."""
+    """Recursively convert values into JSON-serializable structures.
+
+    Args:
+        value: Arbitrary nested value.
+        scalar_serializer: Optional scalar converter for custom objects.
+
+    Returns:
+        JSON-serializable structure containing dict/list/scalar values only.
+    """
     serializer = scalar_serializer or serialize_enum_like
 
     if isinstance(value, dict):
@@ -63,7 +85,15 @@ def to_json_safe(
 
 
 def as_non_negative_int(value: Any, fallback: int = 0) -> int:
-    """Parse a non-negative integer with fallback on invalid input."""
+    """Parse a non-negative integer with fallback on invalid input.
+
+    Args:
+        value: Raw numeric-like value.
+        fallback: Value returned when parse fails or parsed integer is negative.
+
+    Returns:
+        Non-negative integer.
+    """
     try:
         parsed = int(value)
         return parsed if parsed >= 0 else fallback

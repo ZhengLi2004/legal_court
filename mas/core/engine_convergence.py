@@ -8,7 +8,15 @@ from .graph import EdgeType
 
 
 def build_engine_convergence_config(engine: Any) -> Dict[str, Any]:
-    """Return normalized convergence config values."""
+    """Build normalized convergence config from engine settings.
+
+    Args:
+        engine: Debate engine exposing `cfg.convergence`.
+
+    Returns:
+        Dict containing float/int values for `epsilon`, `min_rounds`,
+        and `window_size`.
+    """
     return {
         "epsilon": float(engine.cfg.convergence.epsilon),
         "min_rounds": int(engine.cfg.convergence.min_rounds),
@@ -17,7 +25,17 @@ def build_engine_convergence_config(engine: Any) -> Dict[str, Any]:
 
 
 def calculate_engine_convergence_delta(engine: Any) -> float:
-    """Calculate delta-phi for current turn and update previous stats."""
+    """Calculate current convergence delta and refresh previous graph counters.
+
+    Args:
+        engine: Debate engine exposing graph and `prev_stats`.
+
+    Returns:
+        Weighted delta value computed from new claim nodes and new conflict edges.
+
+    Side Effects:
+        Updates `engine.prev_stats` with the current claim/conflict counts.
+    """
     current_claim_nodes = engine._count_claim_nodes()
     current_conflicts = 0
 
@@ -46,12 +64,33 @@ def determine_engine_converged(
     epsilon: float,
     min_rounds: int,
 ) -> bool:
-    """Return whether convergence threshold is reached."""
+    """Determine whether convergence threshold is reached.
+
+    Args:
+        round_idx: Current round index.
+        sma: Smoothed convergence value.
+        epsilon: Convergence threshold.
+        min_rounds: Minimum rounds required before convergence can trigger.
+
+    Returns:
+        `True` when `round_idx >= min_rounds` and `sma < epsilon`.
+    """
     return round_idx >= min_rounds and sma < epsilon
 
 
 def advance_engine_convergence(engine: Any) -> Dict[str, Any]:
-    """Advance convergence state after one executed turn."""
+    """Advance engine convergence state after one executed turn.
+
+    Args:
+        engine: Debate engine exposing convergence history and config.
+
+    Returns:
+        Canonical convergence payload containing delta, SMA, thresholds,
+        convergence flag, and history.
+
+    Side Effects:
+        Appends one delta value to `engine.convergence_history`.
+    """
     delta_phi = calculate_engine_convergence_delta(engine)
     engine.convergence_history.append(delta_phi)
     cfg = build_engine_convergence_config(engine)
@@ -83,7 +122,16 @@ def normalize_engine_convergence_payload(
     *,
     fallback_is_converged: bool = False,
 ) -> Dict[str, Any]:
-    """Normalize any convergence dict into one canonical payload."""
+    """Normalize arbitrary convergence payload into canonical shape.
+
+    Args:
+        engine: Debate engine exposing convergence config/history.
+        raw_convergence: Optional raw convergence payload.
+        fallback_is_converged: Fallback convergence flag when payload omits it.
+
+    Returns:
+        Canonical convergence payload with normalized numeric fields and history.
+    """
     cfg = build_engine_convergence_config(engine)
     row = raw_convergence if isinstance(raw_convergence, dict) else {}
     raw_history = row.get("history")

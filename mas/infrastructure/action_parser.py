@@ -24,7 +24,19 @@ def _load_action_payload(raw_output: Union[str, Dict[str, Any], List[Any]]) -> A
 def parse_agent_action_output(
     raw_output: Union[str, Dict[str, Any], List[Any]],
 ) -> Union[List[AgentAction], str]:
-    """Parse strict action payload into a list of AgentAction objects."""
+    """Parse strict JSON action payload into `AgentAction` objects.
+
+    Args:
+        raw_output: Raw model output as JSON string, object, or object list.
+
+    Returns:
+        List of parsed `AgentAction` objects on success, otherwise an error
+        message string in Chinese.
+
+    Raises:
+        Assumption/Unverified: The function catches and stringifies all errors,
+            so no parsing exception is propagated to callers.
+    """
     try:
         data = _load_action_payload(raw_output)
 

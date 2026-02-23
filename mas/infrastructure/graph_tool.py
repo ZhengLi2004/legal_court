@@ -47,6 +47,9 @@ class GraphTool:
 
         Args:
             graph: The `ShadowGraph` for the current turn.
+
+        Returns:
+            None.
         """
         self.current_graph = graph
 
@@ -67,7 +70,14 @@ class GraphTool:
     def validate_actions(
         self, actions: Union[AgentAction, List[AgentAction]]
     ) -> Tuple[bool, List[str]]:
-        """Validate actions against graph constraints without applying them."""
+        """Validate actions against graph constraints without applying them.
+
+        Args:
+            actions: One action or action list.
+
+        Returns:
+            Tuple `(is_valid, errors)` where `errors` is empty on success.
+        """
         try:
             if not self.current_graph:
                 return False, ["当前图谱上下文未设置。"]
@@ -93,7 +103,15 @@ class GraphTool:
     async def apply_actions(
         self, agent_id: str, actions: Union[AgentAction, List[AgentAction]]
     ) -> str:
-        """Apply validated actions to graph state."""
+        """Apply actions to graph state and return execution status text.
+
+        Args:
+            agent_id: Agent identifier used by execution layer.
+            actions: One action or action list.
+
+        Returns:
+            Execution status string prefixed with `EXECUTED` or `REJECT`.
+        """
         try:
             if not self.current_graph:
                 return "REJECT: 当前图谱上下文未设置。"

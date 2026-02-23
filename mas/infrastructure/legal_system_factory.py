@@ -14,7 +14,15 @@ from mas.infrastructure.settings_provider import (
 
 
 def build_legal_system(config: SystemConfig) -> LegalSystem:
-    """Build a fully wired `LegalSystem` instance from concrete tool adapters."""
+    """Build fully wired `LegalSystem` instance from concrete adapters.
+
+    Args:
+        config: Root system configuration.
+
+    Returns:
+        `LegalSystem` initialized with LLM, embedding, matcher, and judge
+        dependencies.
+    """
     llm_defaults = build_llm_config_view(config)
     embedding_model_path = build_embedding_model_path(config)
     dedup_thresholds = build_dedup_thresholds(config)

@@ -8,7 +8,15 @@ from mas.common.serialization import as_non_negative_int
 
 
 def stringify_compact(value: Any) -> str:
-    """Render nested values into compact multiline display text."""
+    """Render nested values into compact multiline text.
+
+    Args:
+        value: Arbitrary scalar/container value.
+
+    Returns:
+        Human-readable multiline text representation. Empty/`None` values become
+        an empty string.
+    """
     if isinstance(value, str):
         return value.strip()
 
@@ -73,7 +81,22 @@ def build_teamflow_message(
     ts_ms: Optional[int] = None,
     meta: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Create one normalized TeamFlow timeline message payload."""
+    """Create one normalized TeamFlow message payload.
+
+    Args:
+        to_json_safe: Serializer for optional `meta` payload.
+        message_id: Unique message identifier within one turn.
+        phase: Processing phase label.
+        actor: Actor display name.
+        role: Actor role key used by frontend.
+        title: Message title.
+        content: Message body text.
+        ts_ms: Optional millisecond timestamp.
+        meta: Optional structured metadata payload.
+
+    Returns:
+        One normalized TeamFlow message dict.
+    """
     payload: Dict[str, Any] = {
         "id": message_id,
         "phase": phase,
@@ -99,7 +122,17 @@ def build_teamflow_stream(
     limit: int,
     to_json_safe: Callable[[Any], Any],
 ) -> List[Dict[str, Any]]:
-    """Transform artifacts/events into frontend TeamFlow timeline rows."""
+    """Transform turn artifacts and events into TeamFlow timeline rows.
+
+    Args:
+        artifacts: Turn artifact rows emitted by the engine.
+        events: Session event rows.
+        limit: Maximum number of turns to return.
+        to_json_safe: Serializer for structured payload fields.
+
+    Returns:
+        Ordered TeamFlow turn rows for frontend timeline rendering.
+    """
     safe_limit = max(1, int(limit))
 
     if not isinstance(artifacts, list) or len(artifacts) == 0:

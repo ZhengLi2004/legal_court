@@ -8,7 +8,14 @@ from typing import Any, Callable, Dict, List, Optional
 
 
 def infer_event_source(event: str) -> str:
-    """Infer event source from event name."""
+    """Infer event source label from event name prefix.
+
+    Args:
+        event: Event name string.
+
+    Returns:
+        `"team"` for `team_*`, `"judge"` for `adjudication*`, otherwise `"engine"`.
+    """
     if event.startswith("team_"):
         return "team"
 
@@ -30,7 +37,15 @@ def infer_event_source(event: str) -> str:
 
 
 def derive_round_idx(event_payload: Dict[str, Any], engine: Any) -> Optional[int]:
-    """Infer round index from payload first, then engine state."""
+    """Infer event round index from payload first, then engine state.
+
+    Args:
+        event_payload: Event payload dict.
+        engine: Engine object that may expose `round_idx`.
+
+    Returns:
+        Parsed round index, or `None` if unavailable or non-numeric.
+    """
     candidates = [
         event_payload.get("round_idx"),
         event_payload.get("round"),
@@ -64,7 +79,17 @@ def get_event_history(
     from_seq: Optional[int] = None,
     to_seq: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Return filtered event history for one session."""
+    """Return filtered event history.
+
+    Args:
+        events: Full event list for one session.
+        limit: Maximum number of rows to return.
+        from_seq: Optional inclusive lower bound on `seq`.
+        to_seq: Optional inclusive upper bound on `seq`.
+
+    Returns:
+        Tail slice of filtered events, preserving original order.
+    """
     rows = events
 
     if from_seq is not None:
@@ -81,7 +106,15 @@ def register_event_subscriber(
     event_subscribers: List[asyncio.Queue],
     max_queue_size: int = 200,
 ) -> asyncio.Queue:
-    """Register a queue subscriber for live event streaming."""
+    """Register a queue subscriber for live event streaming.
+
+    Args:
+        event_subscribers: Mutable subscriber queue list to append into.
+        max_queue_size: Maximum queue size; values < 1 are clamped to 1.
+
+    Returns:
+        Newly created subscriber queue.
+    """
     queue: asyncio.Queue = asyncio.Queue(maxsize=max(1, int(max_queue_size)))
     event_subscribers.append(queue)
     return queue
@@ -91,7 +124,12 @@ def unregister_event_subscriber(
     event_subscribers: List[asyncio.Queue],
     queue: asyncio.Queue,
 ) -> None:
-    """Remove a previously registered live-event subscriber queue."""
+    """Remove one subscriber queue if it exists.
+
+    Args:
+        event_subscribers: Mutable subscriber queue list.
+        queue: Queue instance to remove.
+    """
     try:
         event_subscribers.remove(queue)
 
@@ -109,7 +147,22 @@ def record_event(
     to_json_safe: Callable[[Any], Any],
     utc_now_iso: Callable[[], str],
 ) -> None:
-    """Append one event envelope and fan it out to live subscribers."""
+    """Append one event envelope and fan it out to subscriber queues.
+
+    Args:
+        session: Runtime session object storing events and subscriber queues.
+        session_id: Session identifier.
+        event: Event name.
+        source: Event source label.
+        data: Optional payload to serialize.
+        to_json_safe: Serializer used for payload normalization.
+        utc_now_iso: Timestamp factory for session `updated_at`.
+
+    Side Effects:
+        Appends event rows to `session.events`, mutates turn UID fields, pushes
+        envelopes to subscriber queues, may drop stale queues, increments
+        `session.next_seq`, and updates `session.updated_at`.
+    """
     payload = to_json_safe(data or {})
     explicit_turn_uid = str(payload.get("turn_uid", "")).strip()
 

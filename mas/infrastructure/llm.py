@@ -583,7 +583,21 @@ class GPTChat(LLM):
         stop_strs: Optional[List[str]] = None,
         num_comps: int = 1,
     ) -> Dict[str, Any]:
-        """Request strict JSON-object output and return parsed dict."""
+        """Request strict JSON-object output and return parsed dict.
+
+        Args:
+            messages: Conversation history.
+            temperature: Sampling temperature.
+            max_tokens: Maximum output tokens.
+            stop_strs: Optional stop strings.
+            num_comps: Number of completion choices.
+
+        Returns:
+            Parsed JSON object.
+
+        Raises:
+            ValueError: If output is not valid JSON object text.
+        """
         raw = self.__call__(
             messages=messages,
             temperature=temperature,
@@ -609,7 +623,22 @@ class GPTChat(LLM):
         stop_strs: Optional[List[str]] = None,
         num_comps: int = 1,
     ) -> Any:
-        """Request strict JSON-schema output and return parsed JSON value."""
+        """Request strict JSON-schema output and return parsed JSON value.
+
+        Args:
+            messages: Conversation history.
+            schema: OpenAI-compatible JSON schema payload.
+            temperature: Sampling temperature.
+            max_tokens: Maximum output tokens.
+            stop_strs: Optional stop strings.
+            num_comps: Number of completion choices.
+
+        Returns:
+            Parsed JSON value (object/array/scalar) produced by the model.
+
+        Raises:
+            ValueError: If output is not valid JSON text.
+        """
         raw = self.__call__(
             messages=messages,
             temperature=temperature,
@@ -628,7 +657,20 @@ class GPTChat(LLM):
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Async helper for strict JSON-object outputs."""
+        """Asynchronously request strict JSON-object output.
+
+        Args:
+            prompt: User prompt content.
+            system_msgs: Optional system prompts.
+            max_tokens: Maximum output tokens.
+            temperature: Sampling temperature.
+
+        Returns:
+            Parsed JSON object.
+
+        Raises:
+            ValueError: If output is not valid JSON object text.
+        """
         raw = await self.aask(
             prompt=prompt,
             system_msgs=system_msgs,
@@ -652,7 +694,21 @@ class GPTChat(LLM):
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
     ) -> Any:
-        """Async helper for strict JSON-schema outputs."""
+        """Asynchronously request strict JSON-schema output.
+
+        Args:
+            prompt: User prompt content.
+            schema: OpenAI-compatible JSON schema payload.
+            system_msgs: Optional system prompts.
+            max_tokens: Maximum output tokens.
+            temperature: Sampling temperature.
+
+        Returns:
+            Parsed JSON value returned by model.
+
+        Raises:
+            ValueError: If output is not valid JSON text.
+        """
         raw = await self.aask(
             prompt=prompt,
             system_msgs=system_msgs,
@@ -665,5 +721,9 @@ class GPTChat(LLM):
 
 
 def get_price():
-    """Return the total token counts since the application started."""
+    """Return process-level token usage counters.
+
+    Returns:
+        Tuple `(completion_tokens, prompt_tokens)` accumulated since startup.
+    """
     return completion_tokens, prompt_tokens

@@ -12,7 +12,14 @@ from .session_status import SessionStatus
 
 
 def default_case_path() -> Path:
-    """Return the default bundled case JSONL path."""
+    """Resolve default case JSONL path for session setup.
+
+    The environment variable `MAS_CASE_DATA_FILE` takes precedence. If unset,
+    the function falls back to the repository sample file.
+
+    Returns:
+        Resolved absolute path to the default case JSONL file.
+    """
     configured_path = str(os.getenv("MAS_CASE_DATA_FILE", "")).strip()
 
     if configured_path:
@@ -27,7 +34,13 @@ def default_case_path() -> Path:
 
 
 def default_frontend_snapshots_dir() -> Path:
-    """Return the directory used for persisted frontend snapshot files."""
+    """Resolve default directory for persisted frontend snapshots.
+
+    The environment variable `MAS_FRONTEND_SNAPSHOTS_DIR` takes precedence.
+
+    Returns:
+        Absolute path used by snapshot persistence services.
+    """
     configured_dir = str(os.getenv("MAS_FRONTEND_SNAPSHOTS_DIR", "")).strip()
 
     if configured_dir:
@@ -37,7 +50,11 @@ def default_frontend_snapshots_dir() -> Path:
 
 
 def default_engine_factory() -> Any:
-    """Build a default `DebateEngine` instance for API sessions."""
+    """Build a default `DebateEngine` instance for API sessions.
+
+    Returns:
+        A new `DebateEngine` configured from process-level settings.
+    """
     from mas.core.engine import DebateEngine
     from mas.infrastructure.settings_provider import build_system_config
 
@@ -45,7 +62,19 @@ def default_engine_factory() -> Any:
 
 
 def load_case_from_jsonl(path: Path) -> Dict[str, Any]:
-    """Load the first valid case row from a JSONL file."""
+    """Load the first non-empty JSON object row from a JSONL file.
+
+    Args:
+        path: JSONL file path.
+
+    Returns:
+        First parsed JSON object in the file.
+
+    Raises:
+        ValueError: If no valid JSON object row is found.
+        OSError: If the file cannot be opened.
+        json.JSONDecodeError: If a non-empty row contains invalid JSON.
+    """
     with path.open("r", encoding="utf-8") as file:
         for line in file:
             row = line.strip()
@@ -62,7 +91,17 @@ def load_case_from_jsonl(path: Path) -> Dict[str, Any]:
 
 
 def resolve_memory_storage_dir(storage_root: str) -> Path:
-    """Resolve and validate the long-term memory storage directory."""
+    """Resolve and validate long-term memory storage directory path.
+
+    Args:
+        storage_root: Raw directory string, usually from `MAS_STORAGE_DIR`.
+
+    Returns:
+        Expanded absolute directory path.
+
+    Raises:
+        ValueError: If the input is empty or resolves to an unsafe root-like path.
+    """
     cleaned = str(storage_root or "").strip()
 
     if not cleaned:
@@ -79,7 +118,21 @@ def resolve_memory_storage_dir(storage_root: str) -> Path:
 
 
 def reset_memory_storage_dir(storage_root: str) -> str:
-    """Reset long-term memory storage directory and return absolute path."""
+    """Reset long-term memory storage directory and return absolute path.
+
+    Args:
+        storage_root: Raw storage root string.
+
+    Returns:
+        Absolute path string of recreated storage directory.
+
+    Raises:
+        ValueError: If `storage_root` is empty or unsafe.
+        OSError: If deleting or recreating directories fails.
+
+    Side Effects:
+        Recursively deletes and recreates the storage directory on disk.
+    """
     storage_dir = resolve_memory_storage_dir(storage_root)
 
     if storage_dir.exists():
@@ -90,7 +143,14 @@ def reset_memory_storage_dir(storage_root: str) -> str:
 
 
 def derive_status(engine: Any) -> SessionStatus:
-    """Derive API session status from engine runtime fields."""
+    """Derive API session status from engine runtime fields.
+
+    Args:
+        engine: Debate engine instance (or compatible object).
+
+    Returns:
+        Derived `SessionStatus` based on finished/converged/round/graph state.
+    """
     if getattr(engine, "is_finished", False):
         return SessionStatus.FINISHED
 

@@ -18,7 +18,18 @@ from ._common import (
 
 
 def memory_case_graph_response(session: DebateSession, case_id: str) -> Dict[str, Any]:
-    """Build one historical-case graph payload for memory-case inspection."""
+    """Build graph payload for one historical case in memory panel.
+
+    Args:
+        session: Runtime debate session.
+        case_id: Target case identifier.
+
+    Returns:
+        Case graph payload containing summary and serialized graph data.
+
+    Raises:
+        KeyError: If `case_id` is empty or matching case graph cannot be found.
+    """
     normalized_case_id = str(case_id or "").strip()
 
     if not normalized_case_id:
@@ -83,7 +94,15 @@ def memory_case_graph_response(session: DebateSession, case_id: str) -> Dict[str
 
 
 def memory_response(session: DebateSession) -> Dict[str, Any]:
-    """Build a compact memory panel payload for frontend rendering."""
+    """Build memory side-panel payload for frontend rendering.
+
+    Args:
+        session: Runtime debate session.
+
+    Returns:
+        Compact payload including insights, recalled/retrieved case metadata, and
+        task-layer graph rows.
+    """
     engine = session.engine
     legal_sys = getattr(engine, "legal_sys", None)
     insight_summaries: List[str] = []

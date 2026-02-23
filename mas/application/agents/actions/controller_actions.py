@@ -354,7 +354,24 @@ class ChoosePlanOrPush(Action):
         max_plan_attempts: int,
         recent_errors: str = "",
     ) -> Dict[str, Any]:
-        """Decide next step for controller loop."""
+        """Choose whether controller should continue planning or push actions.
+
+        Args:
+            role_name: Current side role name.
+            worker_advice: Consolidated worker analysis text.
+            graph_context: Current graph context text.
+            action_cache_context: Cached candidate actions context.
+            has_validated_plan: Whether a valid action plan already exists.
+            plan_attempt: Current planning-attempt index.
+            max_plan_attempts: Maximum allowed planning attempts.
+            recent_errors: Optional recent validation/runtime errors.
+
+        Returns:
+            Dict containing `next_step` (`plan` or `push`) and decision reason.
+
+        Raises:
+            ValueError: If model returns unsupported `next_step`.
+        """
         prompt = CHOOSE_PLAN_OR_PUSH_PROMPT.format(
             role_name=role_name,
             worker_advice=worker_advice,
@@ -393,7 +410,16 @@ class PlanTool(Action):
     async def assess_needs(
         self, role_name: str, persona: object, graph_context: str
     ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
-        """Run parallel requirement assessment for fact/law/recall."""
+        """Run fact/law/recall requirement assessments concurrently.
+
+        Args:
+            role_name: Current side role name.
+            persona: Persona object containing belief/desire/intention fields.
+            graph_context: Current graph context text.
+
+        Returns:
+            Tuple of `(fact_need, law_need, recall_need)` assessment payloads.
+        """
         fact_task = AssessFactNeeds(llm=self.llm).run(role_name, persona, graph_context)
         law_task = AssessLawNeeds(llm=self.llm).run(role_name, persona, graph_context)
 
@@ -412,7 +438,19 @@ class PlanTool(Action):
         id_inventory: str,
         feedback: str = "",
     ) -> List[Dict[str, Any]]:
-        """Generate candidate actions via strict tool-calling."""
+        """Generate candidate graph actions via strict tool-calling.
+
+        Args:
+            role_name: Current side role name.
+            worker_advice: Consolidated worker analysis text.
+            graph_context: Current graph context text.
+            focus: Current strategic focus text.
+            id_inventory: Valid node id inventory text.
+            feedback: Optional feedback from previous failed attempt.
+
+        Returns:
+            Candidate action payloads.
+        """
         return await VerifyAndDecide(llm=self.llm).run(
             role_name=role_name,
             worker_advice=worker_advice,
@@ -425,7 +463,15 @@ class PlanTool(Action):
     def validate_json_actions(
         self, graph_tool: Any, raw_actions: List[Dict[str, Any]]
     ) -> Tuple[bool, List[AgentAction], List[str]]:
-        """Validate JSON action payload with schema + static graph constraints."""
+        """Validate raw action payload with schema and graph constraints.
+
+        Args:
+            graph_tool: Graph tool exposing `validate_actions`.
+            raw_actions: Raw action payload rows from model output.
+
+        Returns:
+            Tuple of `(is_valid, parsed_actions, errors)`.
+        """
         try:
             parsed_actions = [AgentAction.model_validate(item) for item in raw_actions]
 
@@ -449,7 +495,20 @@ class PlanTool(Action):
         id_inventory: str,
         feedback: str = "",
     ) -> Dict[str, Any]:
-        """Build and validate candidate actions for push stage."""
+        """Build and validate candidate actions for controller push stage.
+
+        Args:
+            role_name: Current side role name.
+            graph_tool: Graph tool used for static validation.
+            worker_advice: Consolidated worker analysis text.
+            graph_context: Current graph context text.
+            focus: Current strategic focus text.
+            id_inventory: Valid node id inventory text.
+            feedback: Optional feedback from previous failed attempt.
+
+        Returns:
+            Validation payload containing raw actions, parsed actions, and errors.
+        """
         raw_actions = await self.build_actions(
             role_name=role_name,
             worker_advice=worker_advice,
@@ -485,5 +544,14 @@ class PushTool(Action):
     async def run(
         self, role_name: str, graph_tool: Any, actions: List[AgentAction]
     ) -> str:
-        """Execute validated actions and return graph execution logs."""
+        """Execute validated actions and return graph execution logs.
+
+        Args:
+            role_name: Current side role name.
+            graph_tool: Graph tool exposing `apply_actions`.
+            actions: Validated action objects.
+
+        Returns:
+            Execution log text returned by graph tool.
+        """
         return await graph_tool.apply_actions(agent_id=role_name, actions=actions)

@@ -44,7 +44,17 @@ class SnapshotService:
         utc_now_iso: Callable[[], str],
         derive_status: Callable[[Any], SessionStatus],
     ):
-        """Create snapshot service dependencies."""
+        """Initialize snapshot service with injected dependencies.
+
+        Args:
+            get_session: Callable to resolve one runtime session by id.
+            create_session: Callable to create a new runtime session.
+            get_event_history: Callable to fetch session events.
+            frontend_snapshots_dir: Root directory for persisted snapshot files.
+            to_json_safe: Serializer for non-JSON-safe values.
+            utc_now_iso: Timestamp factory for record creation times.
+            derive_status: Callable that derives `SessionStatus` from engine state.
+        """
         self._get_session = get_session
         self._create_session = create_session
         self._get_event_history = get_event_history
@@ -54,7 +64,14 @@ class SnapshotService:
         self._derive_status = derive_status
 
     def get_snapshot_index(self, session_id: str) -> List[Dict[str, Any]]:
-        """Build a compact index for available round snapshots."""
+        """Build compact metadata index for one session's round snapshots.
+
+        Args:
+            session_id: Session identifier.
+
+        Returns:
+            List of snapshot metadata rows (round index, turn, timestamp, counts).
+        """
         session = self._get_session(session_id)
         snapshots = getattr(session.engine, "round_snapshots", [])
 
@@ -97,7 +114,16 @@ class SnapshotService:
         turn_uid: Optional[str] = None,
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        """Return turn artifacts, optionally filtered by one turn UID."""
+        """Return turn artifacts from engine, optionally filtered by turn UID.
+
+        Args:
+            session_id: Session identifier.
+            turn_uid: Optional turn UID filter.
+            limit: Maximum artifact rows to return.
+
+        Returns:
+            Artifact rows, or empty list when engine has no compatible getter.
+        """
         session = self._get_session(session_id)
         getter = getattr(session.engine, "get_turn_artifacts", None)
 
@@ -111,7 +137,15 @@ class SnapshotService:
         session_id: str,
         limit: int = 80,
     ) -> List[Dict[str, Any]]:
-        """Transform artifacts/events into frontend TeamFlow timeline rows."""
+        """Build TeamFlow timeline rows from artifacts and events.
+
+        Args:
+            session_id: Session identifier.
+            limit: Maximum number of turn rows to return.
+
+        Returns:
+            TeamFlow rows in frontend-consumable shape.
+        """
         self._get_session(session_id)
         safe_limit = max(1, int(limit))
 
@@ -139,7 +173,15 @@ class SnapshotService:
     def export_graph_gexf(
         self, session_id: str, round_idx: Optional[int] = None
     ) -> bytes:
-        """Export current or historical graph as GEXF bytes."""
+        """Export current or historical graph as GEXF bytes.
+
+        Args:
+            session_id: Session identifier.
+            round_idx: Optional historical snapshot index.
+
+        Returns:
+            GEXF bytes generated from selected graph state.
+        """
         session = self._get_session(session_id)
 
         return export_graph_gexf_bytes(
@@ -154,7 +196,16 @@ class SnapshotService:
         include_events_limit: int = 5000,
         include_artifacts_limit: int = 5000,
     ) -> Dict[str, Any]:
-        """Export a complete replay bundle for offline analysis."""
+        """Export replay bundle containing snapshots, events, and artifacts.
+
+        Args:
+            session_id: Session identifier.
+            include_events_limit: Maximum event rows included in export.
+            include_artifacts_limit: Maximum artifact rows included in export.
+
+        Returns:
+            Replay bundle dict for persistence or offline analysis.
+        """
         session = self._get_session(session_id)
 
         events = self._get_event_history(
@@ -183,7 +234,16 @@ class SnapshotService:
         label: str = "",
         frontend_state: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Persist current session replay plus optional frontend state."""
+        """Persist a snapshot record for an existing session.
+
+        Args:
+            session_id: Source session identifier.
+            label: Optional human-readable label.
+            frontend_state: Optional frontend state payload.
+
+        Returns:
+            Persisted snapshot metadata row.
+        """
         self._get_session(session_id)
         bundle = self.export_replay_bundle(session_id=session_id)
         snapshot_id = f"fs_{uuid.uuid4().hex[:12]}"
@@ -208,7 +268,19 @@ class SnapshotService:
         label: str = "",
         frontend_state: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Persist an externally provided replay bundle as a snapshot record."""
+        """Persist an external replay bundle as snapshot record.
+
+        Args:
+            bundle: Imported replay bundle payload.
+            label: Optional override label.
+            frontend_state: Optional override frontend state payload.
+
+        Returns:
+            Persisted snapshot metadata row.
+
+        Raises:
+            ValueError: If `bundle` fails normalization checks.
+        """
         normalized_bundle = normalize_import_bundle(bundle)
         session = normalized_bundle.get("session", {})
 
@@ -249,7 +321,15 @@ class SnapshotService:
         limit: int = 20,
         offset: int = 0,
     ) -> Dict[str, Any]:
-        """List persisted frontend snapshots with pagination."""
+        """List persisted frontend snapshots with pagination.
+
+        Args:
+            limit: Maximum number of rows.
+            offset: Pagination offset.
+
+        Returns:
+            Dict with paged `items` and `total`.
+        """
         return list_frontend_snapshot_items(
             self._frontend_snapshots_dir,
             limit=limit,
@@ -257,7 +337,18 @@ class SnapshotService:
         )
 
     async def load_frontend_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
-        """Restore a persisted frontend snapshot into a live session."""
+        """Restore one persisted frontend snapshot into a live runtime session.
+
+        Args:
+            snapshot_id: Snapshot identifier.
+
+        Returns:
+            Frontend bootstrap payload including restored session metadata.
+
+        Raises:
+            ValueError: If stored replay bundle is invalid or restore fails.
+            FileNotFoundError: If snapshot record does not exist.
+        """
         record = read_frontend_snapshot_record(
             self._frontend_snapshots_dir, snapshot_id
         )

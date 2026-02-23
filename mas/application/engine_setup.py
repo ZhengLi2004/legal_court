@@ -27,7 +27,27 @@ async def run_engine_setup(
     case_data: Optional[Dict[str, Any]] = None,
     verbose: bool = False,
 ) -> None:
-    """Initialize the engine for a new case."""
+    """Initialize engine dependencies, graph state, and team agents.
+
+    Args:
+        engine: Debate engine instance to mutate.
+        case_data_path: Optional JSONL file path used when `case_data` is absent.
+        case_data: Optional in-memory case payload.
+        verbose: Whether team workers/controllers should emit verbose transcripts.
+
+    Returns:
+        None.
+
+    Raises:
+        ValueError: If both `case_data` and `case_data_path` are missing.
+        Assumption/Unverified: Other setup-time failures are not transformed here
+            and will propagate to caller (for example I/O, JSON parsing, or
+            adapter initialization errors).
+
+    Side Effects:
+        Mutates most engine runtime fields, initializes external adapters, and
+        appends initial transcript/snapshot rows.
+    """
     logger.info(">>> [Engine] Setting up...")
     engine._notify_state_change("setup_start", None)
     engine._is_running = True

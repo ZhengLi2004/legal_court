@@ -141,6 +141,14 @@ class LegalGMemory(MASMemoryBase):
 
         Args:
             message: The `LegalMessage` object representing the completed case.
+
+        Returns:
+            None.
+
+        Raises:
+            AttributeError: If Chroma collection does not expose `upsert`.
+            Assumption/Unverified: I/O or backend storage exceptions from index
+                persistence and Chroma operations are not normalized here.
         """
         current_laws = self._extract_laws_from_graph(message.shadow_graph)
 

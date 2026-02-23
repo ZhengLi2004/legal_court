@@ -115,7 +115,11 @@ class DebateTeam:
 
     @property
     def pipeline_step(self) -> ControllerPipelineStep:
-        """Get the current pipeline step from the controller."""
+        """Return current controller pipeline step.
+
+        Returns:
+            Current controller pipeline step, or `IDLE` when unavailable.
+        """
         if self.controller and hasattr(self.controller, "pipeline_step"):
             return self.controller.pipeline_step
 
@@ -202,6 +206,11 @@ class DebateTeam:
             A dictionary containing a summary of the turn's outcome, a detailed
             transcript of internal messages (if verbose), and the list of
             executed `AgentAction` objects.
+
+        Raises:
+            Assumption/Unverified: `ValueError` may be raised during internal
+                batch payload validation but is caught and converted into system
+                feedback; this coroutine normally returns a result dict.
         """
         logger.info(f"--- Team {self.side} Turn Start ---")
         self.graph_tool.set_current_graph(graph)

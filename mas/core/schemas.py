@@ -26,7 +26,11 @@ class WorkerInstruction(BaseModel):
     intent: str = Field(...)
 
     def to_json(self) -> str:
-        """Serialize the model to a JSON string."""
+        """Serialize the model to JSON text.
+
+        Returns:
+            Compact JSON string excluding `None` fields.
+        """
         return self.model_dump_json(exclude_none=True)
 
 
@@ -47,7 +51,11 @@ class WorkerReport(BaseModel):
     max_score: float = Field(default=0.0)
 
     def to_json(self) -> str:
-        """Serialize the model to a JSON string."""
+        """Serialize the model to JSON text.
+
+        Returns:
+            Compact JSON string excluding `None` fields.
+        """
         return self.model_dump_json(exclude_none=True)
 
 
@@ -74,7 +82,11 @@ class AgentAction(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
     def to_json(self) -> str:
-        """Serialize the model to a formatted JSON string."""
+        """Serialize the model to formatted JSON text.
+
+        Returns:
+            Pretty-printed JSON string excluding `None` fields.
+        """
         return self.model_dump_json(exclude_none=True, indent=2)
 
 
@@ -90,7 +102,11 @@ class ResourceRequirement(BaseModel):
     intent: Optional[str] = Field(None)
 
     def to_json(self) -> str:
-        """Serialize the model to a formatted JSON string."""
+        """Serialize the model to formatted JSON text.
+
+        Returns:
+            Pretty-printed JSON string excluding `None` fields.
+        """
         return self.model_dump_json(exclude_none=True, indent=2)
 
 
