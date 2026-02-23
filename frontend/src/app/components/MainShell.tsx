@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useDebate } from "../state/useDebate";
-import type { AppRoute } from "../types";
+import type { AppRoute } from "../routes/routeConfig";
 
 interface MainShellProps {
   route: AppRoute;
