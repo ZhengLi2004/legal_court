@@ -9,6 +9,63 @@ from metagpt.logs import logger
 from .engine_convergence import advance_engine_convergence
 
 
+def _resolve_max_turns(engine: Any) -> int:
+    """Resolve hard turn-limit config from engine, return 0 when disabled."""
+    convergence_cfg = getattr(getattr(engine, "cfg", None), "convergence", None)
+
+    try:
+        value = int(getattr(convergence_cfg, "max_turns", 0))
+
+    except (TypeError, ValueError):
+        return 0
+
+    return value if value > 0 else 0
+
+
+def _trigger_hard_turn_limit_if_needed(engine: Any) -> bool:
+    """Mark adjudication-ready when hard turn-limit is reached.
+
+    Returns:
+        True when hard turn-limit blocks the next turn execution.
+    """
+    max_turns = _resolve_max_turns(engine)
+
+    if max_turns <= 0:
+        return False
+
+    legal_sys = getattr(engine, "legal_sys", None)
+
+    if legal_sys is None:
+        return False
+
+    try:
+        current_turns = int(getattr(legal_sys, "step_counter", 0))
+
+    except (TypeError, ValueError):
+        current_turns = 0
+
+    if current_turns < max_turns:
+        return False
+
+    reason = f"Hard turn limit reached ({current_turns}/{max_turns})"
+
+    if not bool(getattr(engine, "is_ready_for_adjudication", False)):
+        engine.is_ready_for_adjudication = True
+
+        engine._notify_state_change(
+            "adjudication_ready",
+            {
+                "reason": reason,
+                "trigger": "hard_limit",
+                "current_turns": current_turns,
+                "max_turns": max_turns,
+            },
+        )
+
+    logger.info("[Engine] {}", reason)
+    return True
+
+
 async def run_engine_step(
     engine: Any,
     *,
@@ -36,6 +93,9 @@ async def run_engine_step(
 
     if engine._is_running:
         logger.warning("[Engine] Step already in progress, skipping.")
+        return
+
+    if _trigger_hard_turn_limit_if_needed(engine):
         return
 
     engine._is_running = True

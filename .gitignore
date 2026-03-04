@@ -6,6 +6,7 @@ metagpt
 workspace
 __pycache__
 *.json
+*.jsonl
 demo
 temp_*
 tests

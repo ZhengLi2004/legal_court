@@ -82,6 +82,7 @@ class ConvergenceConfig:
     epsilon: float = 1.6
     window_size: int = 4
     min_rounds: int = 2
+    max_turns: int = 10
 
 
 @dataclass

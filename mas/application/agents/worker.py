@@ -21,6 +21,7 @@ from mas.application.agents.actions.worker_actions import (
     FormulateSearchQueries,
     ProjectAndAnalyze,
 )
+from mas.common.token_utils import truncate_by_tokens
 from mas.core.schemas import WorkerInstruction, WorkerReport, WorkerReportStatus
 from mas.core.system import LegalSystem
 from mas.infrastructure.embedding import deduplicate_and_rerank
@@ -34,25 +35,17 @@ from prompts.common_prompts import (
 )
 
 
-def truncate_text(text: str, max_len: int = 500) -> str:
-    """Truncate a string to a maximum length with ellipsis suffix.
+def truncate_text(text: str, max_len: int = 768) -> str:
+    """Truncate text by token budget with ellipsis suffix.
 
     Args:
         text: Raw text to truncate.
-        max_len: Maximum output length including ellipsis.
+        max_len: Maximum token count (proxy tokenizer).
 
     Returns:
         Trimmed string. Empty input returns an empty string.
     """
-    if not text:
-        return ""
-
-    text = text.strip()
-
-    if len(text) > max_len:
-        return text[: max_len - 3] + "..."
-
-    return text
+    return truncate_by_tokens(text, max_tokens=max_len)
 
 
 class BaseWorker(Role):
@@ -225,7 +218,7 @@ class FactWorker(BaseWorker):
                 prompt_template=ANALYZE_FACT_PROMPT,
             )
 
-            advice = truncate_text(advice, 600)
+            advice = truncate_text(advice)
 
             report = WorkerReport(
                 status=WorkerReportStatus.FOUND, content=advice, max_score=max_score
@@ -370,7 +363,7 @@ class LawWorker(BaseWorker):
                 f"已注入 {len(law_contents_for_injection)} 条相关法条。\n{analysis}"
             )
 
-            final_content = truncate_text(final_content, 500)
+            final_content = truncate_text(final_content)
 
             report = WorkerReport(
                 status=WorkerReportStatus.FOUND,
@@ -456,7 +449,7 @@ class RecallWorker(BaseWorker):
                 my_role=self.role_name,
             )
 
-            final_content = truncate_text(advice, 500)
+            final_content = truncate_text(advice)
 
             report = WorkerReport(
                 status=WorkerReportStatus.FOUND, content=final_content, max_score=1.0

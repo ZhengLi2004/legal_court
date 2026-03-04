@@ -15,12 +15,13 @@ def build_engine_convergence_config(engine: Any) -> Dict[str, Any]:
 
     Returns:
         Dict containing float/int values for `epsilon`, `min_rounds`,
-        and `window_size`.
+        `window_size`, and `max_turns`.
     """
     return {
         "epsilon": float(engine.cfg.convergence.epsilon),
         "min_rounds": int(engine.cfg.convergence.min_rounds),
         "window_size": int(engine.cfg.convergence.window_size),
+        "max_turns": int(engine.cfg.convergence.max_turns),
     }
 
 

@@ -26,6 +26,7 @@ from mas.application.agents.actions.controller_actions import (
     PushTool,
     VerifyAndDecide,
 )
+from mas.common.token_utils import truncate_by_tokens
 from mas.core.controller_pipeline import ControllerPipelineStep
 from mas.core.schemas import (
     AgentAction,
@@ -66,6 +67,7 @@ class ArgumentController(Role):
 
     name: str = "Controller"
     profile: str = "Lead Lawyer"
+    RECALL_MEMORY_MAX_TOKENS: int = 768
 
     def __init__(
         self,
@@ -175,6 +177,9 @@ class ArgumentController(Role):
                 self.investigation_buffer["Law"] = f"⚖️ [法条检索报告]: {clean_content}"
 
             elif "RecallWorker" in worker_name:
+                clean_content = self._truncate_tokens(
+                    clean_content, self.RECALL_MEMORY_MAX_TOKENS
+                )
                 self.investigation_buffer["Recall"] = (
                     f"🧠 [历史策略参考]: {clean_content}"
                 )
@@ -967,3 +972,7 @@ class ArgumentController(Role):
             return text[:length] + "..."
 
         return text
+
+    def _truncate_tokens(self, text: str, max_tokens: int) -> str:
+        """Truncate text by token budget for memory ingestion."""
+        return truncate_by_tokens(text, max_tokens=max_tokens)
