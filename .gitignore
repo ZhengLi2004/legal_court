@@ -17,5 +17,5 @@ AGENTS.md
 *.pdf
 docs/
 tmp
-benchmarks/
+benchmarks/optim/artifacts/
 contracts/
