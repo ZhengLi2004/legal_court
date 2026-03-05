@@ -19,3 +19,5 @@ docs/
 tmp
 benchmarks/optim/artifacts/
 contracts/
+benchmarks/experiments/artifacts/
+reports/
