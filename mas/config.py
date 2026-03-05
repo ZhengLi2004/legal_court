@@ -130,6 +130,17 @@ class WorkerThresholdConfig:
 
 
 @dataclass
+class ExperimentConfig:
+    """Runtime switches used by experiment-only execution paths."""
+
+    skip_validate_step: bool = False
+    test_mode_no_learning: bool = False
+    enable_fixed_evidence_pack: bool = False
+    disable_prompt_adaptation: bool = True
+    disable_retrieval_cache_learning: bool = True
+
+
+@dataclass
 class SystemConfig:
     """The root configuration class that aggregates all other configs.
 
@@ -145,6 +156,7 @@ class SystemConfig:
     retrieval: RetrievalConfig = RetrievalConfig()
     worker_threshold: WorkerThresholdConfig = WorkerThresholdConfig()
     dedup: DeduplicationConfig = DeduplicationConfig()
+    experiment: ExperimentConfig = ExperimentConfig()
     es: ESConfig = ESConfig()
     convergence: ConvergenceConfig = ConvergenceConfig()
 
