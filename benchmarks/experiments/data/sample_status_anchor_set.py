@@ -1,4 +1,4 @@
-"""Sample blind anchor cases for Step 06 claim extraction / status review."""
+"""Sample blind status anchor rows from final Gold Status artifacts."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import argparse
 import json
 import random
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +35,7 @@ def _allocate(
     total = sum(group_sizes.values())
 
     if sample_size > total:
-        raise ValueError(f"sample_size={sample_size} exceeds available cases={total}")
+        raise ValueError(f"sample_size={sample_size} exceeds available rows={total}")
 
     raw = {key: sample_size * size / total for key, size in group_sizes.items()}
     alloc = {key: min(group_sizes[key], int(value)) for key, value in raw.items()}
@@ -49,7 +48,7 @@ def _allocate(
 
     idx = 0
 
-    while used < sample_size and idx < len(remainders):
+    while used < sample_size and remainders:
         _, key = remainders[idx]
 
         if alloc[key] < group_sizes[key]:
@@ -66,8 +65,8 @@ def _allocate(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--claims-path", required=True)
+    parser.add_argument("--input")
+    parser.add_argument("--status-path", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--sample-size", type=int, default=100)
     parser.add_argument("--seed", type=int, default=20260307)
@@ -76,89 +75,80 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    status_rows = _load_jsonl(Path(args.status_path))
+    case_map: dict[str, dict[str, Any]] = {}
 
-    case_map = {
-        str((case.get("metaInfo") or {}).get("uid", "") or ""): case
-        for case in load_cases_from_jsonl(Path(args.input))
-    }
+    if args.input:
+        case_map = {
+            str((case.get("metaInfo") or {}).get("uid", "") or ""): case
+            for case in load_cases_from_jsonl(Path(args.input))
+        }
 
-    claim_rows = _load_jsonl(Path(args.claims_path))
-    grouped: dict[str, dict[str, Any]] = {}
+    grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
 
-    for row in claim_rows:
-        uid = str(row["uid"])
-
-        packet = grouped.setdefault(
-            uid,
-            {
-                "uid": uid,
-                "split": row["split"],
-                "hard_case": row["hard_case"],
-                "stage": row["stage"],
-                "claim_source": row["claim_source"],
-                "claims": [],
-            },
+    for row in status_rows:
+        key = (
+            str(row.get("split", "")),
+            int(row.get("hard_case", 0)),
+            str(row.get("stage", "")),
+            str(row.get("status_source", "")),
+            str(row.get("status_canonical", "")),
         )
 
-        packet["claims"].append(
-            {
-                "claim_text_raw": row["claim_text_raw"],
-                "source_span": row["source_span"],
-            }
-        )
-
-    strata: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
-
-    for uid, packet in grouped.items():
-        stratum = (
-            packet["split"],
-            packet["hard_case"],
-            packet["stage"],
-            packet["claim_source"],
-        )
-
-        strata[stratum].append(packet)
+        grouped.setdefault(key, []).append(row)
 
     alloc = _allocate(
-        {key: len(rows) for key, rows in strata.items()}, args.sample_size
+        {key: len(rows) for key, rows in grouped.items()}, args.sample_size
     )
 
     rng = random.Random(args.seed)
     selected: list[dict[str, Any]] = []
 
-    for key in sorted(strata):
-        rows = list(strata[key])
+    for key in sorted(grouped):
+        rows = list(grouped[key])
         rng.shuffle(rows)
         selected.extend(rows[: alloc[key]])
 
     selected.sort(
-        key=lambda row: (row["split"], row["stage"], -int(row["hard_case"]), row["uid"])
+        key=lambda row: (
+            str(row.get("split", "")),
+            str(row.get("stage", "")),
+            -int(row.get("hard_case", 0)),
+            str(row.get("uid", "")),
+            str(row.get("claim_id", "")),
+        )
     )
 
     blind_rows = []
 
     for idx, row in enumerate(selected, start=1):
-        case = case_map[row["uid"]]
+        case = case_map.get(str(row.get("uid", "")), {})
+        content = case.get("content") or {}
 
         blind_rows.append(
             {
-                "anchor_case_id": f"ANCHOR_{idx:03d}",
+                "anchor_case_id": f"STATUS_ANCHOR_{idx:03d}",
                 "uid": row["uid"],
                 "split": row["split"],
                 "hard_case": row["hard_case"],
                 "stage": row["stage"],
-                "plaintiff_text": str(
-                    (case.get("content") or {}).get("原告诉称", "") or ""
-                ),
-                "claims_review": [],
+                "plaintiff_text": str(content.get("原告诉称", "") or ""),
+                "judgment_result_text": str(content.get("裁判结果", "") or ""),
+                "court_opinion_text": str(content.get("法院观点", "") or ""),
+                "claims_review": [
+                    {
+                        "claim_text_raw": row["claim_text_raw"],
+                        "status": "",
+                    }
+                ],
                 "status_review": [],
             }
         )
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    _write_jsonl(output_dir / "anchor_set_blind_a.jsonl", blind_rows)
-    _write_jsonl(output_dir / "anchor_set_blind_b.jsonl", blind_rows)
+    _write_jsonl(output_dir / "status_anchor_set_blind_a.jsonl", blind_rows)
+    _write_jsonl(output_dir / "status_anchor_set_blind_b.jsonl", blind_rows)
     return 0
 
 
