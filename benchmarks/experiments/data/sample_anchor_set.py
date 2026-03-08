@@ -1,4 +1,4 @@
-"""Sample blind anchor cases for Step 06 claim extraction / status review."""
+"""Sample blind anchor cases for Step 06 / Step 06A review."""
 
 from __future__ import annotations
 
@@ -68,21 +68,21 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True)
     parser.add_argument("--claims-path", required=True)
+    parser.add_argument("--status-path")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--sample-size", type=int, default=100)
     parser.add_argument("--seed", type=int, default=20260307)
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-
-    case_map = {
+def _load_case_map(path: Path) -> dict[str, dict[str, Any]]:
+    return {
         str((case.get("metaInfo") or {}).get("uid", "") or ""): case
-        for case in load_cases_from_jsonl(Path(args.input))
+        for case in load_cases_from_jsonl(path)
     }
 
-    claim_rows = _load_jsonl(Path(args.claims_path))
+
+def _group_claim_rows(claim_rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
 
     for row in claim_rows:
@@ -96,9 +96,14 @@ def main() -> int:
                 "hard_case": row["hard_case"],
                 "stage": row["stage"],
                 "claim_source": row["claim_source"],
+                "has_expert_claim": False,
+                "has_expert_status": False,
                 "claims": [],
             },
         )
+
+        if row["claim_source"] == "expert_adjudication":
+            packet["has_expert_claim"] = True
 
         packet["claims"].append(
             {
@@ -107,23 +112,47 @@ def main() -> int:
             }
         )
 
+    return grouped
+
+
+def _merge_status_flags(
+    grouped: dict[str, dict[str, Any]], status_rows: list[dict[str, Any]]
+) -> None:
+    for row in status_rows:
+        uid = str(row["uid"])
+        packet = grouped.get(uid)
+
+        if packet and row.get("status_source") == "expert_adjudication":
+            packet["has_expert_status"] = True
+
+
+def _select_packets(
+    grouped: dict[str, dict[str, Any]], sample_size: int, seed: int, joint: bool
+) -> list[dict[str, Any]]:
     strata: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
 
     for uid, packet in grouped.items():
-        stratum = (
-            packet["split"],
-            packet["hard_case"],
-            packet["stage"],
-            packet["claim_source"],
-        )
+        if joint:
+            stratum = (
+                packet["split"],
+                packet["hard_case"],
+                packet["stage"],
+                int(packet["has_expert_claim"]),
+                int(packet["has_expert_status"]),
+            )
+
+        else:
+            stratum = (
+                packet["split"],
+                packet["hard_case"],
+                packet["stage"],
+                packet["claim_source"],
+            )
 
         strata[stratum].append(packet)
 
-    alloc = _allocate(
-        {key: len(rows) for key, rows in strata.items()}, args.sample_size
-    )
-
-    rng = random.Random(args.seed)
+    alloc = _allocate({key: len(rows) for key, rows in strata.items()}, sample_size)
+    rng = random.Random(seed)
     selected: list[dict[str, Any]] = []
 
     for key in sorted(strata):
@@ -135,30 +164,73 @@ def main() -> int:
         key=lambda row: (row["split"], row["stage"], -int(row["hard_case"]), row["uid"])
     )
 
-    blind_rows = []
+    return selected
+
+
+def _build_blind_rows(
+    selected: list[dict[str, Any]],
+    case_map: dict[str, dict[str, Any]],
+    joint: bool,
+) -> list[dict[str, Any]]:
+    blind_rows: list[dict[str, Any]] = []
 
     for idx, row in enumerate(selected, start=1):
         case = case_map[row["uid"]]
+        content = case.get("content") or {}
 
-        blind_rows.append(
-            {
-                "anchor_case_id": f"ANCHOR_{idx:03d}",
-                "uid": row["uid"],
-                "split": row["split"],
-                "hard_case": row["hard_case"],
-                "stage": row["stage"],
-                "plaintiff_text": str(
-                    (case.get("content") or {}).get("原告诉称", "") or ""
-                ),
-                "claims_review": [],
-                "status_review": [],
-            }
-        )
+        blind_row = {
+            "anchor_case_id": (
+                f"JOINT_ANCHOR_{idx:03d}" if joint else f"ANCHOR_{idx:03d}"
+            ),
+            "uid": row["uid"],
+            "split": row["split"],
+            "hard_case": row["hard_case"],
+            "stage": row["stage"],
+            "plaintiff_text": str(content.get("原告诉称", "") or ""),
+            "claims_review": [],
+            "status_review": [],
+        }
 
+        if joint:
+            blind_row["judgment_result_text"] = str(content.get("裁判结果", "") or "")
+            blind_row["court_opinion_text"] = str(content.get("法院观点", "") or "")
+
+        blind_rows.append(blind_row)
+
+    return blind_rows
+
+
+def main() -> int:
+    args = parse_args()
+    joint = bool(args.status_path)
+    case_map = _load_case_map(Path(args.input))
+    claim_rows = _load_jsonl(Path(args.claims_path))
+    grouped = _group_claim_rows(claim_rows)
+
+    if joint:
+        _merge_status_flags(grouped, _load_jsonl(Path(args.status_path)))
+
+    selected = _select_packets(
+        grouped=grouped,
+        sample_size=args.sample_size,
+        seed=args.seed,
+        joint=joint,
+    )
+
+    blind_rows = _build_blind_rows(selected=selected, case_map=case_map, joint=joint)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    _write_jsonl(output_dir / "anchor_set_blind_a.jsonl", blind_rows)
-    _write_jsonl(output_dir / "anchor_set_blind_b.jsonl", blind_rows)
+
+    if joint:
+        blind_a = output_dir / "joint_anchor_set_blind_a.jsonl"
+        blind_b = output_dir / "joint_anchor_set_blind_b.jsonl"
+
+    else:
+        blind_a = output_dir / "anchor_set_blind_a.jsonl"
+        blind_b = output_dir / "anchor_set_blind_b.jsonl"
+
+    _write_jsonl(blind_a, blind_rows)
+    _write_jsonl(blind_b, blind_rows)
     return 0
 
 
