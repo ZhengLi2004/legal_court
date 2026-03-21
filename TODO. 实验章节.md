@@ -49,7 +49,7 @@
     
     - Gold Claim 采用“诉请块定位 + 层级结构解析 + 规则归一 + 专家人工裁决”的协议，仅从 `原告诉称` 抽取；Gold Status 在冻结后的 Gold Claim 上采用“规则优先 + 检索/重排 + 零样本补判 + 专家人工裁决”的协议，不以生成式 Judge 作为主流程。
         
-    - 如资源允许，可额外构建双盲人审锚点集，并固定到同一批 case 上同时完成 Claim 边界复核与 Status 标签复核，再联合计算并报告 Cohen's $\kappa$ 一致率；若因人力或周期限制未执行，则在实验手册与附录中留白并注明“未执行”，不作为当前主实验阻塞项。
+    - 如资源允许，可额外构建联合双盲人审锚点集，并固定到同一批 case 上同时完成 Claim 边界复核与 Status 标签复核；Claim 侧报告 case-level claim-set Cohen's $\kappa$，并同时报告 Exact Match 与 Claim Precision / Recall / F1；Status 侧仅在 matched claims 上计算并报告 Cohen's $\kappa$ 与 agreement rate。若因人力或周期限制未执行，则在实验手册与附录中留白并注明“未执行”，不作为当前主实验阻塞项。
         
 
 ## 3. 对等基线与代码级消融 (Fair Baselines & Code-level Ablation)
