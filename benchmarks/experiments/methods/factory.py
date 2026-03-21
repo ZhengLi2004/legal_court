@@ -1,45 +1,26 @@
-"""Factory for constructing experiment method registry skeletons."""
+"""Factory for constructing Step 09 method registry."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from typing import Any
+from benchmarks.experiments.methods.base import MethodRunner
+from benchmarks.experiments.methods.baseline_b1_structured_rag import (
+    run_baseline_b1_structured_rag,
+)
+from benchmarks.experiments.methods.baseline_b2_vanilla_mad import (
+    run_baseline_b2_vanilla_mad,
+)
+from benchmarks.experiments.methods.baseline_b3_stateful_no_axioms import (
+    run_baseline_b3_stateful_no_axioms,
+)
+from benchmarks.experiments.methods.main_system import run_main_system
 
-MethodRunner = Callable[..., dict[str, Any]]
-
-
-def _build_placeholder_runner(method_name: str) -> MethodRunner:
-    def _runner(*, case: Mapping[str, Any] | None = None, **_: Any) -> dict[str, Any]:
-        case_uid = None
-
-        if case is not None:
-            case_uid = case.get("uid")
-
-        return {
-            "method": method_name,
-            "status": "placeholder",
-            "case_uid": case_uid,
-            "output": {
-                "claims": [],
-                "status": {},
-                "trace": [],
-                "token_usage": {},
-                "latency": None,
-            },
-        }
-
-    return _runner
 
 
 def build_default_registry() -> dict[str, MethodRunner]:
     """Build the default method registry used by experiment orchestrators."""
     return {
-        "main_system": _build_placeholder_runner("main_system"),
-        "baseline_b1_structured_rag": _build_placeholder_runner(
-            "baseline_b1_structured_rag"
-        ),
-        "baseline_b2_vanilla_mad": _build_placeholder_runner("baseline_b2_vanilla_mad"),
-        "baseline_b3_stateful_no_axioms": _build_placeholder_runner(
-            "baseline_b3_stateful_no_axioms"
-        ),
+        "main_system": run_main_system,
+        "baseline_b1_structured_rag": run_baseline_b1_structured_rag,
+        "baseline_b2_vanilla_mad": run_baseline_b2_vanilla_mad,
+        "baseline_b3_stateful_no_axioms": run_baseline_b3_stateful_no_axioms,
     }

@@ -494,6 +494,7 @@ class PlanTool(Action):
         focus: str,
         id_inventory: str,
         feedback: str = "",
+        skip_graph_validation: bool = False,
     ) -> Dict[str, Any]:
         """Build and validate candidate actions for controller push stage.
 
@@ -505,6 +506,8 @@ class PlanTool(Action):
             focus: Current strategic focus text.
             id_inventory: Valid node id inventory text.
             feedback: Optional feedback from previous failed attempt.
+            skip_graph_validation: Whether to bypass graph-level validation and
+                only keep schema-level `AgentAction` parsing.
 
         Returns:
             Validation payload containing raw actions, parsed actions, and errors.
@@ -518,10 +521,27 @@ class PlanTool(Action):
             feedback=feedback,
         )
 
-        validated, parsed_actions, errors = self.validate_json_actions(
-            graph_tool=graph_tool,
-            raw_actions=raw_actions,
-        )
+        if skip_graph_validation:
+            try:
+                parsed_actions = [
+                    AgentAction.model_validate(item) for item in raw_actions
+                ]
+
+            except (TypeError, ValueError) as exc:
+                validated, parsed_actions, errors = (
+                    False,
+                    [],
+                    [f"Action Validation Failed: {exc}"],
+                )
+
+            else:
+                validated, errors = True, []
+
+        else:
+            validated, parsed_actions, errors = self.validate_json_actions(
+                graph_tool=graph_tool,
+                raw_actions=raw_actions,
+            )
 
         return {
             "validated": validated,

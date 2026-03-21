@@ -136,6 +136,12 @@ class ArgumentController(Role):
         self.push_ready = False
         self._validated_actions_for_push = []
 
+    def _experiment_flag(self, name: str) -> bool:
+        """Read one experiment toggle from graph-tool system config."""
+        cfg = getattr(getattr(self.graph_tool, "system", None), "cfg", None)
+        exp_cfg = getattr(cfg, "experiment", None)
+        return bool(getattr(exp_cfg, name, False))
+
     def ingest_results(self, results_list: List[Dict[str, str]]):
         """Process and store the results from worker agents.
 
@@ -359,7 +365,14 @@ class ArgumentController(Role):
             reasoning = self._truncate(req_law.reasoning, 500)
             self.investigation_buffer["Law"] = f"✅ [无法律检索]: {reasoning}"
 
-        if req_recall.need:
+        disable_recall_worker = self._experiment_flag("disable_recall_worker")
+
+        if disable_recall_worker:
+            self.investigation_buffer["Recall"] = (
+                "🚫 [禁用案例借鉴]: 实验配置已禁用 RecallWorker。"
+            )
+
+        elif req_recall.need:
             if not req_recall.intent:
                 logger.warning(
                     f"[{self.name}] Recall Need is True but Intent is missing! Aborting instruction generation for RecallWorker."
@@ -484,6 +497,8 @@ class ArgumentController(Role):
         plan_tool = PlanTool(llm=self.llm)
 
         try:
+            skip_validate_step = self._experiment_flag("skip_validate_step")
+
             plan_payload = await plan_tool.run(
                 role_name=self.name,
                 graph_tool=self.graph_tool,
@@ -492,6 +507,7 @@ class ArgumentController(Role):
                 focus=self.persona.intention,
                 id_inventory=id_list_str,
                 feedback=feedback_section,
+                skip_graph_validation=skip_validate_step,
             )
 
         except ToolCallContractError as e:
@@ -653,13 +669,22 @@ class ArgumentController(Role):
 
         self.push_ready = True
         self._validated_actions_for_push = parsed_actions
-        self.pipeline_step = ControllerPipelineStep.PLAN
-        self.last_execution_log = f"PLAN_VALIDATED: attempt={self.plan_attempt}"
+
+        if skip_validate_step:
+            self.pipeline_step = ControllerPipelineStep.PUSH
+
+            self.last_execution_log = (
+                f"PLAN_READY_FOR_PUSH: attempt={self.plan_attempt} (skip_validate_step)"
+            )
+
+        else:
+            self.pipeline_step = ControllerPipelineStep.PLAN
+            self.last_execution_log = f"PLAN_VALIDATED: attempt={self.plan_attempt}"
 
         self._append_action_cache(
             attempt=self.plan_attempt,
             stage="plan",
-            status="validated",
+            status="validated_skip_gate" if skip_validate_step else "validated",
             decision_raw=self.last_decision_raw,
             parsed_actions=self.last_parsed_actions,
             validation_errors=[],
@@ -673,10 +698,16 @@ class ArgumentController(Role):
             attempt=self.plan_attempt,
             route_step=route_step,
             route_reason=route_reason,
-            status="validated",
+            status="validated_skip_gate" if skip_validate_step else "validated",
             action_count=len(parsed_actions),
             error_count=0,
         )
+
+        if skip_validate_step:
+            return Message(
+                content="EXECUTION_FAILURE_RETRY: PLAN_READY_FOR_PUSH",
+                role=self.profile,
+            )
 
         return Message(
             content="EXECUTION_FAILURE_RETRY: PLAN_VALIDATED",

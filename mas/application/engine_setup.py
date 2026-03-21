@@ -94,8 +94,17 @@ async def run_engine_setup(
             engine.raw_facts
         )
 
+        disable_initial_insights = bool(
+            getattr(engine.cfg.experiment, "disable_initial_insights", False)
+        )
+
         p_insights_str = "\n".join([f"- {item}" for item in p_insights_list])
         d_insights_str = "\n".join([f"- {item}" for item in d_insights_list])
+
+        if disable_initial_insights:
+            p_insights_str = ""
+            d_insights_str = ""
+
         engine.legal_sys.step_counter = 0
         engine.prev_stats["claim_nodes"] = engine._count_claim_nodes()
         engine.prev_stats["conflict_edges"] = 0

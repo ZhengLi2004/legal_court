@@ -70,6 +70,10 @@ class DebateTeam:
         self.verbose = verbose
         self.on_state_change: Optional[Callable[[str, str, dict], None]] = None
 
+        self.disable_recall_worker = bool(
+            getattr(legal_system.cfg.experiment, "disable_recall_worker", False)
+        )
+
         self.controller = ArgumentController(
             name=f"{side}_Controller",
             persona=persona,
@@ -102,15 +106,18 @@ class DebateTeam:
         )
 
         self.law_worker.graph_tool = graph_tool
+        self.recall_worker: RecallWorker | None = None
 
-        self.recall_worker = RecallWorker(
-            name=f"{side}_RecallWorker",
-            legal_system=legal_system,
-            llm=llm,
-            role_name=side,
-        )
+        if not self.disable_recall_worker:
+            self.recall_worker = RecallWorker(
+                name=f"{side}_RecallWorker",
+                legal_system=legal_system,
+                llm=llm,
+                role_name=side,
+            )
 
-        self.recall_worker.graph_tool = graph_tool
+            self.recall_worker.graph_tool = graph_tool
+
         self.max_internal_steps = 15
 
     @property

@@ -138,6 +138,8 @@ class ExperimentConfig:
     enable_fixed_evidence_pack: bool = False
     disable_prompt_adaptation: bool = True
     disable_retrieval_cache_learning: bool = True
+    disable_recall_worker: bool = False
+    disable_initial_insights: bool = False
 
 
 @dataclass
