@@ -7,8 +7,8 @@ generating root claims, and creating BDI personas for the agents.
 """
 
 import json
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import Any, List, Mapping
 
 from metagpt.logs import logger
 
@@ -54,6 +54,83 @@ _PERSONA_SCHEMA = {
 }
 
 
+def normalize_root_claim_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize one externally supplied root-claim row."""
+    claim_text_raw = str(
+        row.get("claim_text_raw", "") or row.get("claim_text_norm", "") or ""
+    ).strip()
+
+    if not claim_text_raw:
+        raise ValueError("Root claim row missing non-empty claim_text_raw.")
+
+    claim_text_norm = str(row.get("claim_text_norm", "") or "").strip()
+
+    if not claim_text_norm:
+        claim_text_norm = " ".join(claim_text_raw.split())
+
+    normalized: dict[str, Any] = {
+        "claim_text_raw": claim_text_raw,
+        "claim_text_norm": claim_text_norm,
+    }
+
+    for key in (
+        "claim_id",
+        "action",
+        "target",
+        "amount",
+        "liability",
+        "stage_role",
+        "claim_source",
+        "gold_status_eval",
+    ):
+        value = row.get(key, "")
+
+        if value is None:
+            value = ""
+
+        if isinstance(value, str):
+            value = value.strip()
+
+        if value not in ("", [], {}, None):
+            normalized[key] = value
+
+    claim_flags = row.get("claim_flags", [])
+    normalized["claim_flags"] = list(claim_flags or [])
+    return normalized
+
+
+def build_root_claim_node_metadata(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Build graph metadata for one root-claim node."""
+    normalized = normalize_root_claim_row(row)
+
+    metadata: dict[str, Any] = {
+        "is_root_claim": True,
+        "claim_text_norm": normalized["claim_text_norm"],
+        "claim_flags": list(normalized.get("claim_flags", [])),
+    }
+
+    external_claim_id = str(normalized.get("claim_id", "") or "").strip()
+
+    if external_claim_id:
+        metadata["external_claim_id"] = external_claim_id
+
+    for key in (
+        "action",
+        "target",
+        "amount",
+        "liability",
+        "stage_role",
+        "claim_source",
+        "gold_status_eval",
+    ):
+        value = normalized.get(key, "")
+
+        if value not in ("", [], {}, None):
+            metadata[key] = value
+
+    return metadata
+
+
 @dataclass
 class AgentPersona:
     """A structured representation of an agent's BDI (Belief, Desire, Intention) model.
@@ -86,6 +163,7 @@ class InitializationResult:
     defendant_persona: AgentPersona
     fact_statements: List[str]
     root_claim_actions: List[str]
+    root_claim_rows: List[dict[str, Any]] = field(default_factory=list)
 
 
 class CaseInitializer:
@@ -103,7 +181,13 @@ class CaseInitializer:
         """
         self.llm = llm
 
-    async def initialize(self, fact_finding: str, cause: str) -> InitializationResult:
+    async def initialize(
+        self,
+        fact_finding: str,
+        cause: str,
+        *,
+        root_claim_rows_override: list[Mapping[str, Any]] | None = None,
+    ) -> InitializationResult:
         """Run the full case initialization pipeline.
 
         This method asynchronously calls the helper methods to decompose facts,
@@ -118,7 +202,27 @@ class CaseInitializer:
             An `InitializationResult` object containing all the processed data.
         """
         fact_statements = await self._decompose_facts(fact_finding)
-        root_claim_texts = await self._generate_root_claim(fact_finding, cause)
+
+        if root_claim_rows_override is not None:
+            root_claim_rows = [
+                normalize_root_claim_row(row) for row in root_claim_rows_override
+            ]
+
+            if not root_claim_rows:
+                raise ValueError("root_claim_rows_override cannot be empty.")
+
+            root_claim_texts = [
+                str(row.get("claim_text_raw", "") or "").strip()
+                for row in root_claim_rows
+            ]
+
+        else:
+            root_claim_texts = await self._generate_root_claim(fact_finding, cause)
+
+            root_claim_rows = [
+                normalize_root_claim_row({"claim_text_raw": text})
+                for text in root_claim_texts
+            ]
 
         p_persona = await self._generate_persona(
             fact_statements=fact_statements,
@@ -139,6 +243,7 @@ class CaseInitializer:
             defendant_persona=d_persona,
             fact_statements=fact_statements,
             root_claim_actions=root_claim_texts,
+            root_claim_rows=root_claim_rows,
         )
 
     async def _decompose_facts(self, text: str) -> List[str]:

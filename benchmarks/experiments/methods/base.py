@@ -10,12 +10,17 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from benchmarks.experiments.data.loader import load_cases_from_jsonl
 from mas.core.engine import DebateEngine
 from mas.core.graph import NodeStatus, NodeType
-from mas.infrastructure.initializer import CaseInitializer
+from mas.infrastructure.initializer import (
+    CaseInitializer,
+    build_root_claim_node_metadata,
+)
 from mas.infrastructure.legal_system_factory import build_legal_system
 from mas.infrastructure.llm import GPTChat, get_price
 from mas.infrastructure.settings_provider import (
@@ -25,6 +30,14 @@ from mas.infrastructure.settings_provider import (
 
 MethodRunner = Callable[..., dict[str, Any]]
 ALLOWED_STATUS = {"VALIDATED", "DEFEATED", "HYPOTHETICAL"}
+
+DEFAULT_EXPERIMENT_GOLD_CLAIMS_PATH = Path(
+    "benchmarks/experiments/artifacts/gold/gold_claims_final.jsonl"
+)
+
+DEFAULT_EXPERIMENT_GOLD_STATUS_PATH = Path(
+    "benchmarks/experiments/artifacts/gold/gold_status_final.jsonl"
+)
 
 
 def normalize_space(text: str) -> str:
@@ -55,6 +68,128 @@ def case_uid(case: Mapping[str, Any]) -> str:
     return f"case_{hashlib.sha1(payload.encode('utf-8')).hexdigest()[:12]}"
 
 
+def _claim_row_sort_key(row: Mapping[str, Any]) -> tuple[int, str]:
+    """Return one stable sort key for gold claim/status rows."""
+    claim_index_value = row.get("claim_index", "")
+
+    try:
+        claim_index = int(claim_index_value)
+
+    except (TypeError, ValueError):
+        claim_index = 10**9
+
+    claim_id = str(row.get("claim_id", "") or "").strip()
+    return claim_index, claim_id
+
+
+@lru_cache(maxsize=1)
+def _load_experiment_gold_bundle() -> tuple[
+    dict[str, list[dict[str, Any]]],
+    dict[str, list[dict[str, Any]]],
+    dict[tuple[str, str], dict[str, Any]],
+]:
+    """Load cached gold claim/status rows for experiment root-claim seeding."""
+    claim_rows = load_cases_from_jsonl(DEFAULT_EXPERIMENT_GOLD_CLAIMS_PATH)
+    status_rows = load_cases_from_jsonl(DEFAULT_EXPERIMENT_GOLD_STATUS_PATH)
+    claims_by_uid: dict[str, list[dict[str, Any]]] = {}
+    status_by_uid: dict[str, list[dict[str, Any]]] = {}
+    status_lookup: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for row in claim_rows:
+        uid = str(row.get("uid", "") or "").strip()
+
+        if not uid:
+            continue
+
+        claims_by_uid.setdefault(uid, []).append(dict(row))
+
+    for row in status_rows:
+        uid = str(row.get("uid", "") or "").strip()
+        claim_id = str(row.get("claim_id", "") or "").strip()
+
+        if not uid or not claim_id:
+            continue
+
+        status_row = dict(row)
+        status_by_uid.setdefault(uid, []).append(status_row)
+        status_key = (uid, claim_id)
+
+        if status_key in status_lookup:
+            raise ValueError(
+                f"Duplicate gold status row detected for uid={uid} claim_id={claim_id}"
+            )
+
+        status_lookup[status_key] = status_row
+
+    for rows in claims_by_uid.values():
+        rows.sort(key=_claim_row_sort_key)
+
+    for rows in status_by_uid.values():
+        rows.sort(key=_claim_row_sort_key)
+
+    return claims_by_uid, status_by_uid, status_lookup
+
+
+def _resolve_experiment_root_claim_rows(
+    payload: Mapping[str, Any],
+    *,
+    uid: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return strict experiment root-claim seeds for one case uid."""
+    provided_claim_rows = payload.get("experiment_root_claim_rows")
+
+    if provided_claim_rows is not None:
+        claim_rows = [dict(row) for row in list(provided_claim_rows)]
+
+        if not claim_rows:
+            raise ValueError(
+                f"experiment_root_claim_rows cannot be empty for uid={uid}"
+            )
+
+        status_rows = [
+            dict(row) for row in list(payload.get("experiment_gold_status_rows") or [])
+        ]
+
+        status_lookup = {
+            (
+                str(row.get("uid", "") or uid).strip() or uid,
+                str(row.get("claim_id", "") or "").strip(),
+            ): dict(row)
+            for row in status_rows
+            if str(row.get("claim_id", "") or "").strip()
+        }
+
+        for row in claim_rows:
+            claim_id = str(row.get("claim_id", "") or "").strip()
+            status_row = status_lookup.get((uid, claim_id))
+
+            if status_row is not None:
+                row["gold_status_eval"] = str(
+                    status_row.get("status_eval", "") or ""
+                ).strip()
+
+        return claim_rows, status_rows
+
+    claims_by_uid, status_by_uid, status_lookup = _load_experiment_gold_bundle()
+    claim_rows = [dict(row) for row in claims_by_uid.get(uid, [])]
+
+    if not claim_rows:
+        raise ValueError(f"No gold claim rows found for uid={uid}")
+
+    for row in claim_rows:
+        claim_id = str(row.get("claim_id", "") or "").strip()
+        status_row = status_lookup.get((uid, claim_id))
+
+        if status_row is None:
+            raise ValueError(
+                f"Missing gold status row for uid={uid} claim_id={claim_id}"
+            )
+
+        row["gold_status_eval"] = str(status_row.get("status_eval", "") or "").strip()
+
+    return claim_rows, [dict(row) for row in status_by_uid.get(uid, [])]
+
+
 def prepare_case_for_engine(
     case: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
@@ -82,6 +217,10 @@ def prepare_case_for_engine(
 
     title = str(payload.get("title", "") or meta.get("caseName", "") or "").strip()
 
+    experiment_root_claim_rows, experiment_gold_status_rows = (
+        _resolve_experiment_root_claim_rows(payload, uid=uid)
+    )
+
     if not fact_finding:
         warnings.append("fact_finding_missing")
 
@@ -90,6 +229,8 @@ def prepare_case_for_engine(
     payload["title"] = title
     payload["fact_finding"] = fact_finding
     payload["cause"] = [cause] if cause else ["未知案由"]
+    payload["experiment_root_claim_rows"] = experiment_root_claim_rows
+    payload["experiment_gold_status_rows"] = experiment_gold_status_rows
     return payload, warnings
 
 
@@ -205,7 +346,7 @@ def _extract_claim_rows(
         for claim_id, status in root_claims_status.items()
     }
 
-    root_nodes: list[tuple[str, str]] = []
+    root_nodes: list[tuple[str, str, dict[str, Any]]] = []
 
     if graph is None or not hasattr(graph, "graph"):
         return claim_rows, status_rows
@@ -215,28 +356,60 @@ def _extract_claim_rows(
 
         if metadata.get("is_root_claim", False):
             root_nodes.append(
-                (str(node_id), str(data.get("content", "") or "").strip())
+                (
+                    str(node_id),
+                    str(data.get("content", "") or "").strip(),
+                    dict(metadata),
+                )
             )
 
-    for node_id, content in sorted(root_nodes, key=lambda item: item[0]):
+    for node_id, content, metadata in sorted(
+        root_nodes,
+        key=lambda item: (
+            str(item[2].get("external_claim_id", "") or "").strip() or item[0]
+        ),
+    ):
         status_eval = normalized_status.get(node_id, NodeStatus.HYPOTHETICAL.value)
 
-        if node_id not in normalized_status:
-            warnings.append(f"missing_root_claim_status:{node_id}")
+        external_claim_id = str(
+            metadata.get("external_claim_id", "") or node_id
+        ).strip()
 
-        claim_rows.append(
-            {
-                "uid": case_uid_value,
-                "claim_id": node_id,
-                "claim_text_raw": content,
-                "claim_text_norm": normalize_space(content),
-            }
-        )
+        claim_row: dict[str, Any] = {
+            "uid": case_uid_value,
+            "claim_id": external_claim_id,
+            "claim_text_raw": content,
+            "claim_text_norm": str(
+                metadata.get("claim_text_norm", "") or normalize_space(content)
+            ).strip(),
+        }
+
+        if node_id not in normalized_status:
+            warnings.append(f"missing_root_claim_status:{external_claim_id}")
+
+        for key in (
+            "action",
+            "target",
+            "amount",
+            "liability",
+            "stage_role",
+            "claim_source",
+            "gold_status_eval",
+        ):
+            value = metadata.get(key, "")
+
+            if value not in ("", [], {}, None):
+                claim_row[key] = value
+
+        if "claim_flags" in metadata:
+            claim_row["claim_flags"] = list(metadata.get("claim_flags") or [])
+
+        claim_rows.append(claim_row)
 
         status_rows.append(
             {
                 "uid": case_uid_value,
-                "claim_id": node_id,
+                "claim_id": external_claim_id,
                 "status_eval": str(status_eval),
             }
         )
@@ -289,7 +462,16 @@ def _execute_structured_single_pass(
     else:
         cause = str(cause_value or "未知案由")
 
-    init_res = _run_coro_sync(initializer.initialize(fact_finding, cause))
+    root_claim_rows = list(prepared_case.get("experiment_root_claim_rows") or [])
+
+    init_res = _run_coro_sync(
+        initializer.initialize(
+            fact_finding,
+            cause,
+            root_claim_rows_override=root_claim_rows,
+        )
+    )
+
     graph, _ = legal_sys.new_case(fact_finding)
     fact_count = 0
 
@@ -305,13 +487,21 @@ def _execute_structured_single_pass(
             fact_count += 1
 
     claim_count = 0
+    normalized_root_claim_rows = list(getattr(init_res, "root_claim_rows", []) or [])
 
-    for claim_statement in init_res.root_claim_actions:
+    if not normalized_root_claim_rows:
+        normalized_root_claim_rows = [
+            {"claim_text_raw": text} for text in init_res.root_claim_actions
+        ]
+
+    for claim_row in normalized_root_claim_rows:
+        claim_statement = str(claim_row.get("claim_text_raw", "") or "").strip()
+
         _, is_new = graph.add_node(
             content=claim_statement,
             node_type=NodeType.CLAIM,
             agent_id="System_Init",
-            metadata={"is_root_claim": True},
+            metadata=build_root_claim_node_metadata(claim_row),
         )
 
         if is_new:

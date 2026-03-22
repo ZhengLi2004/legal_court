@@ -141,4 +141,4 @@
     
 - **预注册比较点声明:** 针对主张 4 的显著性检验，预注册范围限定于“主系统 vs 各基线”的配对比较。预算网格选取 3 个分位阈值点（如 Token 上限的 25%、50%、75%），回合选取 $t \in \{1, 3, 5\}$，通过预定检验族规模控制假阳性率。
     
-- **评测管线全局冻结声明 (Global Freeze Commitment):** 实验承诺：所有评测组件在启动测试集 (Test Set) 评估前冻结，并在代码库中执行 Tag 归档。可审计的归档条目路径包含：模型配置 (`configs/*.yaml`)、解析器规则 (`parser_rules/*.json`)、对齐器参数 (`aligner/*.yaml`)、对称预算网格 (`budget_grid.json`) 与预注册检验点列表 (`prereg_points.json`)，以支持评测方法学的透明度与独立审计。
+- **评测管线全局冻结声明 (Global Freeze Commitment):** 实验承诺：所有评测组件在启动测试集 (Test Set) 评估前冻结，并在代码库中执行 Tag 归档。可审计的归档条目采用运行态快照与协议文件：`runtime_config_snapshot.json`、`method_registry_snapshot.json`、`matching_protocol_snapshot.json`、`metric_contract_snapshot.json`、`split_refs.json`、`gold_refs.json`、对称预算网格 (`budget_grid.json`)、预注册检验点列表 (`prereg_points.json`)，以及 preflight/live dry-run 摘要文件，以支持评测方法学的透明度与独立审计。

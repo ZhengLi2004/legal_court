@@ -381,6 +381,70 @@ class GPTChat(LLM):
         )
 
     @staticmethod
+    def _repair_json_text(raw: str) -> str:
+        """Repair bare control characters inside JSON strings.
+
+        Some OpenAI-compatible endpoints occasionally return almost-valid JSON
+        where string values contain literal newlines or tabs. This helper keeps
+        the payload unchanged outside quoted strings and only escapes control
+        characters that would otherwise make `json.loads` fail.
+        """
+        text = str(raw or "").strip()
+
+        if text.startswith("```") and text.endswith("```"):
+            lines = text.splitlines()
+
+            if len(lines) >= 3 and lines[0].startswith("```") and lines[-1] == "```":
+                text = "\n".join(lines[1:-1]).strip()
+
+        repaired: list[str] = []
+        in_string = False
+        escaped = False
+
+        for ch in text:
+            if in_string:
+                if escaped:
+                    repaired.append(ch)
+                    escaped = False
+                    continue
+
+                if ch == "\\":
+                    repaired.append(ch)
+                    escaped = True
+                    continue
+
+                if ch == '"':
+                    repaired.append(ch)
+                    in_string = False
+                    continue
+
+                if ch == "\n":
+                    repaired.append("\\n")
+                    continue
+
+                if ch == "\r":
+                    repaired.append("\\r")
+                    continue
+
+                if ch == "\t":
+                    repaired.append("\\t")
+                    continue
+
+                if ord(ch) < 0x20:
+                    repaired.append(f"\\u{ord(ch):04x}")
+                    continue
+
+                repaired.append(ch)
+                continue
+
+            repaired.append(ch)
+
+            if ch == '"':
+                in_string = True
+
+        return "".join(repaired)
+
+    @staticmethod
     def _parse_json_output(raw: str) -> Any:
         """Parse a JSON string and raise clear errors for invalid outputs."""
         if not isinstance(raw, str) or not raw.strip():
@@ -390,6 +454,20 @@ class GPTChat(LLM):
             return json.loads(raw)
 
         except json.JSONDecodeError as exc:
+            repaired = GPTChat._repair_json_text(raw)
+
+            if repaired != raw:
+                try:
+                    logger.warning(
+                        "Repairing malformed JSON output from LLM after decode failure: %s",
+                        exc,
+                    )
+
+                    return json.loads(repaired)
+
+                except json.JSONDecodeError:
+                    pass
+
             raise ValueError(f"LLM JSON decode failed: {exc}") from exc
 
     def ask_tool_call(

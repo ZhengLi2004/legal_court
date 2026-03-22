@@ -9,7 +9,10 @@ from metagpt.logs import logger
 
 from mas.infrastructure.fact_es_tool import FactEsTool
 from mas.infrastructure.graph_tool import GraphTool
-from mas.infrastructure.initializer import CaseInitializer
+from mas.infrastructure.initializer import (
+    CaseInitializer,
+    build_root_claim_node_metadata,
+)
 from mas.infrastructure.law_es_tool import LawEsTool
 from mas.infrastructure.llm import GPTChat
 
@@ -88,7 +91,13 @@ async def run_engine_setup(
             cause = cause[0] if cause else "未知案由"
 
         initializer = CaseInitializer(agent_llm)
-        init_res = await initializer.initialize(engine.raw_facts, cause)
+        root_claim_rows_override = resolved_case_data.get("experiment_root_claim_rows")
+
+        init_res = await initializer.initialize(
+            engine.raw_facts,
+            cause,
+            root_claim_rows_override=root_claim_rows_override,
+        )
 
         engine.graph, (p_insights_list, d_insights_list) = engine.legal_sys.new_case(
             engine.raw_facts
@@ -128,13 +137,21 @@ async def run_engine_setup(
             engine.graph.touch_nodes(fact_ids, step_index=0)
 
         claim_ids = []
+        root_claim_rows = list(getattr(init_res, "root_claim_rows", []) or [])
 
-        for claim_statement in init_res.root_claim_actions:
+        if not root_claim_rows:
+            root_claim_rows = [
+                {"claim_text_raw": text} for text in init_res.root_claim_actions
+            ]
+
+        for claim_row in root_claim_rows:
+            claim_statement = str(claim_row.get("claim_text_raw", "") or "").strip()
+
             node_id, is_new = engine.graph.add_node(
                 content=claim_statement,
                 node_type=NodeType.CLAIM,
                 agent_id="System_Init",
-                metadata={"is_root_claim": True},
+                metadata=build_root_claim_node_metadata(claim_row),
             )
 
             if is_new:
