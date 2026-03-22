@@ -62,6 +62,7 @@ class LLMCallable(Protocol):
         stop_strs: Optional[List[str]] = None,
         num_comps: int = 1,
         response_format: Optional[Dict[str, Any]] = None,
+        raise_on_error: bool = False,
     ) -> str:
         """Define the standard call signature for a language model.
 
@@ -211,6 +212,7 @@ class GPTChat(LLM):
         stop_strs: Optional[List[str]] = None,
         num_comps: int = 1,
         response_format: Optional[Dict[str, Any]] = None,
+        raise_on_error: bool = False,
     ) -> str:
         """Make a synchronous chat completion request.
 
@@ -225,7 +227,8 @@ class GPTChat(LLM):
 
         Returns:
             The content of the assistant's response as a string, or an empty
-            string if the request fails after all retries.
+            string if the request fails after all retries and `raise_on_error`
+            is disabled.
         """
         global prompt_tokens, completion_tokens
 
@@ -243,6 +246,7 @@ class GPTChat(LLM):
 
         max_retries = 3
         wait_time = 2
+        last_error: Exception | None = None
 
         for attempt in range(max_retries):
             try:
@@ -277,6 +281,7 @@ class GPTChat(LLM):
                 return answer
 
             except Exception as e:
+                last_error = e
                 error_msg = str(e)
 
                 logger.warning(
@@ -290,6 +295,9 @@ class GPTChat(LLM):
 
                 else:
                     break
+
+        if raise_on_error and last_error is not None:
+            raise last_error
 
         return ""
 
@@ -495,6 +503,7 @@ class GPTChat(LLM):
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
+        raise_on_error: bool = False,
     ) -> str:
         """Make an asynchronous chat completion request with a simple prompt.
 
@@ -527,6 +536,7 @@ class GPTChat(LLM):
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_format=response_format,
+                raise_on_error=raise_on_error,
             ),
         )
 
@@ -605,6 +615,7 @@ class GPTChat(LLM):
             stop_strs=stop_strs,
             num_comps=num_comps,
             response_format={"type": "json_object"},
+            raise_on_error=True,
         )
 
         data = self._parse_json_output(raw)
@@ -646,6 +657,7 @@ class GPTChat(LLM):
             stop_strs=stop_strs,
             num_comps=num_comps,
             response_format={"type": "json_schema", "json_schema": schema},
+            raise_on_error=True,
         )
 
         return self._parse_json_output(raw)
@@ -677,6 +689,7 @@ class GPTChat(LLM):
             max_tokens=max_tokens,
             temperature=temperature,
             response_format={"type": "json_object"},
+            raise_on_error=True,
         )
 
         data = self._parse_json_output(raw)
@@ -715,6 +728,7 @@ class GPTChat(LLM):
             max_tokens=max_tokens,
             temperature=temperature,
             response_format={"type": "json_schema", "json_schema": schema},
+            raise_on_error=True,
         )
 
         return self._parse_json_output(raw)

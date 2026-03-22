@@ -17,9 +17,11 @@ from mas.core.engine import DebateEngine
 from mas.core.graph import NodeStatus, NodeType
 from mas.infrastructure.initializer import CaseInitializer
 from mas.infrastructure.legal_system_factory import build_legal_system
-from mas.infrastructure.llm import get_price
-from mas.infrastructure.llm import GPTChat
-from mas.infrastructure.settings_provider import build_llm_config_view, build_system_config
+from mas.infrastructure.llm import GPTChat, get_price
+from mas.infrastructure.settings_provider import (
+    build_llm_config_view,
+    build_system_config,
+)
 
 MethodRunner = Callable[..., dict[str, Any]]
 ALLOWED_STATUS = {"VALIDATED", "DEFEATED", "HYPOTHETICAL"}
@@ -53,7 +55,9 @@ def case_uid(case: Mapping[str, Any]) -> str:
     return f"case_{hashlib.sha1(payload.encode('utf-8')).hexdigest()[:12]}"
 
 
-def prepare_case_for_engine(case: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
+def prepare_case_for_engine(
+    case: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
     """Normalize benchmark case payload into engine setup shape."""
     warnings: list[str] = []
     payload = deepcopy(dict(case))
@@ -68,12 +72,14 @@ def prepare_case_for_engine(case: Mapping[str, Any]) -> tuple[dict[str, Any], li
         or content.get("原告诉称", "")
         or ""
     ).strip()
+
     cause = str(
         payload.get("cause", "")
         or extra.get("sample_cause", "")
         or meta.get("cause", "")
         or "未知案由"
     ).strip()
+
     title = str(payload.get("title", "") or meta.get("caseName", "") or "").strip()
 
     if not fact_finding:
@@ -99,6 +105,7 @@ def apply_seed(seed: int | None) -> None:
         import numpy as np
 
         np.random.seed(seed_int % (2**32))
+
     except Exception:
         pass
 
@@ -131,6 +138,7 @@ def build_method_config(
         for key, value in budget.items():
             if key == "max_turns":
                 cfg.convergence.max_turns = int(value)
+
             else:
                 unused_budget_keys.append(str(key))
 
@@ -146,6 +154,7 @@ def _run_coro_sync(coro: Any) -> Any:
     """Run one coroutine from sync code, even under an active event loop."""
     try:
         running_loop = asyncio.get_running_loop()
+
     except RuntimeError:
         running_loop = None
 
@@ -159,8 +168,10 @@ def _run_coro_sync(coro: Any) -> Any:
 
             try:
                 result_box["value"] = loop.run_until_complete(coro)
+
             except BaseException as exc:  # pragma: no cover - defensive bridge
                 error_box["error"] = exc
+
             finally:
                 loop.close()
 
@@ -186,6 +197,7 @@ def _extract_claim_rows(
     """Extract root-claim predictions and status rows from one engine graph."""
     claim_rows: list[dict[str, Any]] = []
     status_rows: list[dict[str, Any]] = []
+
     normalized_status = {
         str(claim_id): (
             status.value if hasattr(status, "value") else str(status or "HYPOTHETICAL")
@@ -202,7 +214,9 @@ def _extract_claim_rows(
         metadata = data.get("metadata", {})
 
         if metadata.get("is_root_claim", False):
-            root_nodes.append((str(node_id), str(data.get("content", "") or "").strip()))
+            root_nodes.append(
+                (str(node_id), str(data.get("content", "") or "").strip())
+            )
 
     for node_id, content in sorted(root_nodes, key=lambda item: item[0]):
         status_eval = normalized_status.get(node_id, NodeStatus.HYPOTHETICAL.value)
@@ -218,6 +232,7 @@ def _extract_claim_rows(
                 "claim_text_norm": normalize_space(content),
             }
         )
+
         status_rows.append(
             {
                 "uid": case_uid_value,
@@ -270,6 +285,7 @@ def _execute_structured_single_pass(
 
     if isinstance(cause_value, list):
         cause = str(cause_value[0] if cause_value else "未知案由")
+
     else:
         cause = str(cause_value or "未知案由")
 
@@ -302,6 +318,7 @@ def _execute_structured_single_pass(
             claim_count += 1
 
     graph.refresh_context(current_step=0)
+
     transcript = [
         (
             "【Structured Baseline 初始化】\n"
@@ -311,15 +328,36 @@ def _execute_structured_single_pass(
             "未进入多轮辩论，直接执行一次性 adjudication。"
         )
     ]
-    judgment_document, root_claims_status = _run_coro_sync(
-        legal_sys.adjudicate(fact_finding, graph, transcript)
-    )
+
+    judge = getattr(legal_sys, "judge", None)
+    original_extraction_llm = None
+
+    if (
+        judge is not None
+        and hasattr(judge, "judge_llm")
+        and hasattr(judge, "extraction_llm")
+    ):
+        original_extraction_llm = judge.extraction_llm
+        judge.extraction_llm = judge.judge_llm
+
+    try:
+        judgment_document = judge.evaluate(context=fact_finding, graph=graph)
+
+        root_claims_status = _run_coro_sync(
+            judge.extract_verdict(judgment_document, graph)
+        )
+
+    finally:
+        if original_extraction_llm is not None:
+            judge.extraction_llm = original_extraction_llm
+
     claim_rows, status_rows = _extract_claim_rows(
         graph=graph,
         case_uid_value=case_uid_value,
         root_claims_status=root_claims_status,
         warnings=warnings,
     )
+
     return {
         "method": method_name,
         "case_uid": case_uid_value,
@@ -349,6 +387,7 @@ def validate_method_result(result: Mapping[str, Any]) -> None:
         "latency",
         "warnings",
     }
+
     missing = sorted(required_top_level - set(result.keys()))
 
     if missing:
@@ -427,6 +466,7 @@ def execute_method(
 
     apply_seed(seed)
     prepared_case, case_warnings = prepare_case_for_engine(case)
+
     cfg, cfg_warnings = build_method_config(
         skip_validate_step=skip_validate_step,
         disable_recall_worker=disable_recall_worker,
@@ -434,6 +474,7 @@ def execute_method(
         budget=budget,
         retrieval_config=retrieval_config,
     )
+
     warnings = list(case_warnings) + list(cfg_warnings)
     case_uid_value = case_uid(prepared_case)
     start_completion, start_prompt = get_price()
@@ -448,13 +489,16 @@ def execute_method(
             budget=budget,
             retrieval_config=retrieval_config,
         )
+
         end_completion, end_prompt = get_price()
+
         result["token_usage"] = {
             "prompt_tokens": max(0, int(end_prompt) - int(start_prompt)),
             "completion_tokens": max(0, int(end_completion) - int(start_completion)),
             "total_tokens": max(0, int(end_prompt) - int(start_prompt))
             + max(0, int(end_completion) - int(start_completion)),
         }
+
         result["latency"] = round(time.perf_counter() - start_ts, 6)
         validate_method_result(result)
         return result
@@ -471,6 +515,7 @@ def execute_method(
         while not engine.is_finished:
             if engine.is_ready_for_adjudication:
                 await engine.adjudicate()
+
             else:
                 await engine.step()
 
@@ -481,14 +526,19 @@ def execute_method(
         if hasattr(engine, "get_serializable_snapshot"):
             serial_snapshot = engine.get_serializable_snapshot()
 
-        plain_snapshot = engine.get_snapshot() if hasattr(engine, "get_snapshot") else {}
+        plain_snapshot = (
+            engine.get_snapshot() if hasattr(engine, "get_snapshot") else {}
+        )
+
         claim_rows, status_rows = _extract_claim_rows(
             graph=getattr(engine, "graph", None),
             case_uid_value=case_uid_value,
             root_claims_status=getattr(engine, "root_claims_status", {}),
             warnings=warnings,
         )
+
         end_completion, end_prompt = get_price()
+
         result = {
             "method": method_name,
             "case_uid": case_uid_value,
@@ -525,8 +575,10 @@ def execute_method(
             "latency": round(time.perf_counter() - start_ts, 6),
             "warnings": warnings,
         }
+
         validate_method_result(result)
         return result
+
     finally:
         close_resources = getattr(engine, "close_resources", None)
 
@@ -538,6 +590,7 @@ def write_json(path: str | Path, payload: Mapping[str, Any]) -> None:
     """Write one JSON artifact to disk."""
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
+
     file_path.write_text(
         json.dumps(dict(payload), ensure_ascii=False, indent=2), encoding="utf-8"
     )
