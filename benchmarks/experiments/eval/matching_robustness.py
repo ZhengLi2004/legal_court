@@ -18,7 +18,7 @@ from benchmarks.experiments.eval.matching import (
     require_claim_text,
 )
 
-FROZEN_MATCHING_PROTOCOL_VERSION = "step07_v1"
+FROZEN_MATCHING_PROTOCOL_VERSION = "step07_v2"
 FROZEN_DEV_IDS_PATH = Path("benchmarks/experiments/artifacts/splits/dev_ids.json")
 FROZEN_BASE_CONFIG = MatchingConfig()
 FROZEN_GATE_RHO_THRESHOLD = 0.8
@@ -475,7 +475,13 @@ def run_frozen_matching_protocol(
     enforce_gate: bool = True,
 ) -> MatchingProtocolRun:
     case_uids = load_dev_case_uids(dev_ids_path)
-    metadata = {"dev_ids_path": str(Path(dev_ids_path).resolve())}
+
+    metadata = {
+        "dev_ids_path": str(Path(dev_ids_path).resolve()),
+        "seeded_claim_matching_mode": "claim_id_direct_when_gold_seeded",
+        "gold_claim_id_prefix": "GOLD_",
+        "claim1_task_focus": "status_eval_on_gold_claims",
+    }
 
     run = run_matching_protocol(
         case_uids=case_uids,
@@ -537,6 +543,8 @@ def _serialize_bundle(bundle: CaseMatchBundle) -> dict[str, Any]:
                 "prediction_claim_id": str(
                     pair.prediction_row.get("claim_id", "") or ""
                 ),
+                "matching_mode": pair.matching_mode,
+                "direct_claim_id": pair.direct_claim_id,
                 "semantic_similarity": pair.semantic_similarity,
                 "length_gap": pair.length_gap,
                 "cost": pair.cost,
@@ -550,6 +558,7 @@ def _serialize_bundle(bundle: CaseMatchBundle) -> dict[str, Any]:
             str(row.get("claim_id", "") or "")
             for row in bundle.unmatched_prediction_rows
         ],
+        "matching_mode": bundle.matching_mode,
     }
 
 

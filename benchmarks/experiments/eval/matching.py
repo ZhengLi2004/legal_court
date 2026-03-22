@@ -10,6 +10,8 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import squareform
 
+GOLD_CLAIM_ID_PREFIX = "GOLD_"
+
 
 def _normalize_space(text: str) -> str:
     return " ".join(str(text or "").split())
@@ -76,6 +78,8 @@ class MatchPair:
     semantic_similarity: float
     length_gap: float
     cost: float
+    matching_mode: str = "semantic"
+    direct_claim_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,7 @@ class CaseMatchBundle:
     matched_pairs: tuple[MatchPair, ...]
     unmatched_gold_rows: tuple[dict[str, Any], ...]
     unmatched_prediction_rows: tuple[dict[str, Any], ...]
+    matching_mode: str = "semantic"
 
 
 def _copy_row(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -102,6 +107,24 @@ def _case_uid(row: Mapping[str, Any]) -> str:
 
 def _claim_id(row: Mapping[str, Any]) -> str:
     return str(row.get("claim_id", "") or "")
+
+
+def _is_gold_claim_id(value: str) -> bool:
+    return str(value or "").startswith(GOLD_CLAIM_ID_PREFIX)
+
+
+def _should_use_claim_id_direct_matching(
+    *,
+    gold_rows: Sequence[Mapping[str, Any]],
+    prediction_rows: Sequence[Mapping[str, Any]],
+) -> bool:
+    if not gold_rows:
+        return False
+
+    if not all(_is_gold_claim_id(_claim_id(row)) for row in gold_rows):
+        return False
+
+    return all(_is_gold_claim_id(_claim_id(row)) for row in prediction_rows)
 
 
 def claim_text(row: Mapping[str, Any], config: MatchingConfig) -> str:
@@ -317,6 +340,84 @@ def deduplicate_prediction_rows(
     return deduped_rows, clusters
 
 
+def _text_gap_for_rows(
+    gold_row: Mapping[str, Any],
+    prediction_row: Mapping[str, Any],
+    config: MatchingConfig,
+) -> float:
+    gold_text = require_claim_text(gold_row, config)
+    pred_text = require_claim_text(prediction_row, config)
+    gold_length = _text_length(gold_text, config)
+    pred_length = _text_length(pred_text, config)
+    denom = max(gold_length, pred_length, 1)
+    return float(abs(gold_length - pred_length) / denom)
+
+
+def _match_case_claims_by_claim_id(
+    *,
+    uid: str,
+    method_name: str,
+    gold_rows: Sequence[Mapping[str, Any]],
+    prediction_rows_raw: Sequence[Mapping[str, Any]],
+    config: MatchingConfig,
+    scenario_name: str,
+) -> CaseMatchBundle:
+    gold_rows_copied = [_copy_row(row) for row in gold_rows]
+    prediction_rows_copied = [_copy_row(row) for row in prediction_rows_raw]
+    gold_by_id = {_claim_id(row): row for row in gold_rows_copied}
+    prediction_by_id = {_claim_id(row): row for row in prediction_rows_copied}
+    matched_ids = sorted(set(gold_by_id.keys()) & set(prediction_by_id.keys()))
+    matched_pairs: list[MatchPair] = []
+
+    for claim_id in matched_ids:
+        gold_row = gold_by_id[claim_id]
+        prediction_row = prediction_by_id[claim_id]
+        gold_text = require_claim_text(gold_row, config)
+        pred_text = require_claim_text(prediction_row, config)
+
+        matched_pairs.append(
+            MatchPair(
+                uid=uid,
+                method_name=method_name,
+                gold_row=_copy_row(gold_row),
+                prediction_row=_copy_row(prediction_row),
+                semantic_similarity=1.0
+                if _normalize_space(gold_text) == _normalize_space(pred_text)
+                else 0.0,
+                length_gap=_text_gap_for_rows(gold_row, prediction_row, config),
+                cost=0.0,
+                matching_mode="claim_id_direct",
+                direct_claim_id=claim_id,
+            )
+        )
+
+    unmatched_gold_rows = tuple(
+        _copy_row(row)
+        for claim_id, row in gold_by_id.items()
+        if claim_id not in matched_ids
+    )
+
+    unmatched_prediction_rows = tuple(
+        _copy_row(row)
+        for claim_id, row in prediction_by_id.items()
+        if claim_id not in matched_ids
+    )
+
+    return CaseMatchBundle(
+        uid=uid,
+        method_name=method_name,
+        scenario_name=scenario_name,
+        gold_rows=tuple(_copy_row(row) for row in gold_rows_copied),
+        prediction_rows_raw=tuple(_copy_row(row) for row in prediction_rows_copied),
+        prediction_rows_deduped=tuple(_copy_row(row) for row in prediction_rows_copied),
+        dedup_clusters=(),
+        matched_pairs=tuple(matched_pairs),
+        unmatched_gold_rows=unmatched_gold_rows,
+        unmatched_prediction_rows=unmatched_prediction_rows,
+        matching_mode="claim_id_direct",
+    )
+
+
 def match_case_claims(
     *,
     uid: str,
@@ -332,6 +433,19 @@ def match_case_claims(
     prediction_rows_raw = _prepare_prediction_rows(prediction_rows)
     _ensure_unique_case_claim_ids(gold_rows_copied, uid=uid, row_kind="gold")
     _ensure_unique_case_claim_ids(prediction_rows_raw, uid=uid, row_kind="prediction")
+
+    if _should_use_claim_id_direct_matching(
+        gold_rows=gold_rows_copied,
+        prediction_rows=prediction_rows_raw,
+    ):
+        return _match_case_claims_by_claim_id(
+            uid=uid,
+            method_name=method_name,
+            gold_rows=gold_rows_copied,
+            prediction_rows_raw=prediction_rows_raw,
+            config=config,
+            scenario_name=scenario_name,
+        )
 
     prediction_rows_deduped, dedup_clusters = deduplicate_prediction_rows(
         uid=uid,
@@ -479,6 +593,7 @@ def match_case_claims(
         matched_pairs=tuple(matched_pairs),
         unmatched_gold_rows=unmatched_gold_rows,
         unmatched_prediction_rows=unmatched_prediction_rows,
+        matching_mode="semantic",
     )
 
 

@@ -40,6 +40,9 @@ FULL_STAGE = "full"
 CLAIM1 = 1
 ALLOWED_PILOT_VERDICTS = {"pass", "minor_issue", "critical_issue"}
 TASK_MAX_ATTEMPTS = 2
+CLAIM1_TASK_FOCUS = "status_eval_on_gold_claims"
+CLAIM1_ROOT_CLAIM_SOURCE = "gold_package_seeded"
+CLAIM1_MATCHING_MODE = "claim_id_direct_when_gold_seeded"
 
 
 @dataclass(frozen=True)
@@ -862,6 +865,9 @@ def _write_metric_payloads(
         "run_id": run_id,
         "stage": stage,
         "split": split_name,
+        "task_focus": CLAIM1_TASK_FOCUS,
+        "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
+        "matching_mode": CLAIM1_MATCHING_MODE,
         "method_order": method_order,
         "rows": [_summary_row(name, method_metrics[name]) for name in method_order],
     }
@@ -871,6 +877,9 @@ def _write_metric_payloads(
         "run_id": run_id,
         "stage": stage,
         "split": split_name,
+        "task_focus": CLAIM1_TASK_FOCUS,
+        "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
+        "matching_mode": CLAIM1_MATCHING_MODE,
         "method_order": method_order,
         "rows": [
             _appendix_stepa_row(name, method_metrics[name]) for name in method_order
@@ -882,6 +891,9 @@ def _write_metric_payloads(
         "run_id": run_id,
         "stage": stage,
         "split": split_name,
+        "task_focus": CLAIM1_TASK_FOCUS,
+        "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
+        "matching_mode": CLAIM1_MATCHING_MODE,
         "method_order": method_order,
         "rows": [_appendix_fp_row(name, method_metrics[name]) for name in method_order],
         "pairwise_deltas_vs_main_system": _build_pairwise_delta_payload(
@@ -895,6 +907,9 @@ def _write_metric_payloads(
         "run_id": run_id,
         "stage": stage,
         "split": split_name,
+        "task_focus": CLAIM1_TASK_FOCUS,
+        "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
+        "matching_mode": CLAIM1_MATCHING_MODE,
         **_build_soft_consistency_payload(
             method_metrics=method_metrics,
             method_order=method_order,
@@ -973,6 +988,8 @@ def _serialize_review_packet(
             {
                 "gold_claim_id": gold_claim_id,
                 "prediction_claim_id": pred_claim_id,
+                "matching_mode": getattr(pair, "matching_mode", "semantic"),
+                "direct_claim_id": getattr(pair, "direct_claim_id", ""),
                 "gold_status_eval": str(
                     gold_status_lookup.get((uid, gold_claim_id), {}).get(
                         "status_eval", ""
@@ -992,6 +1009,9 @@ def _serialize_review_packet(
     return {
         "uid": uid,
         "method_name": str(result["method"]),
+        "task_focus": CLAIM1_TASK_FOCUS,
+        "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
+        "matching_mode": str(getattr(bundle, "matching_mode", CLAIM1_MATCHING_MODE)),
         "case_title": str(meta.get("caseName", "") or case.get("title", "") or ""),
         "stage": str(extra.get("stage", "") or ""),
         "cause": str(extra.get("sample_cause", "") or ""),
@@ -1197,6 +1217,9 @@ def _write_pilot_gate(
 
     payload = {
         "status": "ready_for_manual_review",
+        "task_focus": CLAIM1_TASK_FOCUS,
+        "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
+        "matching_mode": CLAIM1_MATCHING_MODE,
         "runtime_passed": bool(summary.get("failure_count", 0) == 0),
         "schema_passed": True,
         "matching_passed": True,
@@ -1471,6 +1494,9 @@ def run_claim1_experiment(
                 "stage": FULL_STAGE,
                 "status": "failed",
                 "failed_phase": "dev_gate",
+                "task_focus": CLAIM1_TASK_FOCUS,
+                "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
+                "matching_mode": CLAIM1_MATCHING_MODE,
                 "error_type": type(exc).__name__,
                 "error_detail": str(exc),
                 "freeze_run_id": freeze_run_id,
@@ -1547,6 +1573,9 @@ def run_claim1_experiment(
         "claim_id": CLAIM1,
         "stage": FULL_STAGE,
         "status": "completed",
+        "task_focus": CLAIM1_TASK_FOCUS,
+        "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
+        "matching_mode": CLAIM1_MATCHING_MODE,
         "run_id": run_id,
         "freeze_run_id": freeze_run_id,
         "method_names": method_order,

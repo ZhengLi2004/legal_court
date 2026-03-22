@@ -308,21 +308,30 @@ def _build_method_registry_snapshot() -> dict[str, Any]:
 
     return {
         "method_names": sorted(registry.keys()),
+        "root_claim_source": "gold_package_seeded",
+        "claim1_task_focus": "status_eval_on_gold_claims",
+        "fallbacks_enabled": False,
         "method_semantics": {
-            "main_system": {"mode": "full_debate"},
+            "main_system": {
+                "mode": "full_debate",
+                "root_claim_source": "gold_package_seeded",
+            },
             "baseline_b1_structured_rag": {
                 "mode": "structured_single_pass",
                 "direct_adjudication": True,
                 "creates_debate_engine": False,
+                "root_claim_source": "gold_package_seeded",
             },
             "baseline_b2_vanilla_mad": {
                 "mode": "debate_without_recall_or_initial_insights",
                 "disable_recall_worker": True,
                 "disable_initial_insights": True,
+                "root_claim_source": "gold_package_seeded",
             },
             "baseline_b3_stateful_no_axioms": {
                 "mode": "debate_without_validate_step",
                 "skip_validate_step": True,
+                "root_claim_source": "gold_package_seeded",
             },
         },
     }
@@ -331,7 +340,13 @@ def _build_method_registry_snapshot() -> dict[str, Any]:
 def _build_matching_protocol_snapshot() -> dict[str, Any]:
     return {
         "protocol_version": FROZEN_MATCHING_PROTOCOL_VERSION,
+        "claim1_task_focus": "status_eval_on_gold_claims",
         "base_config": asdict(FROZEN_BASE_CONFIG),
+        "seeded_claim_matching_mode": {
+            "mode": "claim_id_direct",
+            "gold_claim_id_prefix": "GOLD_",
+            "applies_when": "all_gold_rows_and_predictions_use_gold_claim_ids",
+        },
         "gate_rho_threshold": FROZEN_GATE_RHO_THRESHOLD,
         "gate_flip_threshold": FROZEN_GATE_FLIP_THRESHOLD,
         "scenarios": [
@@ -605,6 +620,8 @@ def finalize_step09a_freeze(
                 )
             ),
             "seed": int(seed),
+            "root_claim_source": "gold_package_seeded",
+            "claim1_task_focus": "status_eval_on_gold_claims",
             "budget_axis": str(budget_grid["budget_axis"]),
             "budget_grid": dict(budget_grid["budget_points"]),
             "retrieval_config_snapshot": retrieval_config_snapshot,
