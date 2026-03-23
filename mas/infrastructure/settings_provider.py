@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 
 from mas.config import SystemConfig
 
@@ -26,13 +27,27 @@ class DedupThresholds:
     other_threshold: float
 
 
-def build_system_config() -> SystemConfig:
+def apply_storage_root_override(
+    config: SystemConfig,
+    storage_root_dir: str | None = None,
+) -> SystemConfig:
+    """Apply one explicit storage-root override to a config instance."""
+    if not storage_root_dir:
+        return config
+
+    resolved = str(Path(storage_root_dir).expanduser().resolve())
+    config.path = replace(config.path, storage_root_dir=resolved)
+    Path(resolved).mkdir(parents=True, exist_ok=True)
+    return config
+
+
+def build_system_config(storage_root_dir: str | None = None) -> SystemConfig:
     """Create one process-level system configuration object.
 
     Returns:
         New `SystemConfig` instance loaded from environment/defaults.
     """
-    return SystemConfig()
+    return apply_storage_root_override(SystemConfig(), storage_root_dir)
 
 
 def build_llm_config_view(config: SystemConfig) -> LLMConfigView:

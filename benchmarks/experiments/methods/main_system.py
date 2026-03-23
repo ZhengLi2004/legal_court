@@ -11,6 +11,7 @@ from benchmarks.experiments.methods.base import execute_method
 def run_main_system(
     *,
     case: Mapping[str, Any],
+    storage_root_dir: str | None = None,
     budget: Mapping[str, Any] | None = None,
     seed: int | None = None,
     retrieval_config: Mapping[str, Any] | None = None,
@@ -20,6 +21,7 @@ def run_main_system(
     return execute_method(
         method_name="main_system",
         case=case,
+        storage_root_dir=storage_root_dir,
         budget=budget,
         seed=seed,
         retrieval_config=retrieval_config,

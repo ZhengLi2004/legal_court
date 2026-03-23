@@ -118,6 +118,7 @@ def run_step09_dryrun(
     input_path: str | Path,
     dev_ids_path: str | Path,
     output_dir: str | Path,
+    storage_root_dir: str | Path | None = None,
     registry: Mapping[str, Any] | None = None,
     methods: list[str] | None = None,
     selected_uids_path: str | Path | None = None,
@@ -241,12 +242,19 @@ def run_step09_dryrun(
                 _write_summary(summary_path, summary)
 
                 try:
+                    runner_kwargs = {
+                        "case": case,
+                        "budget": budget,
+                        "seed": seed,
+                        "retrieval_config": retrieval_config,
+                        "verbose": verbose,
+                    }
+
+                    if storage_root_dir:
+                        runner_kwargs["storage_root_dir"] = str(storage_root_dir)
+
                     result = runner(
-                        case=case,
-                        budget=budget,
-                        seed=seed,
-                        retrieval_config=retrieval_config,
-                        verbose=verbose,
+                        **runner_kwargs,
                     )
 
                     validate_method_result(result)
@@ -333,6 +341,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-size", type=int, default=3)
     parser.add_argument("--seed", type=int, default=20260307)
     parser.add_argument("--max-turns", type=int, default=10)
+    parser.add_argument("--memory-dir", default="")
     parser.add_argument("--verbose", action="store_true")
     return parser
 
@@ -345,6 +354,7 @@ def main() -> None:
         input_path=args.input_path,
         dev_ids_path=args.dev_ids_path,
         output_dir=args.output_dir,
+        storage_root_dir=args.memory_dir or None,
         methods=list(args.methods or []),
         selected_uids_path=args.selected_uids_path or None,
         sample_size=args.sample_size,

@@ -33,15 +33,11 @@ SYSTEM_PROMPT_CASE_INITIALIZER = """
 输出优先严格 JSON schema，避免自由文本。
 """.strip()
 
-SYSTEM_PROMPT_JUDGE_WRITER = """
-你是公正、克制、专业的民事法官写作助手。
-必须逐项回应诉求，给出依据链并形成可读判决结构。
-""".strip()
-
-SYSTEM_PROMPT_JUDGE_EXTRACTOR = """
-你是判决状态抽取器。
-任务是根据判决原文对单一诉求输出唯一状态：
+SYSTEM_PROMPT_DIRECT_JUDGE = """
+你是公正、克制、专业的民事法官裁决助手。
+任务是仅基于给定的图谱证据上下文，对每个根诉求输出唯一裁决状态：
 ACCEPTED / REJECTED / UNMENTIONED。
+禁止输出判决文书、解释、markdown 或任何额外文本。
 """.strip()
 
 SYSTEM_PROMPT_INSIGHT_EXTRACTOR = """
@@ -357,8 +353,8 @@ CHOOSE_PLAN_OR_PUSH_PROMPT = """
 """
 
 
-JUDGE_EVALUATE_PROMPT = """
-请根据以下信息撰写民事判决分析。
+JUDGE_DIRECT_VERDICT_PROMPT = """
+请根据以下信息直接完成根诉求裁决。
 
 【核心诉求】
 {issue_list}
@@ -366,29 +362,12 @@ JUDGE_EVALUATE_PROMPT = """
 【图谱证据上下文】
 {graph_context}
 
-【写作要求】
-1. 逐项回应每个诉求，明确写“采纳/驳回”。
-2. 每项结论都给出主要依据链（事实、法条、论证冲突点）。
-3. 语言保持法院文书风格，结论清晰可执行。
-"""
-
-
-JUDGE_EXTRACT_VERDICT_PROMPT = """
-请根据判决原文，判断以下诉求状态。
-
-【判决原文】
-{judgment_document}
-
-【诉求信息】
-- ID: {claim_id}
-- 内容: {claim_content}
-
-【判定标准】
-- ACCEPTED: 明确写出采纳/支持该诉求。
-- REJECTED: 明确写出驳回/不支持该诉求。
-- UNMENTIONED: 未明确判断。
-
-仅返回与原文一致的状态。
+【裁决要求】
+1. 必须覆盖全部根诉求，且每个 claim_id 只出现一次。
+2. ACCEPTED 表示明确支持该诉求。
+3. REJECTED 表示明确驳回或不支持该诉求。
+4. UNMENTIONED 表示现有材料未形成明确裁决结论。
+5. 仅输出符合 JSON schema 的结果，不输出任何额外文本。
 """
 
 

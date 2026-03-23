@@ -27,8 +27,6 @@ os.environ.setdefault("EMBEDDING_MODEL_PATH", "./bge-m3")
 os.environ.setdefault("MAS_STORAGE_DIR", "./tmp/mas_storage")
 os.environ.setdefault("LEGAL_LLM_KEY", "test-key")
 os.environ.setdefault("LEGAL_LLM_URL", "http://localhost:8001")
-os.environ.setdefault("JUDGE_API_BASE", "http://localhost:8002")
-os.environ.setdefault("JUDGE_API_KEY", "test-key")
 CURRENT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CURRENT_DIR.parent.parent
 

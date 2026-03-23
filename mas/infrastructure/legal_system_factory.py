@@ -40,22 +40,7 @@ def build_legal_system(config: SystemConfig) -> LegalSystem:
     )
 
     dedup_matcher = SemanticMatcher(embedding_func)
-
-    judge_llm = GPTChat(
-        defaults=llm_defaults,
-        model_name=config.judge.model_name,
-        base_url=config.judge.base_url,
-        api_key=config.judge.api_key,
-    )
-
-    extraction_llm = GPTChat(
-        defaults=llm_defaults,
-        model_name=config.llm.model_name,
-        base_url=config.llm.base_url,
-        api_key=config.llm.api_key,
-    )
-
-    judge = LLMJudge(judge_llm=judge_llm, extraction_llm=extraction_llm)
+    judge = LLMJudge(llm=llm)
 
     dependencies = LegalSystemDependencies(
         llm=llm,

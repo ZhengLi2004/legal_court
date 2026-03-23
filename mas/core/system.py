@@ -457,27 +457,9 @@ class LegalSystem:
 
         return len(removable)
 
-    async def adjudicate(
-        self, context: str, graph: ShadowGraph, transcript: List[str]
-    ) -> Tuple[str, Dict[str, NodeStatus]]:
-        """Run the final adjudication process.
-
-        Args:
-            context: The initial case context.
-            graph: The final debate graph.
-            transcript: The narrated transcript of the debate.
-
-        Returns:
-            A tuple containing:
-            - The full text of the judgment document.
-            - A dictionary mapping root claim IDs to their final `NodeStatus`.
-        """
-        del transcript
-        judgment_document = self.judge.evaluate(context=context, graph=graph)
-
-        extracted_root_status = await self.judge.extract_verdict(
-            judgment_document, graph
-        )
+    async def adjudicate(self, graph: ShadowGraph) -> Dict[str, NodeStatus]:
+        """Run the final direct-adjudication process on the debate graph."""
+        extracted_root_status = await self.judge.adjudicate(graph)
 
         extracted_root_status = {
             str(node_id): self._coerce_status(status)
@@ -521,4 +503,4 @@ class LegalSystem:
             int(removed_hypothetical_nodes),
         )
 
-        return judgment_document, active_root_status
+        return active_root_status

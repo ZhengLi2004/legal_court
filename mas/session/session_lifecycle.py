@@ -58,7 +58,7 @@ def default_engine_factory() -> Any:
     from mas.core.engine import DebateEngine
     from mas.infrastructure.settings_provider import build_system_config
 
-    return DebateEngine(config=build_system_config(), judge_config={})
+    return DebateEngine(config=build_system_config())
 
 
 def load_case_from_jsonl(path: Path) -> Dict[str, Any]:

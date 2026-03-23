@@ -253,6 +253,7 @@ def apply_seed(seed: int | None) -> None:
 
 def build_method_config(
     *,
+    storage_root_dir: str | None = None,
     skip_validate_step: bool = False,
     disable_recall_worker: bool = False,
     disable_initial_insights: bool = False,
@@ -260,7 +261,7 @@ def build_method_config(
     retrieval_config: Mapping[str, Any] | None = None,
 ) -> tuple[Any, list[str]]:
     """Create one per-run mutable config with experiment overrides."""
-    cfg = build_system_config()
+    cfg = build_system_config(storage_root_dir=storage_root_dir)
     warnings: list[str] = []
     cfg.experiment.skip_validate_step = bool(skip_validate_step)
     cfg.experiment.disable_recall_worker = bool(disable_recall_worker)
@@ -520,26 +521,7 @@ def _execute_structured_single_pass(
     ]
 
     judge = getattr(legal_sys, "judge", None)
-    original_extraction_llm = None
-
-    if (
-        judge is not None
-        and hasattr(judge, "judge_llm")
-        and hasattr(judge, "extraction_llm")
-    ):
-        original_extraction_llm = judge.extraction_llm
-        judge.extraction_llm = judge.judge_llm
-
-    try:
-        judgment_document = judge.evaluate(context=fact_finding, graph=graph)
-
-        root_claims_status = _run_coro_sync(
-            judge.extract_verdict(judgment_document, graph)
-        )
-
-    finally:
-        if original_extraction_llm is not None:
-            judge.extraction_llm = original_extraction_llm
+    root_claims_status = _run_coro_sync(judge.adjudicate(graph))
 
     claim_rows, status_rows = _extract_claim_rows(
         graph=graph,
@@ -554,7 +536,7 @@ def _execute_structured_single_pass(
         "claims": claim_rows,
         "status": status_rows,
         "trace": {
-            "judgment_document": judgment_document,
+            "adjudication_mode": "direct_status_json",
             "full_transcript": transcript,
             "turn_artifacts": [],
             "graph_stats": _build_graph_stats_from_graph(graph),
@@ -641,6 +623,7 @@ def execute_method(
     *,
     method_name: str,
     case: Mapping[str, Any],
+    storage_root_dir: str | None = None,
     budget: Mapping[str, Any] | None = None,
     seed: int | None = None,
     retrieval_config: Mapping[str, Any] | None = None,
@@ -658,6 +641,7 @@ def execute_method(
     prepared_case, case_warnings = prepare_case_for_engine(case)
 
     cfg, cfg_warnings = build_method_config(
+        storage_root_dir=storage_root_dir,
         skip_validate_step=skip_validate_step,
         disable_recall_worker=disable_recall_worker,
         disable_initial_insights=disable_initial_insights,
@@ -693,14 +677,10 @@ def execute_method(
         validate_method_result(result)
         return result
 
-    engine = DebateEngine(config=cfg, judge_config={})
+    engine = DebateEngine(config=cfg)
 
     async def _run() -> None:
         await engine.setup(case_data=prepared_case, verbose=verbose)
-
-        if direct_adjudication:
-            await engine.adjudicate()
-            return
 
         while not engine.is_finished:
             if engine.is_ready_for_adjudication:
@@ -735,11 +715,7 @@ def execute_method(
             "claims": claim_rows,
             "status": status_rows,
             "trace": {
-                "judgment_document": str(
-                    serial_snapshot.get("judgment_document")
-                    or plain_snapshot.get("judgment_document", "")
-                    or ""
-                ),
+                "adjudication_mode": "direct_status_json",
                 "full_transcript": list(
                     serial_snapshot.get("full_transcript")
                     or plain_snapshot.get("full_transcript", [])

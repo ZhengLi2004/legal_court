@@ -44,24 +44,15 @@ async def run_engine_adjudication(engine: Any) -> None:
 
     engine.last_step_log["convergence"] = convergence_payload
     engine._notify_state_change("adjudication_start", None)
-
-    (
-        engine.judgment_document,
-        engine.root_claims_status,
-    ) = await engine.legal_sys.adjudicate(
-        engine.raw_facts,
-        engine.graph,
-        transcript=engine.transcript,
-    )
+    engine.root_claims_status = await engine.legal_sys.adjudicate(engine.graph)
 
     engine.last_step_log["adjudication_result"] = {
-        "document": engine.judgment_document,
         "claims_status": {
             key: value.value if hasattr(value, "value") else str(value)
             for key, value in engine.root_claims_status.items()
         },
         "claim_count": len(engine.root_claims_status),
-        "document_length": len(engine.judgment_document),
+        "adjudication_mode": "direct_status_json",
     }
 
     run_post_adjudication_learning(engine)
@@ -71,7 +62,7 @@ async def run_engine_adjudication(engine: Any) -> None:
     engine._notify_state_change(
         "adjudication_complete",
         {
-            "judgment_length": len(engine.judgment_document),
             "root_claim_count": len(engine.root_claims_status),
+            "adjudication_mode": "direct_status_json",
         },
     )

@@ -43,6 +43,7 @@ TASK_MAX_ATTEMPTS = 2
 CLAIM1_TASK_FOCUS = "status_eval_on_gold_claims"
 CLAIM1_ROOT_CLAIM_SOURCE = "gold_package_seeded"
 CLAIM1_MATCHING_MODE = "claim_id_direct_when_gold_seeded"
+CLAIM1_ADJUDICATION_MODE = "direct_status_json"
 
 
 @dataclass(frozen=True)
@@ -326,6 +327,28 @@ def _filter_rows_by_uids(
     return [dict(row) for row in rows if str(row.get("uid", "") or "") in uid_set]
 
 
+def _restrict_case_uids_to_gold_scope(
+    *,
+    case_uids: list[str],
+    gold_rows: list[dict[str, Any]],
+    split_name: str,
+) -> list[str]:
+    gold_uid_set = {
+        str(row.get("uid", "") or "").strip()
+        for row in gold_rows
+        if str(row.get("uid", "") or "").strip()
+    }
+
+    scoped = [uid for uid in case_uids if uid in gold_uid_set]
+
+    if not scoped:
+        raise ValueError(
+            f"Claim 1 {split_name} split has no cases covered by gold claims."
+        )
+
+    return scoped
+
+
 def _flatten_prediction_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
     validate_method_result(result)
 
@@ -410,6 +433,7 @@ def _run_method_matrix(
     case_uids: list[str],
     active_method_names: list[str],
     active_registry: dict[str, Any],
+    storage_root_dir: str | None,
     budget: dict[str, Any],
     seed: int,
     retrieval_config: dict[str, Any],
@@ -503,13 +527,18 @@ def _run_method_matrix(
 
                 for attempt in range(1, TASK_MAX_ATTEMPTS + 1):
                     try:
-                        result = runner(
-                            case=case,
-                            budget=budget,
-                            seed=seed,
-                            retrieval_config=retrieval_config,
-                            verbose=verbose,
-                        )
+                        runner_kwargs = {
+                            "case": case,
+                            "budget": budget,
+                            "seed": seed,
+                            "retrieval_config": retrieval_config,
+                            "verbose": verbose,
+                        }
+
+                        if storage_root_dir:
+                            runner_kwargs["storage_root_dir"] = storage_root_dir
+
+                        result = runner(**runner_kwargs)
 
                         validate_method_result(result)
                         results_by_method[method_name].append(result)
@@ -868,6 +897,7 @@ def _write_metric_payloads(
         "task_focus": CLAIM1_TASK_FOCUS,
         "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
         "matching_mode": CLAIM1_MATCHING_MODE,
+        "adjudication_mode": CLAIM1_ADJUDICATION_MODE,
         "method_order": method_order,
         "rows": [_summary_row(name, method_metrics[name]) for name in method_order],
     }
@@ -880,6 +910,7 @@ def _write_metric_payloads(
         "task_focus": CLAIM1_TASK_FOCUS,
         "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
         "matching_mode": CLAIM1_MATCHING_MODE,
+        "adjudication_mode": CLAIM1_ADJUDICATION_MODE,
         "method_order": method_order,
         "rows": [
             _appendix_stepa_row(name, method_metrics[name]) for name in method_order
@@ -894,6 +925,7 @@ def _write_metric_payloads(
         "task_focus": CLAIM1_TASK_FOCUS,
         "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
         "matching_mode": CLAIM1_MATCHING_MODE,
+        "adjudication_mode": CLAIM1_ADJUDICATION_MODE,
         "method_order": method_order,
         "rows": [_appendix_fp_row(name, method_metrics[name]) for name in method_order],
         "pairwise_deltas_vs_main_system": _build_pairwise_delta_payload(
@@ -910,6 +942,7 @@ def _write_metric_payloads(
         "task_focus": CLAIM1_TASK_FOCUS,
         "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
         "matching_mode": CLAIM1_MATCHING_MODE,
+        "adjudication_mode": CLAIM1_ADJUDICATION_MODE,
         **_build_soft_consistency_payload(
             method_metrics=method_metrics,
             method_order=method_order,
@@ -1012,6 +1045,7 @@ def _serialize_review_packet(
         "task_focus": CLAIM1_TASK_FOCUS,
         "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
         "matching_mode": str(getattr(bundle, "matching_mode", CLAIM1_MATCHING_MODE)),
+        "adjudication_mode": CLAIM1_ADJUDICATION_MODE,
         "case_title": str(meta.get("caseName", "") or case.get("title", "") or ""),
         "stage": str(extra.get("stage", "") or ""),
         "cause": str(extra.get("sample_cause", "") or ""),
@@ -1220,6 +1254,7 @@ def _write_pilot_gate(
         "task_focus": CLAIM1_TASK_FOCUS,
         "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
         "matching_mode": CLAIM1_MATCHING_MODE,
+        "adjudication_mode": CLAIM1_ADJUDICATION_MODE,
         "runtime_passed": bool(summary.get("failure_count", 0) == 0),
         "schema_passed": True,
         "matching_passed": True,
@@ -1265,6 +1300,7 @@ def run_claim1_experiment(
     run_id: str,
     reports_root: str | Path = DEFAULT_REPORTS_ROOT,
     input_path: str | Path = DEFAULT_INPUT_PATH,
+    storage_root_dir: str | Path | None = None,
     pilot_review_path: str | Path | None = None,
     methods: list[str] | None = None,
     verbose: bool = False,
@@ -1333,6 +1369,7 @@ def run_claim1_experiment(
             case_uids=pilot_case_uids,
             active_method_names=method_order,
             active_registry=active_registry,
+            storage_root_dir=str(storage_root_dir) if storage_root_dir else None,
             budget=budget,
             seed=seed,
             retrieval_config=retrieval_config,
@@ -1451,6 +1488,18 @@ def run_claim1_experiment(
         "ids",
     )
 
+    dev_case_uids = _restrict_case_uids_to_gold_scope(
+        case_uids=dev_case_uids,
+        gold_rows=gold_claim_rows,
+        split_name="dev",
+    )
+
+    test_case_uids = _restrict_case_uids_to_gold_scope(
+        case_uids=test_case_uids,
+        gold_rows=gold_claim_rows,
+        split_name="test",
+    )
+
     dev_cases = _select_cases(case_map=case_map, case_uids=dev_case_uids)
     test_cases = _select_cases(case_map=case_map, case_uids=test_case_uids)
     dev_gold_claim_rows = _filter_rows_by_uids(gold_claim_rows, dev_case_uids)
@@ -1459,12 +1508,37 @@ def run_claim1_experiment(
     test_gold_status_rows = _filter_rows_by_uids(gold_status_rows, test_case_uids)
     dev_dir = claim_root / "dev"
     test_dir = claim_root / "test"
+    dev_scope_path = claim_root / "dev_case_uids_claim1_scope.json"
+    test_scope_path = claim_root / "test_case_uids_claim1_scope.json"
+
+    _write_json(
+        dev_scope_path,
+        {
+            "ids": list(dev_case_uids),
+            "raw_case_count": len(
+                _read_ids(Path(freeze_bundle.split_refs["dev_ids_path"]), "ids")
+            ),
+            "filtered_case_count": len(dev_case_uids),
+        },
+    )
+
+    _write_json(
+        test_scope_path,
+        {
+            "ids": list(test_case_uids),
+            "raw_case_count": len(
+                _read_ids(Path(freeze_bundle.split_refs["test_ids_path"]), "ids")
+            ),
+            "filtered_case_count": len(test_case_uids),
+        },
+    )
 
     dev_execution = _run_method_matrix(
         cases=dev_cases,
         case_uids=dev_case_uids,
         active_method_names=method_order,
         active_registry=active_registry,
+        storage_root_dir=str(storage_root_dir) if storage_root_dir else None,
         budget=budget,
         seed=seed,
         retrieval_config=retrieval_config,
@@ -1483,7 +1557,7 @@ def run_claim1_experiment(
             ),
             encoder=resolved_encoder,
             artifact_dir=dev_dir / "matching",
-            dev_ids_path=Path(freeze_bundle.split_refs["dev_ids_path"]),
+            dev_ids_path=dev_scope_path,
         )
 
     except MatchingRobustnessGateError as exc:
@@ -1497,6 +1571,7 @@ def run_claim1_experiment(
                 "task_focus": CLAIM1_TASK_FOCUS,
                 "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
                 "matching_mode": CLAIM1_MATCHING_MODE,
+                "adjudication_mode": CLAIM1_ADJUDICATION_MODE,
                 "error_type": type(exc).__name__,
                 "error_detail": str(exc),
                 "freeze_run_id": freeze_run_id,
@@ -1525,6 +1600,7 @@ def run_claim1_experiment(
         case_uids=test_case_uids,
         active_method_names=method_order,
         active_registry=active_registry,
+        storage_root_dir=str(storage_root_dir) if storage_root_dir else None,
         budget=budget,
         seed=seed,
         retrieval_config=retrieval_config,
@@ -1576,6 +1652,7 @@ def run_claim1_experiment(
         "task_focus": CLAIM1_TASK_FOCUS,
         "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
         "matching_mode": CLAIM1_MATCHING_MODE,
+        "adjudication_mode": CLAIM1_ADJUDICATION_MODE,
         "run_id": run_id,
         "freeze_run_id": freeze_run_id,
         "method_names": method_order,
@@ -1585,9 +1662,11 @@ def run_claim1_experiment(
         "artifacts": {
             **metric_paths,
             **promoted_paths,
+            "dev_scope": str(dev_scope_path),
             "dev_execution_summary": str(dev_dir / "execution_summary.json"),
             "dev_method_metrics": str(dev_dir / "method_metrics.json"),
             "dev_matching_dir": str(dev_dir / "matching"),
+            "test_scope": str(test_scope_path),
             "test_execution_summary": str(test_dir / "execution_summary.json"),
             "test_method_metrics": str(test_dir / "method_metrics.json"),
             "test_pairwise_deltas": str(test_dir / "pairwise_deltas.json"),
@@ -1633,6 +1712,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pilot_parser.add_argument("--run-id", required=True)
     pilot_parser.add_argument("--reports-root", default=str(DEFAULT_REPORTS_ROOT))
     pilot_parser.add_argument("--input-path", default=str(DEFAULT_INPUT_PATH))
+    pilot_parser.add_argument("--memory-dir", default="")
     pilot_parser.add_argument("--methods", nargs="*", default=None)
     pilot_parser.add_argument("--verbose", action="store_true")
     pilot_parser.add_argument("--resume", action="store_true")
@@ -1642,6 +1722,7 @@ def _build_parser() -> argparse.ArgumentParser:
     full_parser.add_argument("--run-id", required=True)
     full_parser.add_argument("--reports-root", default=str(DEFAULT_REPORTS_ROOT))
     full_parser.add_argument("--input-path", default=str(DEFAULT_INPUT_PATH))
+    full_parser.add_argument("--memory-dir", default="")
     full_parser.add_argument("--pilot-review-path", required=True)
     full_parser.add_argument("--methods", nargs="*", default=None)
     full_parser.add_argument("--verbose", action="store_true")
@@ -1661,6 +1742,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             run_id=args.run_id,
             reports_root=args.reports_root,
             input_path=args.input_path,
+            storage_root_dir=args.memory_dir or None,
             methods=args.methods,
             verbose=bool(args.verbose),
             show_progress=not bool(args.no_progress),
@@ -1674,6 +1756,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             run_id=args.run_id,
             reports_root=args.reports_root,
             input_path=args.input_path,
+            storage_root_dir=args.memory_dir or None,
             pilot_review_path=args.pilot_review_path,
             methods=args.methods,
             verbose=bool(args.verbose),

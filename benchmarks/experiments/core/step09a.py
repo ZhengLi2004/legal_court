@@ -27,6 +27,7 @@ from benchmarks.experiments.methods.base import case_uid
 from benchmarks.experiments.methods.factory import build_default_registry
 from mas.config import SystemConfig
 from mas.infrastructure.embedding import EmbeddingFunc
+from mas.infrastructure.settings_provider import build_system_config
 
 DEFAULT_INPUT_PATH = Path("data/sampling/cleaned_samples.jsonl")
 DEFAULT_DEV_IDS_PATH = Path("benchmarks/experiments/artifacts/splits/dev_ids.json")
@@ -299,7 +300,6 @@ def _build_prereg_points() -> dict[str, Any]:
 def _build_runtime_config_snapshot(cfg: SystemConfig) -> dict[str, Any]:
     snapshot = asdict(cfg)
     snapshot["llm"]["api_key"] = _secret_fingerprint(cfg.llm.api_key)
-    snapshot["judge"]["api_key"] = _secret_fingerprint(cfg.judge.api_key)
     return snapshot
 
 
@@ -310,28 +310,33 @@ def _build_method_registry_snapshot() -> dict[str, Any]:
         "method_names": sorted(registry.keys()),
         "root_claim_source": "gold_package_seeded",
         "claim1_task_focus": "status_eval_on_gold_claims",
+        "adjudication_mode": "direct_status_json",
         "fallbacks_enabled": False,
         "method_semantics": {
             "main_system": {
                 "mode": "full_debate",
                 "root_claim_source": "gold_package_seeded",
+                "adjudication_mode": "direct_status_json",
             },
             "baseline_b1_structured_rag": {
                 "mode": "structured_single_pass",
                 "direct_adjudication": True,
                 "creates_debate_engine": False,
                 "root_claim_source": "gold_package_seeded",
+                "adjudication_mode": "direct_status_json",
             },
             "baseline_b2_vanilla_mad": {
                 "mode": "debate_without_recall_or_initial_insights",
                 "disable_recall_worker": True,
                 "disable_initial_insights": True,
                 "root_claim_source": "gold_package_seeded",
+                "adjudication_mode": "direct_status_json",
             },
             "baseline_b3_stateful_no_axioms": {
                 "mode": "debate_without_validate_step",
                 "skip_validate_step": True,
                 "root_claim_source": "gold_package_seeded",
+                "adjudication_mode": "direct_status_json",
             },
         },
     }
@@ -341,6 +346,7 @@ def _build_matching_protocol_snapshot() -> dict[str, Any]:
     return {
         "protocol_version": FROZEN_MATCHING_PROTOCOL_VERSION,
         "claim1_task_focus": "status_eval_on_gold_claims",
+        "adjudication_mode": "direct_status_json",
         "base_config": asdict(FROZEN_BASE_CONFIG),
         "seeded_claim_matching_mode": {
             "mode": "claim_id_direct",
@@ -430,6 +436,7 @@ def run_step09a_preflight(
     run_id: str,
     reports_root: str | Path = DEFAULT_REPORTS_ROOT,
     input_path: str | Path = DEFAULT_INPUT_PATH,
+    storage_root_dir: str | Path | None = None,
     dev_ids_path: str | Path = DEFAULT_DEV_IDS_PATH,
     claims_path: str | Path = DEFAULT_GOLD_CLAIMS_PATH,
     gold_status_path: str | Path = DEFAULT_GOLD_STATUS_PATH,
@@ -437,7 +444,9 @@ def run_step09a_preflight(
     sample_size: int = DEFAULT_DRYRUN_SAMPLE_SIZE,
     seed: int = DEFAULT_SEED,
 ) -> dict[str, Any]:
-    cfg = SystemConfig()
+    cfg = build_system_config(
+        str(storage_root_dir) if storage_root_dir else None
+    )
     run_root = Path(reports_root) / run_id
     preflight_dir = run_root / "preflight"
 
@@ -455,12 +464,6 @@ def run_step09a_preflight(
             base_url=cfg.llm.base_url,
             api_key=cfg.llm.api_key,
             model_name=cfg.llm.model_name,
-        ),
-        "judge_llm": _probe_openai_chat(
-            check_name="judge_llm",
-            base_url=cfg.judge.base_url,
-            api_key=cfg.judge.api_key,
-            model_name=cfg.judge.model_name,
         ),
         "es_cluster": _probe_es_json(
             f"{cfg.es.host.rstrip('/')}/_cluster/health",
@@ -648,6 +651,7 @@ def _build_parser() -> argparse.ArgumentParser:
     preflight_parser.add_argument("--run-id", required=True)
     preflight_parser.add_argument("--reports-root", default=str(DEFAULT_REPORTS_ROOT))
     preflight_parser.add_argument("--input-path", default=str(DEFAULT_INPUT_PATH))
+    preflight_parser.add_argument("--memory-dir", default="")
     preflight_parser.add_argument("--dev-ids-path", default=str(DEFAULT_DEV_IDS_PATH))
 
     preflight_parser.add_argument(
@@ -684,6 +688,7 @@ def main() -> None:
             run_id=args.run_id,
             reports_root=args.reports_root,
             input_path=args.input_path,
+            storage_root_dir=args.memory_dir or None,
             dev_ids_path=args.dev_ids_path,
             claims_path=args.claims_path,
             gold_status_path=args.gold_status_path,

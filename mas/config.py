@@ -65,16 +65,6 @@ class LLMConfig:
 
 
 @dataclass
-class JudgeLLMConfig:
-    """Configuration for the language model used by the Judge agent."""
-
-    temperature: float = 0.1
-    model_name: str = "qwen3"
-    base_url: str = get_env_strict("JUDGE_API_BASE")
-    api_key: str = get_env_strict("JUDGE_API_KEY")
-
-
-@dataclass
 class ConvergenceConfig:
     """Parameters for the debate convergence detection algorithm."""
 
@@ -153,7 +143,6 @@ class SystemConfig:
 
     path: PathConfig = PathConfig()
     llm: LLMConfig = LLMConfig()
-    judge: JudgeLLMConfig = JudgeLLMConfig()
     matcher: MatcherConfig = MatcherConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
     worker_threshold: WorkerThresholdConfig = WorkerThresholdConfig()

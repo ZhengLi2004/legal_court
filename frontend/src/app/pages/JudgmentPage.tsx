@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useDebate } from "../state/useDebate";
-import { asRecord, asString, unwrapPayload } from "../../shared/lib/payload";
+import { asRecord, unwrapPayload } from "../../shared/lib/payload";
 
 export function JudgmentPage() {
   const { sessionId, snapshot } = useDebate();
@@ -10,7 +10,6 @@ export function JudgmentPage() {
     [snapshot?.raw],
   );
 
-  const judgmentDocument = asString(payload.judgment_document);
   const rootClaimStatusMap = asRecord(payload.root_claims_status);
   const rootClaimEntries = Object.entries(rootClaimStatusMap);
 
@@ -54,20 +53,24 @@ export function JudgmentPage() {
       </article>
 
       <article className="ux-card">
-        <h2>法官文书</h2>
+        <h2>裁决详情</h2>
 
         {!hasSession ? (
           <p className="ux-empty">请先完成会话创建并推进庭审。</p>
-        ) : judgmentDocument ? (
+        ) : rootClaimEntries.length > 0 ? (
           <details open>
-            <summary>展开判决文书</summary>
+            <summary>展开根主张裁决</summary>
 
             <div className="ux-log-box">
-              <p className="ux-document">{judgmentDocument}</p>
+              {rootClaimEntries.map(([claimId, status]) => (
+                <p className="ux-document" key={claimId}>
+                  {claimId}: {String(status)}
+                </p>
+              ))}
             </div>
           </details>
         ) : (
-          <p className="ux-empty">尚未生成判决文书。请先完成裁决。</p>
+          <p className="ux-empty">尚未生成裁决结果。请先完成裁决。</p>
         )}
       </article>
     </section>

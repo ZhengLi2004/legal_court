@@ -534,7 +534,6 @@ def build_engine_snapshot_state(engine: Any) -> Dict[str, Any]:
         "is_ready_for_adjudication": engine.is_ready_for_adjudication,
         "is_finished": engine.is_finished,
         "winner": engine.winner,
-        "judgment_document": engine.judgment_document,
         "root_claims_status": serializable_claims_status,
         "last_log": engine.last_step_log,
         "transcript": transcript_rows,

@@ -61,15 +61,13 @@ class DebateEngine:
         on_state_change: Optional callback for state changes.
     """
 
-    def __init__(self, config: SystemConfig, judge_config: Dict):
+    def __init__(self, config: SystemConfig):
         """Initialize the DebateEngine.
 
         Args:
             config: The main `SystemConfig` object.
-            judge_config: A dictionary with configuration for the judge LLM.
         """
         self.cfg = config
-        self.judge_config = judge_config
         self.legal_sys: Optional[LegalSystem] = None
         self.p_team: Optional[Any] = None
         self.d_team: Optional[Any] = None
@@ -84,7 +82,6 @@ class DebateEngine:
         self.last_step_log: Dict[str, Any] = {}
         self.fact_es: Optional[Any] = None
         self.law_es: Optional[Any] = None
-        self.judgment_document: str = ""
         self.root_claims_status: Dict[str, NodeStatus] = {}
         self.convergence_history: List[float] = []
         self.prev_stats: Dict[str, int] = {"claim_nodes": 0, "conflict_edges": 0}
@@ -404,7 +401,6 @@ class DebateEngine:
             "last_log": self.last_step_log,
             "is_finished": self.is_finished,
             "winner": self.winner,
-            "judgment_document": self.judgment_document,
             "root_claims_status": serializable_claims_status,
             "agent_memories": agent_memories,
             "full_transcript": self.transcript,
