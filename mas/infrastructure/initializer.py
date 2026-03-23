@@ -44,9 +44,9 @@ _PERSONA_SCHEMA = {
     "schema": {
         "type": "object",
         "properties": {
-            "belief": {"type": "string"},
-            "desire": {"type": "string"},
-            "intention": {"type": "string"},
+            "belief": {"type": "string", "minLength": 1},
+            "desire": {"type": "string", "minLength": 1},
+            "intention": {"type": "string", "minLength": 1},
         },
         "required": ["belief", "desire", "intention"],
         "additionalProperties": False,
@@ -327,7 +327,7 @@ class CaseInitializer:
                 prompt,
                 schema=_PERSONA_SCHEMA,
                 system_msgs=[SYSTEM_PROMPT_CASE_INITIALIZER],
-                temperature=0.7,
+                temperature=0.0,
             )
 
             if not isinstance(data, dict):

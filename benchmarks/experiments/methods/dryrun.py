@@ -94,6 +94,35 @@ def _load_existing_validation_rows(
     return rows
 
 
+def _load_existing_validation_index(
+    *,
+    output_dir: Path,
+    selected_uids: list[str],
+    method_names: list[str],
+) -> tuple[list[dict[str, Any]], set[tuple[str, str]]]:
+    rows: list[dict[str, Any]] = []
+    completed_keys: set[tuple[str, str]] = set()
+
+    for method_name in method_names:
+        method_dir = output_dir / method_name
+
+        if not method_dir.is_dir():
+            continue
+
+        for uid in selected_uids:
+            result_path = method_dir / f"{uid}.json"
+
+            if not result_path.exists():
+                continue
+
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            validate_method_result(result)
+            rows.append(_summarize_result_row(method_name, result))
+            completed_keys.add((method_name, uid))
+
+    return rows, completed_keys
+
+
 def _clear_selected_method_outputs(
     *,
     output_dir: Path,
@@ -128,6 +157,7 @@ def run_step09_dryrun(
     retrieval_config: Mapping[str, Any] | None = None,
     verbose: bool = False,
     show_progress: bool = True,
+    resume: bool = False,
 ) -> dict[str, Any]:
     """Run all registered Step 09 methods on a small deterministic Dev slice."""
     cases = load_cases_from_jsonl(input_path)
@@ -183,18 +213,28 @@ def run_step09_dryrun(
         (set(existing_method_names) | set(active_registry.keys()))
     )
 
-    _clear_selected_method_outputs(
-        output_dir=out_dir,
-        selected_uids=selected_uids,
-        method_names=list(active_registry.keys()),
-    )
+    existing_completed_keys: set[tuple[str, str]] = set()
 
-    validation_rows = _load_existing_validation_rows(
-        output_dir=out_dir,
-        selected_uids=selected_uids,
-        method_names=summary_method_names,
-        skip_methods=set(active_registry.keys()),
-    )
+    if resume:
+        validation_rows, existing_completed_keys = _load_existing_validation_index(
+            output_dir=out_dir,
+            selected_uids=selected_uids,
+            method_names=summary_method_names,
+        )
+
+    else:
+        _clear_selected_method_outputs(
+            output_dir=out_dir,
+            selected_uids=selected_uids,
+            method_names=list(active_registry.keys()),
+        )
+
+        validation_rows = _load_existing_validation_rows(
+            output_dir=out_dir,
+            selected_uids=selected_uids,
+            method_names=summary_method_names,
+            skip_methods=set(active_registry.keys()),
+        )
 
     total_tasks = len(summary_method_names) * len(selected_cases)
     summary_path = out_dir / "summary.json"
@@ -211,6 +251,8 @@ def run_step09_dryrun(
         "validation_rows": validation_rows,
         "failure_count": 0,
         "failures": [],
+        "resume_enabled": bool(resume),
+        "resumed_task_count": len(validation_rows) if resume else 0,
         "current_task": None,
     }
 
@@ -220,6 +262,7 @@ def run_step09_dryrun(
         total=total_tasks,
         desc="Step09 dry-run",
         unit="task",
+        initial=len(validation_rows),
         disable=not show_progress,
         dynamic_ncols=True,
     )
@@ -231,6 +274,10 @@ def run_step09_dryrun(
 
             for case in selected_cases:
                 selected_uid = case_uid(case)
+
+                if resume and (method_name, selected_uid) in existing_completed_keys:
+                    continue
+
                 progress.set_postfix_str(f"{method_name}:{selected_uid[-8:]}")
 
                 summary["current_task"] = {
@@ -343,6 +390,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-turns", type=int, default=10)
     parser.add_argument("--memory-dir", default="")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--resume", action="store_true")
     return parser
 
 
@@ -362,6 +410,7 @@ def main() -> None:
         seed=int(args.seed),
         verbose=bool(args.verbose),
         show_progress=True,
+        resume=bool(args.resume),
     )
 
     print(json.dumps(summary, ensure_ascii=False, indent=2))

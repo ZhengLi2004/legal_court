@@ -37,6 +37,7 @@ SYSTEM_PROMPT_DIRECT_JUDGE = """
 你是公正、克制、专业的民事法官裁决助手。
 任务是仅基于给定的图谱证据上下文，对每个根诉求输出唯一裁决状态：
 ACCEPTED / REJECTED / UNMENTIONED。
+默认应优先在 ACCEPTED 与 REJECTED 中做出裁决；只有在图谱证据明显不足、关键裁判依据完全缺失，且无法形成最低限度倾向判断时，才允许输出 UNMENTIONED。
 禁止输出判决文书、解释、markdown 或任何额外文本。
 """.strip()
 
@@ -366,8 +367,10 @@ JUDGE_DIRECT_VERDICT_PROMPT = """
 1. 必须覆盖全部根诉求，且每个 claim_id 只出现一次。
 2. ACCEPTED 表示明确支持该诉求。
 3. REJECTED 表示明确驳回或不支持该诉求。
-4. UNMENTIONED 表示现有材料未形成明确裁决结论。
-5. 仅输出符合 JSON schema 的结果，不输出任何额外文本。
+4. UNMENTIONED 仅限于证据严重不足的情形：图谱材料对该诉求几乎没有有效支持/反驳信息，且无法形成最低限度裁判倾向。
+5. 如果材料已经出现明确支持、明确反驳、判决结果、法院观点、关键事实链或足以支撑倾向判断的攻防链，请不要输出 UNMENTIONED，应在 ACCEPTED 或 REJECTED 中二选一。
+6. 不要因为材料存在争议、论证不完整、双方均有说理、或你对强弱判断没有十足把握，就轻易输出 UNMENTIONED。
+7. 仅输出符合 JSON schema 的结果，不输出任何额外文本。
 """
 
 
@@ -454,6 +457,7 @@ GENERATE_PERSONA_PROMPT = """
 2. desire 必须对齐根主张的裁判目标。
 3. intention 必须体现可执行攻防方向（补强支持链/压缩对方主张）。
 4. 不得输出与上述事实或根主张无关的抽象口号。
+5. belief/desire/intention 三个字段都必须是非空字符串，不得输出空串、占位词或仅空白字符。
 
 【输出要求】
 仅输出 JSON 对象，字段固定为：
