@@ -255,6 +255,7 @@ def build_method_config(
     *,
     storage_root_dir: str | None = None,
     skip_validate_step: bool = False,
+    test_mode_no_learning: bool = False,
     disable_recall_worker: bool = False,
     disable_initial_insights: bool = False,
     budget: Mapping[str, Any] | None = None,
@@ -264,8 +265,12 @@ def build_method_config(
     cfg = build_system_config(storage_root_dir=storage_root_dir)
     warnings: list[str] = []
     cfg.experiment.skip_validate_step = bool(skip_validate_step)
+    cfg.experiment.test_mode_no_learning = bool(test_mode_no_learning)
     cfg.experiment.disable_recall_worker = bool(disable_recall_worker)
     cfg.experiment.disable_initial_insights = bool(disable_initial_insights)
+
+    if cfg.experiment.test_mode_no_learning:
+        cfg.experiment.disable_retrieval_cache_learning = True
 
     if retrieval_config:
         for key, value in retrieval_config.items():
@@ -629,6 +634,7 @@ def execute_method(
     retrieval_config: Mapping[str, Any] | None = None,
     verbose: bool = False,
     skip_validate_step: bool = False,
+    test_mode_no_learning: bool = False,
     disable_recall_worker: bool = False,
     disable_initial_insights: bool = False,
     direct_adjudication: bool = False,
@@ -643,6 +649,7 @@ def execute_method(
     cfg, cfg_warnings = build_method_config(
         storage_root_dir=storage_root_dir,
         skip_validate_step=skip_validate_step,
+        test_mode_no_learning=test_mode_no_learning,
         disable_recall_worker=disable_recall_worker,
         disable_initial_insights=disable_initial_insights,
         budget=budget,

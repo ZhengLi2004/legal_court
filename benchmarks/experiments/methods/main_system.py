@@ -16,6 +16,7 @@ def run_main_system(
     seed: int | None = None,
     retrieval_config: Mapping[str, Any] | None = None,
     verbose: bool = False,
+    test_mode_no_learning: bool = False,
 ) -> dict[str, Any]:
     """Run the full debate system with default experiment toggles."""
     return execute_method(
@@ -26,4 +27,5 @@ def run_main_system(
         seed=seed,
         retrieval_config=retrieval_config,
         verbose=verbose,
+        test_mode_no_learning=test_mode_no_learning,
     )

@@ -44,6 +44,7 @@ CLAIM1_TASK_FOCUS = "status_eval_on_gold_claims"
 CLAIM1_ROOT_CLAIM_SOURCE = "gold_package_seeded"
 CLAIM1_MATCHING_MODE = "claim_id_direct_when_gold_seeded"
 CLAIM1_ADJUDICATION_MODE = "direct_status_json"
+CLAIM1_TEST_MODE_NO_LEARNING = True
 
 
 @dataclass(frozen=True)
@@ -434,6 +435,7 @@ def _run_method_matrix(
     active_method_names: list[str],
     active_registry: dict[str, Any],
     storage_root_dir: str | None,
+    test_mode_no_learning: bool,
     budget: dict[str, Any],
     seed: int,
     retrieval_config: dict[str, Any],
@@ -537,6 +539,9 @@ def _run_method_matrix(
 
                         if storage_root_dir:
                             runner_kwargs["storage_root_dir"] = storage_root_dir
+
+                        if test_mode_no_learning:
+                            runner_kwargs["test_mode_no_learning"] = True
 
                         result = runner(**runner_kwargs)
 
@@ -1370,6 +1375,7 @@ def run_claim1_experiment(
             active_method_names=method_order,
             active_registry=active_registry,
             storage_root_dir=str(storage_root_dir) if storage_root_dir else None,
+            test_mode_no_learning=CLAIM1_TEST_MODE_NO_LEARNING,
             budget=budget,
             seed=seed,
             retrieval_config=retrieval_config,
@@ -1539,6 +1545,7 @@ def run_claim1_experiment(
         active_method_names=method_order,
         active_registry=active_registry,
         storage_root_dir=str(storage_root_dir) if storage_root_dir else None,
+        test_mode_no_learning=CLAIM1_TEST_MODE_NO_LEARNING,
         budget=budget,
         seed=seed,
         retrieval_config=retrieval_config,
@@ -1601,6 +1608,7 @@ def run_claim1_experiment(
         active_method_names=method_order,
         active_registry=active_registry,
         storage_root_dir=str(storage_root_dir) if storage_root_dir else None,
+        test_mode_no_learning=CLAIM1_TEST_MODE_NO_LEARNING,
         budget=budget,
         seed=seed,
         retrieval_config=retrieval_config,

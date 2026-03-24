@@ -29,8 +29,21 @@ def run_post_adjudication_learning(engine: Any) -> Dict[str, Any]:
     learning_result: Dict[str, Any] = {
         "case_id": learning_case_id,
         "success": False,
+        "skipped": False,
+        "reason": "",
         "error": "",
     }
+
+    cfg = getattr(engine, "cfg", None)
+    experiment_cfg = getattr(cfg, "experiment", None)
+
+    if bool(getattr(experiment_cfg, "test_mode_no_learning", False)):
+        learning_result["success"] = True
+        learning_result["skipped"] = True
+        learning_result["reason"] = "test_mode_no_learning"
+        engine.last_step_log["learning_result"] = learning_result
+        engine._notify_state_change("learning_complete", learning_result)
+        return learning_result
 
     try:
         engine.legal_sys.learn(

@@ -16,6 +16,7 @@ def run_baseline_b1_structured_rag(
     seed: int | None = None,
     retrieval_config: Mapping[str, Any] | None = None,
     verbose: bool = False,
+    test_mode_no_learning: bool = False,
 ) -> dict[str, Any]:
     """Run one structured single-pass baseline without debate turns."""
     return execute_method(
@@ -26,5 +27,6 @@ def run_baseline_b1_structured_rag(
         seed=seed,
         retrieval_config=retrieval_config,
         verbose=verbose,
+        test_mode_no_learning=test_mode_no_learning,
         direct_adjudication=True,
     )

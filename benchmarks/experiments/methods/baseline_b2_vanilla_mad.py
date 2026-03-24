@@ -16,6 +16,7 @@ def run_baseline_b2_vanilla_mad(
     seed: int | None = None,
     retrieval_config: Mapping[str, Any] | None = None,
     verbose: bool = False,
+    test_mode_no_learning: bool = False,
 ) -> dict[str, Any]:
     """Run debate baseline without recall worker or initial insights."""
     return execute_method(
@@ -26,6 +27,7 @@ def run_baseline_b2_vanilla_mad(
         seed=seed,
         retrieval_config=retrieval_config,
         verbose=verbose,
+        test_mode_no_learning=test_mode_no_learning,
         disable_recall_worker=True,
         disable_initial_insights=True,
     )
