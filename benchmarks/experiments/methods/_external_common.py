@@ -35,6 +35,7 @@ from prompts.common_prompts import (
 )
 
 ALLOWED_STATUS = ("VALIDATED", "DEFEATED", "HYPOTHETICAL")
+ADJUDICATION_MAX_ATTEMPTS = 3
 
 _JUDGE_STATUS_MAP = {
     "ACCEPTED": "VALIDATED",
@@ -284,11 +285,20 @@ def _build_adjudicator_prompt(
         graph_context=evidence_context,
     )
 
+    output_template = {
+        "claims": [
+            {"claim_id": row["claim_id"], "status": "ACCEPTED"} for row in claims
+        ]
+    }
+
     return (
         f"{prompt}\n\n"
         "【附加约束】\n"
         "1. 当前输入中的 claim_id 已固定，你必须逐条覆盖，且不得新增或改写 claim_id。\n"
-        "2. JSON 中状态标签必须使用 ACCEPTED、REJECTED、UNMENTIONED。"
+        f"2. 你必须返回且只返回 {len(claims)} 条 claim 裁决。\n"
+        "3. JSON 中状态标签必须使用 ACCEPTED、REJECTED、UNMENTIONED。\n"
+        "4. 输出格式参考如下模板，但请替换成你自己的 status 判断：\n"
+        f"{_json_block(output_template)}"
     )
 
 
@@ -298,22 +308,52 @@ def _adjudicate_claim_statuses(
     prompt: str,
     expected_claim_ids: list[str],
 ) -> list[dict[str, str]]:
-    response = llm.ask_json_schema(
-        messages=[
-            Message(role="system", content=SYSTEM_PROMPT_DIRECT_JUDGE),
-            Message(role="user", content=prompt),
-        ],
-        schema=_DIRECT_STATUS_SCHEMA,
-        temperature=0.0,
-    )
+    messages = [
+        Message(role="system", content=SYSTEM_PROMPT_DIRECT_JUDGE),
+        Message(role="user", content=prompt),
+    ]
 
-    if not isinstance(response, dict):
-        raise ValueError("External adjudication response must be a JSON object.")
+    last_error: Exception | None = None
 
-    return _validate_status_rows(
-        rows=response.get("claims"),
-        expected_claim_ids=expected_claim_ids,
-    )
+    for attempt in range(1, ADJUDICATION_MAX_ATTEMPTS + 1):
+        response = llm.ask_json_schema(
+            messages=messages,
+            schema=_DIRECT_STATUS_SCHEMA,
+            temperature=0.0,
+        )
+
+        try:
+            if not isinstance(response, dict):
+                raise ValueError(
+                    "External adjudication response must be a JSON object."
+                )
+
+            return _validate_status_rows(
+                rows=response.get("claims"),
+                expected_claim_ids=expected_claim_ids,
+            )
+
+        except ValueError as exc:
+            last_error = exc
+
+            if attempt >= ADJUDICATION_MAX_ATTEMPTS:
+                break
+
+            messages = [
+                Message(role="system", content=SYSTEM_PROMPT_DIRECT_JUDGE),
+                Message(role="user", content=prompt),
+                Message(
+                    role="user",
+                    content=(
+                        "你上一轮输出违反了严格契约："
+                        f"{exc}\n"
+                        "请重新输出完整 JSON，并逐条覆盖全部 claim_id。"
+                    ),
+                ),
+            ]
+
+    assert last_error is not None
+    raise last_error
 
 
 def _run_case_and_law_retrieval(
