@@ -24,7 +24,12 @@ from benchmarks.experiments.eval.matching_robustness import (
     default_matching_scenarios,
 )
 from benchmarks.experiments.methods.base import case_uid
-from benchmarks.experiments.methods.factory import build_default_registry
+from benchmarks.experiments.methods.factory import (
+    INTERNAL_DEFAULT_PROFILE,
+    build_method_registry_snapshot,
+    build_prereg_comparisons,
+    normalize_registry_profile,
+)
 from mas.config import SystemConfig
 from mas.infrastructure.embedding import EmbeddingFunc
 from mas.infrastructure.settings_provider import build_system_config
@@ -48,7 +53,7 @@ DEFAULT_REPORTS_ROOT = Path("reports/experiments")
 DEFAULT_DRYRUN_SAMPLE_SIZE = 3
 DEFAULT_SEED = 20260307
 DEFAULT_FULL_MAX_TURNS = 10
-METRIC_CONTRACT_VERSION = "step08_claim1_v1"
+METRIC_CONTRACT_VERSION = "step08_claim1_v2_missing_as_unmentioned"
 
 
 def _utc_now_iso() -> str:
@@ -281,15 +286,11 @@ def _build_budget_grid(full_max_turns: int = DEFAULT_FULL_MAX_TURNS) -> dict[str
     }
 
 
-def _build_prereg_points() -> dict[str, Any]:
+def _build_prereg_points(
+    profile: str = INTERNAL_DEFAULT_PROFILE,
+) -> dict[str, Any]:
     return {
-        "comparisons": {
-            "main_system": [
-                "baseline_b1_structured_rag",
-                "baseline_b2_vanilla_mad",
-                "baseline_b3_stateful_no_axioms",
-            ]
-        },
+        "comparisons": build_prereg_comparisons(profile),
         "budget_points": ["q25", "q50", "q75"],
         "round_points": [1, 3, 5],
         "temperature": 0,
@@ -301,45 +302,6 @@ def _build_runtime_config_snapshot(cfg: SystemConfig) -> dict[str, Any]:
     snapshot = asdict(cfg)
     snapshot["llm"]["api_key"] = _secret_fingerprint(cfg.llm.api_key)
     return snapshot
-
-
-def _build_method_registry_snapshot() -> dict[str, Any]:
-    registry = build_default_registry()
-
-    return {
-        "method_names": sorted(registry.keys()),
-        "root_claim_source": "gold_package_seeded",
-        "claim1_task_focus": "status_eval_on_gold_claims",
-        "adjudication_mode": "direct_status_json",
-        "fallbacks_enabled": False,
-        "method_semantics": {
-            "main_system": {
-                "mode": "full_debate",
-                "root_claim_source": "gold_package_seeded",
-                "adjudication_mode": "direct_status_json",
-            },
-            "baseline_b1_structured_rag": {
-                "mode": "structured_single_pass",
-                "direct_adjudication": True,
-                "creates_debate_engine": False,
-                "root_claim_source": "gold_package_seeded",
-                "adjudication_mode": "direct_status_json",
-            },
-            "baseline_b2_vanilla_mad": {
-                "mode": "debate_without_recall_or_initial_insights",
-                "disable_recall_worker": True,
-                "disable_initial_insights": True,
-                "root_claim_source": "gold_package_seeded",
-                "adjudication_mode": "direct_status_json",
-            },
-            "baseline_b3_stateful_no_axioms": {
-                "mode": "debate_without_validate_step",
-                "skip_validate_step": True,
-                "root_claim_source": "gold_package_seeded",
-                "adjudication_mode": "direct_status_json",
-            },
-        },
-    }
 
 
 def _build_matching_protocol_snapshot() -> dict[str, Any]:
@@ -443,10 +405,11 @@ def run_step09a_preflight(
     split_manifest_path: str | Path = DEFAULT_SPLIT_MANIFEST_PATH,
     sample_size: int = DEFAULT_DRYRUN_SAMPLE_SIZE,
     seed: int = DEFAULT_SEED,
+    registry_profile: str = INTERNAL_DEFAULT_PROFILE,
+    full_max_turns: int = DEFAULT_FULL_MAX_TURNS,
 ) -> dict[str, Any]:
-    cfg = build_system_config(
-        str(storage_root_dir) if storage_root_dir else None
-    )
+    resolved_registry_profile = normalize_registry_profile(registry_profile)
+    cfg = build_system_config(str(storage_root_dir) if storage_root_dir else None)
     run_root = Path(reports_root) / run_id
     preflight_dir = run_root / "preflight"
 
@@ -489,6 +452,7 @@ def run_step09a_preflight(
         "checks": checks,
         "selected_dryrun_case_uids": selected_uids,
         "seed": int(seed),
+        "registry_profile": resolved_registry_profile,
     }
 
     _write_json(preflight_dir / "preflight_health.json", preflight_summary)
@@ -508,7 +472,8 @@ def run_step09a_preflight(
     )
 
     _write_json(
-        run_root / "method_registry_snapshot.json", _build_method_registry_snapshot()
+        run_root / "method_registry_snapshot.json",
+        build_method_registry_snapshot(resolved_registry_profile),
     )
 
     _write_json(
@@ -538,8 +503,16 @@ def run_step09a_preflight(
         },
     )
 
-    _write_json(run_root / "budget_grid.json", _build_budget_grid())
-    _write_json(run_root / "prereg_points.json", _build_prereg_points())
+    _write_json(
+        run_root / "budget_grid.json",
+        _build_budget_grid(full_max_turns=int(full_max_turns)),
+    )
+
+    _write_json(
+        run_root / "prereg_points.json",
+        _build_prereg_points(resolved_registry_profile),
+    )
+
     return preflight_summary
 
 
@@ -563,11 +536,20 @@ def finalize_step09a_freeze(
         raise ValueError("Step 09A preflight has not passed.")
 
     dryrun_summary = _read_json(dryrun_path)
-    expected_methods = sorted(build_default_registry().keys())
+    method_registry_snapshot = _read_json(run_root / "method_registry_snapshot.json")
+
+    expected_methods = sorted(
+        method_registry_snapshot.get("method_names", [])
+        or dryrun_summary.get("method_names", [])
+    )
+
     selected_case_uids = list(preflight_summary.get("selected_dryrun_case_uids", []))
 
+    if not expected_methods:
+        raise ValueError("Step 09A method_registry_snapshot.json has no method_names.")
+
     if sorted(dryrun_summary.get("method_names", [])) != expected_methods:
-        raise ValueError("Live dry-run method set does not match the default registry.")
+        raise ValueError("Live dry-run method set does not match the frozen registry.")
 
     if list(dryrun_summary.get("selected_case_uids", [])) != selected_case_uids:
         raise ValueError("Live dry-run cases do not match preflight-selected cases.")
@@ -630,6 +612,11 @@ def finalize_step09a_freeze(
             "retrieval_config_snapshot": retrieval_config_snapshot,
             "matching_protocol_version": FROZEN_MATCHING_PROTOCOL_VERSION,
             "metric_contract_version": METRIC_CONTRACT_VERSION,
+            "registry_profile": str(
+                method_registry_snapshot.get(
+                    "registry_profile", INTERNAL_DEFAULT_PROFILE
+                )
+            ),
         },
         "notes": [
             "Step 09A freeze uses runtime snapshots, not legacy configs/aligner directories.",
@@ -671,6 +658,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     preflight_parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+
+    preflight_parser.add_argument(
+        "--full-max-turns",
+        type=int,
+        default=DEFAULT_FULL_MAX_TURNS,
+    )
+
+    preflight_parser.add_argument(
+        "--registry-profile",
+        default=INTERNAL_DEFAULT_PROFILE,
+    )
+
     finalize_parser = subparsers.add_parser("finalize")
     finalize_parser.add_argument("--run-id", required=True)
     finalize_parser.add_argument("--reports-root", default=str(DEFAULT_REPORTS_ROOT))
@@ -695,6 +694,8 @@ def main() -> None:
             split_manifest_path=args.split_manifest_path,
             sample_size=args.sample_size,
             seed=args.seed,
+            registry_profile=args.registry_profile,
+            full_max_turns=args.full_max_turns,
         )
 
     else:

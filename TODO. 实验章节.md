@@ -56,11 +56,32 @@
 
 各对照组遵循统一的资源限制：
 
-- **B1: 结构化单体模型 (Vanilla RAG + Structured JSON)**
+- **Step 10 任务定义拆分：内部对比 vs 外部对比**
+
+  - **内部对比（当前 Step 10 主线）:** 当前 `B1/B2/B3/main_system` 只作为系统内变体/消融比较，回答“辩论、多阶段控制、recall 与 validate gate 是否带来增益”，不直接承担“对外标准基线”职责。
+  - **外部对比（后续扩展任务）:** 若要对外宣告“优于朴素 RAG / 优于 vanilla MAD”，必须额外实现真正的外部 canonical baseline，并在独立冻结条件下重跑 Step 10。
+
+- **内部对比中的正式语义**
+
+  - **B1: 无辩论、单次结构化裁决基线 (single-pass structured adjudication)**
     
-- **B2: 通用多智能体辩论 (Vanilla Multi-Agent Debate)**
+  - **B2: 去掉 recall worker 与 initial insights 的辩论基线**
     
-- **B3: 强状态管理智能体 (Stateful Agent without Axioms):** 说明主系统与 B3 差异在于是否执行 `ValidateStep`。
+  - **B3: 去掉 `ValidateStep` 的辩论基线**
+    
+  - **Main System: 保留 recall、initial insights 与 validate gate 的完整辩论系统**
+
+- **外部对比中待新增的标准基线**
+
+  - **true_naive_rag:** 真正的朴素检索增强生成基线，不复用当前多智能体辩论框架语义。
+    
+  - **true_vanilla_mad:** 真正的 vanilla multi-agent debate 基线，不夹带当前主系统特有的状态管理与附加控制逻辑。
+
+- **工作量增加说明**
+
+  - 当前内部对比结果仍有价值，可直接用于机制分析与系统内结论。
+    
+  - 但一旦引入外部对比，Step 10 将从“单轨实验”扩展为“内部消融 + 外部基线”双轨实验；需要新增基线实现、命名与语义审计、资源冻结、pilot 与 full 重跑，整体工作量与实验成本显著上升。
     
 
 ## 4. 主检验指标与评估定义 (Primary Metrics & Formal Definitions)
@@ -84,6 +105,8 @@
     - **E2E F1 (FP-Sensitive):** 显式惩罚“过度生成”或“漏抽”的双罚指标（匹配且状态错判计 FP+FN；未匹配 Gold 计 FN；无法匹配的预测计 FP）。
         
     - **指标定位与写作纪律:** 声明主结论在 E2E Status Acc 与 `Soft E2E F1`（状态错判仅计为 FN）下方向一致；在主文撰写时，主张1结论段需显式引用该结果：指出附录报告的 FP-sensitive E2E F1 与过度生成率指标，证实主结论并不依赖于过度生成（FP）偏差。
+        
+    - **Step 10 结果解释纪律:** 当前主张 1 的 Step 10 结果默认只对“内部对比”成立；若未补跑 `true_naive_rag` / `true_vanilla_mad`，则不得把 `B1/B2/B3` 的比较结果写成“对外基线胜负”。
         
 
 ### 4.2 主张 2：一致性检查与事实忠实度

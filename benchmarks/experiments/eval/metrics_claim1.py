@@ -1,4 +1,11 @@
-"""Step 08 Claim 1 metric helpers."""
+"""Step 08 Claim 1 metric helpers.
+
+Official Claim 1 protocol note:
+- Unmatched gold claims are treated as implicit ``HYPOTHETICAL`` predictions.
+- This makes "claim omitted from output" semantically equivalent to
+  "UNMENTIONED / HYPOTHETICAL" for end-to-end status metrics.
+- Structural claim retention is still reported separately via Step A metrics.
+"""
 
 from __future__ import annotations
 
@@ -95,6 +102,10 @@ def evaluate_claim1_metrics(
     matched_pred_2: list[str] = []
     matched_true_3: list[str] = []
     matched_pred_3: list[str] = []
+    e2e_true_2: list[str] = []
+    e2e_pred_2: list[str] = []
+    e2e_true_3: list[str] = []
+    e2e_pred_3: list[str] = []
     gold_claim_count = 0
     prediction_claim_count = 0
     matched_gold_count = 0
@@ -135,8 +146,9 @@ def evaluate_claim1_metrics(
                 matched_count, unmatched_pred, unmatched_gold
             )
 
-        correct_status_2 = 0
-        mismatch_status_2 = 0
+        correct_status_2_all = 0
+        wrong_status_2_all = 0
+        correct_status_2_matched = 0
         case_true_3: list[str] = []
         case_pred_3: list[str] = []
 
@@ -163,21 +175,55 @@ def evaluate_claim1_metrics(
             matched_pred_2.append(pred_status_2)
             matched_true_3.append(gold_status_3)
             matched_pred_3.append(pred_status_3)
+            e2e_true_2.append(gold_status_2)
+            e2e_pred_2.append(pred_status_2)
+            e2e_true_3.append(gold_status_3)
+            e2e_pred_3.append(pred_status_3)
             case_true_3.append(gold_status_3)
             case_pred_3.append(pred_status_3)
 
             if gold_status_2 == pred_status_2:
-                correct_status_2 += 1
+                correct_status_2_all += 1
+                correct_status_2_matched += 1
 
             else:
-                mismatch_status_2 += 1
+                wrong_status_2_all += 1
+
+        for gold_row in bundle.unmatched_gold_rows:
+            gold_claim_id = require_row_field(gold_row, "claim_id")
+            gold_status_row = gold_lookup.get((uid, gold_claim_id))
+
+            if gold_status_row is None:
+                raise ValueError(
+                    f"Missing gold status row for uid={uid} claim_id={gold_claim_id}"
+                )
+
+            gold_status_3 = normalize_status_eval(
+                require_row_field(gold_status_row, "status_eval")
+            )
+
+            pred_status_3 = "HYPOTHETICAL"
+            gold_status_2 = collapse_status_eval(gold_status_3)
+            pred_status_2 = collapse_status_eval(pred_status_3)
+            e2e_true_2.append(gold_status_2)
+            e2e_pred_2.append(pred_status_2)
+            e2e_true_3.append(gold_status_3)
+            e2e_pred_3.append(pred_status_3)
+
+            if gold_status_2 == pred_status_2:
+                correct_status_2_all += 1
+
+            else:
+                wrong_status_2_all += 1
 
         if gold_count:
-            case_scores["e2e_status_acc"][uid] = safe_div(correct_status_2, gold_count)
+            case_scores["e2e_status_acc"][uid] = safe_div(
+                correct_status_2_all, gold_count
+            )
 
         if matched_count:
             case_scores["status_acc_matched"][uid] = safe_div(
-                correct_status_2, matched_count
+                correct_status_2_matched, matched_count
             )
 
             case_scores["macro_f1_3class_matched"][uid] = macro_f1_for_case(
@@ -196,15 +242,15 @@ def evaluate_claim1_metrics(
 
         if gold_count:
             case_scores["e2e_f1_fp_sensitive"][uid] = f1_from_counts(
-                correct_status_2,
-                unmatched_pred + mismatch_status_2,
-                unmatched_gold + mismatch_status_2,
+                correct_status_2_all,
+                unmatched_pred + wrong_status_2_all,
+                wrong_status_2_all,
             )
 
             case_scores["soft_e2e_f1"][uid] = f1_from_counts(
-                correct_status_2,
+                correct_status_2_all,
                 unmatched_pred,
-                unmatched_gold + mismatch_status_2,
+                wrong_status_2_all,
             )
 
     main_metrics = {
@@ -243,9 +289,15 @@ def evaluate_claim1_metrics(
         "matched_gold_count": matched_gold_count,
         "matched_gold_coverage": safe_div(matched_gold_count, gold_claim_count),
         "status_confusion_2class": confusion_matrix(
-            matched_true_2, matched_pred_2, classes=STATUS_CLASSES_2
+            e2e_true_2, e2e_pred_2, classes=STATUS_CLASSES_2
         ),
         "status_confusion_3class": confusion_matrix(
+            e2e_true_3, e2e_pred_3, classes=STATUS_CLASSES_3
+        ),
+        "status_confusion_2class_matched": confusion_matrix(
+            matched_true_2, matched_pred_2, classes=STATUS_CLASSES_2
+        ),
+        "status_confusion_3class_matched": confusion_matrix(
             matched_true_3, matched_pred_3, classes=STATUS_CLASSES_3
         ),
     }

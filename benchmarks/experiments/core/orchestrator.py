@@ -32,7 +32,11 @@ from benchmarks.experiments.eval import (
     run_frozen_matching_protocol,
 )
 from benchmarks.experiments.methods.base import case_uid, validate_method_result
-from benchmarks.experiments.methods.factory import build_default_registry
+from benchmarks.experiments.methods.factory import (
+    INTERNAL_DEFAULT_PROFILE,
+    build_default_registry,
+    build_method_registry,
+)
 from mas.config import SystemConfig
 
 PILOT_STAGE = "pilot"
@@ -260,7 +264,22 @@ def _resolve_registry(
     registry: dict[str, Any] | None = None,
     methods: list[str] | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
-    full_registry = dict(registry or build_default_registry())
+    if registry is None:
+        registry_profile = str(
+            freeze_bundle.method_registry_snapshot.get(
+                "registry_profile", INTERNAL_DEFAULT_PROFILE
+            )
+            or INTERNAL_DEFAULT_PROFILE
+        )
+
+        if registry_profile == INTERNAL_DEFAULT_PROFILE:
+            full_registry = dict(build_default_registry())
+
+        else:
+            full_registry = dict(build_method_registry(profile=registry_profile))
+
+    else:
+        full_registry = dict(registry)
 
     frozen_method_names = list(
         freeze_bundle.method_registry_snapshot.get("method_names", [])
@@ -1428,6 +1447,11 @@ def run_claim1_experiment(
             "claim_id": CLAIM1,
             "stage": PILOT_STAGE,
             "status": "ready_for_manual_review",
+            "registry_profile": str(
+                freeze_bundle.method_registry_snapshot.get(
+                    "registry_profile", INTERNAL_DEFAULT_PROFILE
+                )
+            ),
             "run_id": run_id,
             "freeze_run_id": freeze_run_id,
             "method_names": method_order,
@@ -1657,6 +1681,11 @@ def run_claim1_experiment(
         "claim_id": CLAIM1,
         "stage": FULL_STAGE,
         "status": "completed",
+        "registry_profile": str(
+            freeze_bundle.method_registry_snapshot.get(
+                "registry_profile", INTERNAL_DEFAULT_PROFILE
+            )
+        ),
         "task_focus": CLAIM1_TASK_FOCUS,
         "root_claim_source": CLAIM1_ROOT_CLAIM_SOURCE,
         "matching_mode": CLAIM1_MATCHING_MODE,

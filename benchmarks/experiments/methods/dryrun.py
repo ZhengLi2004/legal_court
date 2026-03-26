@@ -13,7 +13,11 @@ from tqdm.auto import tqdm
 
 from benchmarks.experiments.data.loader import load_cases_from_jsonl
 from benchmarks.experiments.methods.base import case_uid, validate_method_result
-from benchmarks.experiments.methods.factory import build_default_registry
+from benchmarks.experiments.methods.factory import (
+    INTERNAL_DEFAULT_PROFILE,
+    build_method_registry,
+    normalize_registry_profile,
+)
 
 
 def _load_dev_case_uids(dev_ids_path: str | Path) -> list[str]:
@@ -158,6 +162,7 @@ def run_step09_dryrun(
     verbose: bool = False,
     show_progress: bool = True,
     resume: bool = False,
+    registry_profile: str = INTERNAL_DEFAULT_PROFILE,
 ) -> dict[str, Any]:
     """Run all registered Step 09 methods on a small deterministic Dev slice."""
     cases = load_cases_from_jsonl(input_path)
@@ -177,7 +182,11 @@ def run_step09_dryrun(
         )
         raise ValueError(f"Missing selected Dev cases: {missing}")
 
-    full_registry = dict(registry or build_default_registry())
+    resolved_registry_profile = normalize_registry_profile(registry_profile)
+
+    full_registry = dict(
+        registry or build_method_registry(profile=resolved_registry_profile)
+    )
 
     if methods:
         requested_methods = [str(item).strip() for item in methods if str(item).strip()]
@@ -244,6 +253,7 @@ def run_step09_dryrun(
         "started_at": _now_iso(),
         "sample_size": len(selected_cases),
         "selected_case_uids": selected_uids,
+        "registry_profile": resolved_registry_profile,
         "method_names": summary_method_names,
         "total_task_count": total_tasks,
         "completed_task_count": len(validation_rows),
@@ -389,6 +399,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=20260307)
     parser.add_argument("--max-turns", type=int, default=10)
     parser.add_argument("--memory-dir", default="")
+
+    parser.add_argument(
+        "--registry-profile",
+        default=INTERNAL_DEFAULT_PROFILE,
+    )
+
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--resume", action="store_true")
     return parser
@@ -411,6 +427,7 @@ def main() -> None:
         verbose=bool(args.verbose),
         show_progress=True,
         resume=bool(args.resume),
+        registry_profile=args.registry_profile,
     )
 
     print(json.dumps(summary, ensure_ascii=False, indent=2))
