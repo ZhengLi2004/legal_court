@@ -21,3 +21,4 @@ benchmarks/optim/artifacts/
 contracts/
 benchmarks/experiments/artifacts/
 reports/
+models/

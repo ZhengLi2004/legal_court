@@ -14,6 +14,9 @@ from typing import Any
 
 from tqdm.auto import tqdm
 
+from benchmarks.experiments.core.claim2_runner import (
+    run_claim2_experiment as _run_claim2_experiment,
+)
 from benchmarks.experiments.core.step09a import (
     DEFAULT_INPUT_PATH,
     DEFAULT_REPORTS_ROOT,
@@ -1716,11 +1719,38 @@ def run_claim1_experiment(
 
 def run_claim2_experiment(
     *,
-    cases: list[dict[str, Any]] | None = None,
-    registry: dict[str, Any] | None = None,
+    freeze_run_id: str,
+    source_claim1_run_id: str,
+    run_id: str,
+    reports_root: str | Path = DEFAULT_REPORTS_ROOT,
+    input_path: str | Path = DEFAULT_INPUT_PATH,
+    evaluator_profile_path: str | Path,
+    methods: list[str] | None = None,
+    resume: bool = False,
+    verbose: bool = False,
+    show_progress: bool = True,
+    top_k: int = 3,
+    aggregation: str = "any",
+    agreement_threshold: float = 0.70,
+    alignment_threshold: float = 0.10,
 ) -> dict[str, Any]:
-    """Run Claim 2 experiment skeleton and return structured result."""
-    return _build_skeleton_result(claim_id=2, cases=cases, registry=registry)
+    """Run the finalized Step 11 Claim 2 orchestration flow."""
+    return _run_claim2_experiment(
+        freeze_run_id=freeze_run_id,
+        source_claim1_run_id=source_claim1_run_id,
+        run_id=run_id,
+        reports_root=reports_root,
+        input_path=input_path,
+        evaluator_profile_path=evaluator_profile_path,
+        methods=methods,
+        resume=resume,
+        verbose=verbose,
+        show_progress=show_progress,
+        top_k=top_k,
+        aggregation=aggregation,
+        agreement_threshold=agreement_threshold,
+        alignment_threshold=alignment_threshold,
+    )
 
 
 def run_claim3_experiment(
@@ -1742,7 +1772,7 @@ def run_claim4_experiment(
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Claim 1 experiment orchestrator")
+    parser = argparse.ArgumentParser(description="Experiment orchestrator")
     subparsers = parser.add_subparsers(dest="command", required=True)
     pilot_parser = subparsers.add_parser("claim1-pilot")
     pilot_parser.add_argument("--freeze-run-id", required=True)
@@ -1765,6 +1795,21 @@ def _build_parser() -> argparse.ArgumentParser:
     full_parser.add_argument("--verbose", action="store_true")
     full_parser.add_argument("--resume", action="store_true")
     full_parser.add_argument("--no-progress", action="store_true")
+    claim2_parser = subparsers.add_parser("claim2-run")
+    claim2_parser.add_argument("--freeze-run-id", required=True)
+    claim2_parser.add_argument("--source-claim1-run-id", required=True)
+    claim2_parser.add_argument("--run-id", required=True)
+    claim2_parser.add_argument("--reports-root", default=str(DEFAULT_REPORTS_ROOT))
+    claim2_parser.add_argument("--input-path", default=str(DEFAULT_INPUT_PATH))
+    claim2_parser.add_argument("--evaluator-profile-path", required=True)
+    claim2_parser.add_argument("--methods", nargs="*", default=None)
+    claim2_parser.add_argument("--resume", action="store_true")
+    claim2_parser.add_argument("--verbose", action="store_true")
+    claim2_parser.add_argument("--no-progress", action="store_true")
+    claim2_parser.add_argument("--top-k", type=int, default=3)
+    claim2_parser.add_argument("--aggregation", default="any")
+    claim2_parser.add_argument("--agreement-threshold", type=float, default=0.70)
+    claim2_parser.add_argument("--alignment-threshold", type=float, default=0.10)
     return parser
 
 
@@ -1786,7 +1831,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             resume=bool(args.resume),
         )
 
-    else:
+    elif args.command == "claim1-full":
         payload = run_claim1_experiment(
             stage=FULL_STAGE,
             freeze_run_id=args.freeze_run_id,
@@ -1799,6 +1844,24 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             verbose=bool(args.verbose),
             show_progress=not bool(args.no_progress),
             resume=bool(args.resume),
+        )
+
+    else:
+        payload = run_claim2_experiment(
+            freeze_run_id=args.freeze_run_id,
+            source_claim1_run_id=args.source_claim1_run_id,
+            run_id=args.run_id,
+            reports_root=args.reports_root,
+            input_path=args.input_path,
+            evaluator_profile_path=args.evaluator_profile_path,
+            methods=args.methods,
+            resume=bool(args.resume),
+            verbose=bool(args.verbose),
+            show_progress=not bool(args.no_progress),
+            top_k=int(args.top_k),
+            aggregation=str(args.aggregation),
+            agreement_threshold=float(args.agreement_threshold),
+            alignment_threshold=float(args.alignment_threshold),
         )
 
     print(json.dumps(payload, ensure_ascii=False, indent=2))

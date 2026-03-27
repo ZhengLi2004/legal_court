@@ -10,11 +10,12 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from itertools import combinations
 from typing import Any, Protocol
 
 from benchmarks.experiments.eval.consistency_parser import ConsistencyParseResult
+from mas.infrastructure.embedding import cosine_similarity
 
 VALID_EVAL_LABELS = {"E", "N", "C"}
 
@@ -58,12 +59,14 @@ class AlignmentResult:
     assertion: ClaimAssertion
     aligned_hits: tuple[AlignmentHit, ...]
     success: bool
+    candidate_hits: tuple[AlignmentHit, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "assertion": self.assertion.to_dict(),
             "aligned_hits": [item.to_dict() for item in self.aligned_hits],
             "success": self.success,
+            "candidate_hits": [item.to_dict() for item in self.candidate_hits],
         }
 
 
@@ -112,6 +115,7 @@ class FaithfulnessSummary:
     agreement_matrix: AgreementMatrix
     per_case_results: dict[str, dict[str, float]]
     per_assertion_results: tuple[AssertionFaithfulness, ...]
+    vote_sequences: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +129,10 @@ class FaithfulnessSummary:
             "per_assertion_results": [
                 item.to_dict() for item in self.per_assertion_results
             ],
+            "vote_sequences": {
+                name: list(labels)
+                for name, labels in sorted(self.vote_sequences.items())
+            },
         }
 
 
@@ -171,6 +179,34 @@ class DeterministicOverlapAligner:
         overlap = len(left & right)
         union = len(left | right)
         return float(overlap / union) if union else 0.0
+
+
+class EmbeddingCosineAligner:
+    """Embedding-based cosine aligner for offline Step 11 evaluation."""
+
+    def __init__(self, embedding_func: Any, *, threshold: float = 0.1) -> None:
+        if threshold < 0.0 or threshold > 1.0:
+            raise ValueError("threshold must be within [0, 1]")
+
+        if embedding_func is None:
+            raise ValueError("embedding_func must be provided")
+
+        self.embedding_func = embedding_func
+        self.threshold = float(threshold)
+        self._cache: dict[str, list[float]] = {}
+
+    def _embed(self, text: str) -> list[float]:
+        key = str(text or "")
+
+        if key not in self._cache:
+            self._cache[key] = list(self.embedding_func.embed_query(key))
+
+        return self._cache[key]
+
+    def score(self, assertion_text: str, window: EvidenceWindow) -> float:
+        left = self._embed(assertion_text)
+        right = self._embed(window.text)
+        return float(cosine_similarity(left, right))
 
 
 def extract_evidence_windows(case_payload: Mapping[str, Any]) -> list[EvidenceWindow]:
@@ -266,9 +302,9 @@ def align_assertions(
         ]
 
         scored.sort(key=lambda item: (-item.score, item.window.window_id))
-
+        candidate_hits = tuple(scored[:top_k])
         chosen = tuple(
-            item for item in scored[:top_k] if item.score >= aligner.threshold
+            item for item in candidate_hits if item.score >= aligner.threshold
         )
 
         results.append(
@@ -276,10 +312,37 @@ def align_assertions(
                 assertion=assertion,
                 aligned_hits=chosen,
                 success=bool(chosen),
+                candidate_hits=candidate_hits,
             )
         )
 
     return results
+
+
+def rethreshold_alignment_results(
+    alignment_results: Sequence[AlignmentResult],
+    *,
+    threshold: float,
+) -> list[AlignmentResult]:
+    if threshold < 0.0 or threshold > 1.0:
+        raise ValueError("threshold must be within [0, 1]")
+
+    updated: list[AlignmentResult] = []
+
+    for result in alignment_results:
+        candidates = result.candidate_hits or result.aligned_hits
+        aligned_hits = tuple(item for item in candidates if item.score >= threshold)
+
+        updated.append(
+            AlignmentResult(
+                assertion=result.assertion,
+                aligned_hits=aligned_hits,
+                success=bool(aligned_hits),
+                candidate_hits=tuple(candidates),
+            )
+        )
+
+    return updated
 
 
 def _majority_vote(labels: Sequence[str]) -> str:
@@ -378,8 +441,10 @@ def score_faithfulness(
     *,
     aggregation: str = "any",
 ) -> FaithfulnessSummary:
-    if aggregation.lower() != "any":
-        raise ValueError("Only aggregation='any' is supported in the offline scaffold")
+    normalized_aggregation = str(aggregation or "").strip().lower()
+
+    if normalized_aggregation not in {"any", "majority", "max_score"}:
+        raise ValueError("aggregation must be one of {'any', 'majority', 'max_score'}")
 
     if not labelers:
         raise ValueError("labelers must not be empty")
@@ -438,17 +503,19 @@ def score_faithfulness(
 
         majority_values = list(window_majority_labels.values())
 
-        if "E" in majority_values:
-            final_label = "E"
+        final_label = _aggregate_window_labels(
+            majority_values,
+            aggregation=normalized_aggregation,
+        )
+
+        if final_label == "E":
             entailed_count += 1
             case_counter["entailed_count"] += 1
 
-        elif majority_values and all(label == "C" for label in majority_values):
-            final_label = "C"
+        elif final_label == "C":
             case_counter["contradicted_count"] += 1
 
         else:
-            final_label = "U"
             uncertain_count += 1
             case_counter["uncertain_count"] += 1
 
@@ -514,8 +581,41 @@ def score_faithfulness(
         entailment_rate_on_aligned=entailment_rate_on_aligned,
         overall_faithfulness=alignment_success_rate * entailment_rate_on_aligned,
         uncertain_rate=aligned_uncertain_rate,
-        aggregation_mode="any",
+        aggregation_mode=normalized_aggregation,
         agreement_matrix=agreement_matrix,
         per_case_results=per_case_results,
         per_assertion_results=tuple(per_assertion_results),
+        vote_sequences={
+            name: tuple(labels) for name, labels in sorted(vote_sequences.items())
+        },
     )
+
+
+def _aggregate_window_labels(labels: Sequence[str], *, aggregation: str) -> str:
+    values = [str(label or "").strip() for label in labels if str(label or "").strip()]
+
+    if not values:
+        return "U"
+
+    if aggregation == "any":
+        if "E" in values:
+            return "E"
+
+        if all(label == "C" for label in values):
+            return "C"
+
+        return "U"
+
+    if aggregation == "majority":
+        majority = _majority_vote(values)
+
+        if majority in {"E", "C"}:
+            return majority
+
+        return "U"
+
+    if aggregation == "max_score":
+        top_label = values[0]
+        return top_label if top_label in {"E", "C"} else "U"
+
+    raise ValueError(f"Unsupported aggregation: {aggregation!r}")
