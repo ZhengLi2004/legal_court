@@ -256,6 +256,7 @@ def build_method_config(
     storage_root_dir: str | None = None,
     skip_validate_step: bool = False,
     test_mode_no_learning: bool = False,
+    enable_fixed_evidence_pack: bool = False,
     disable_recall_worker: bool = False,
     disable_initial_insights: bool = False,
     budget: Mapping[str, Any] | None = None,
@@ -266,6 +267,7 @@ def build_method_config(
     warnings: list[str] = []
     cfg.experiment.skip_validate_step = bool(skip_validate_step)
     cfg.experiment.test_mode_no_learning = bool(test_mode_no_learning)
+    cfg.experiment.enable_fixed_evidence_pack = bool(enable_fixed_evidence_pack)
     cfg.experiment.disable_recall_worker = bool(disable_recall_worker)
     cfg.experiment.disable_initial_insights = bool(disable_initial_insights)
 
@@ -650,6 +652,9 @@ def execute_method(
         storage_root_dir=storage_root_dir,
         skip_validate_step=skip_validate_step,
         test_mode_no_learning=test_mode_no_learning,
+        enable_fixed_evidence_pack=bool(
+            prepared_case.get("experiment_fixed_evidence_pack")
+        ),
         disable_recall_worker=disable_recall_worker,
         disable_initial_insights=disable_initial_insights,
         budget=budget,

@@ -99,8 +99,11 @@ async def run_engine_setup(
             root_claim_rows_override=root_claim_rows_override,
         )
 
+        fixed_evidence_pack = resolved_case_data.get("experiment_fixed_evidence_pack")
+
         engine.graph, (p_insights_list, d_insights_list) = engine.legal_sys.new_case(
-            engine.raw_facts
+            engine.raw_facts,
+            fixed_evidence_pack=fixed_evidence_pack,
         )
 
         disable_initial_insights = bool(
@@ -201,6 +204,9 @@ async def run_engine_setup(
             f"{engine.graph.graph.number_of_edges()} 条边\n"
             f"系统已准备就绪，等待辩论开始。"
         )
+
+        if fixed_evidence_pack is not None:
+            init_narrative += "\n已启用固定证据包模式。"
 
         engine.transcript.append(init_narrative)
 

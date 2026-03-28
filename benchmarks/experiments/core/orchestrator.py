@@ -17,6 +17,15 @@ from tqdm.auto import tqdm
 from benchmarks.experiments.core.claim2_runner import (
     run_claim2_experiment as _run_claim2_experiment,
 )
+from benchmarks.experiments.core.claim3_runner import (
+    prepare_claim3_experiment as _prepare_claim3_experiment,
+)
+from benchmarks.experiments.core.claim3_runner import (
+    run_claim3_branch as _run_claim3_branch,
+)
+from benchmarks.experiments.core.claim3_runner import (
+    summarize_claim3_experiment as _summarize_claim3_experiment,
+)
 from benchmarks.experiments.core.step09a import (
     DEFAULT_INPUT_PATH,
     DEFAULT_REPORTS_ROOT,
@@ -1755,11 +1764,54 @@ def run_claim2_experiment(
 
 def run_claim3_experiment(
     *,
-    cases: list[dict[str, Any]] | None = None,
-    registry: dict[str, Any] | None = None,
+    command: str,
+    freeze_run_id: str | None = None,
+    source_claim1_run_id: str | None = None,
+    run_id: str,
+    reports_root: str | Path = DEFAULT_REPORTS_ROOT,
+    input_path: str | Path = DEFAULT_INPUT_PATH,
+    warmup_points: tuple[int, ...] = (0, 25, 50, 100),
+    branch: str | None = None,
+    resume: bool = False,
+    show_progress: bool = True,
 ) -> dict[str, Any]:
-    """Run Claim 3 experiment skeleton and return structured result."""
-    return _build_skeleton_result(claim_id=3, cases=cases, registry=registry)
+    """Run Claim 3 prepare/run/summarize orchestration."""
+    action = str(command).strip().lower()
+
+    if action == "prepare":
+        if not freeze_run_id or not source_claim1_run_id:
+            raise ValueError(
+                "Claim 3 prepare requires freeze_run_id and source_claim1_run_id."
+            )
+
+        return _prepare_claim3_experiment(
+            freeze_run_id=freeze_run_id,
+            source_claim1_run_id=source_claim1_run_id,
+            run_id=run_id,
+            reports_root=reports_root,
+            input_path=input_path,
+            warmup_points=warmup_points,
+        )
+
+    if action == "run":
+        if not branch:
+            raise ValueError("Claim 3 run requires one branch name.")
+
+        return _run_claim3_branch(
+            run_id=run_id,
+            reports_root=reports_root,
+            branch=branch,
+            resume=resume,
+            show_progress=show_progress,
+        )
+
+    if action == "summarize":
+        return _summarize_claim3_experiment(
+            run_id=run_id,
+            reports_root=reports_root,
+        )
+
+    raise ValueError(f"Unknown Claim 3 command: {command}")
 
 
 def run_claim4_experiment(
@@ -1810,6 +1862,34 @@ def _build_parser() -> argparse.ArgumentParser:
     claim2_parser.add_argument("--aggregation", default="any")
     claim2_parser.add_argument("--agreement-threshold", type=float, default=0.70)
     claim2_parser.add_argument("--alignment-threshold", type=float, default=0.10)
+    claim3_prepare_parser = subparsers.add_parser("claim3-prepare")
+    claim3_prepare_parser.add_argument("--freeze-run-id", required=True)
+    claim3_prepare_parser.add_argument("--source-claim1-run-id", required=True)
+    claim3_prepare_parser.add_argument("--run-id", required=True)
+
+    claim3_prepare_parser.add_argument(
+        "--reports-root", default=str(DEFAULT_REPORTS_ROOT)
+    )
+
+    claim3_prepare_parser.add_argument("--input-path", default=str(DEFAULT_INPUT_PATH))
+    claim3_prepare_parser.add_argument("--warmup-points", default="0,25,50,100")
+    claim3_run_parser = subparsers.add_parser("claim3-run")
+    claim3_run_parser.add_argument("--run-id", required=True)
+    claim3_run_parser.add_argument("--reports-root", default=str(DEFAULT_REPORTS_ROOT))
+
+    claim3_run_parser.add_argument(
+        "--branch", required=True, choices=("normal", "fixed-pack")
+    )
+
+    claim3_run_parser.add_argument("--resume", action="store_true")
+    claim3_run_parser.add_argument("--no-progress", action="store_true")
+    claim3_summarize_parser = subparsers.add_parser("claim3-summarize")
+    claim3_summarize_parser.add_argument("--run-id", required=True)
+
+    claim3_summarize_parser.add_argument(
+        "--reports-root", default=str(DEFAULT_REPORTS_ROOT)
+    )
+
     return parser
 
 
@@ -1846,7 +1926,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             resume=bool(args.resume),
         )
 
-    else:
+    elif args.command == "claim2-run":
         payload = run_claim2_experiment(
             freeze_run_id=args.freeze_run_id,
             source_claim1_run_id=args.source_claim1_run_id,
@@ -1862,6 +1942,40 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             aggregation=str(args.aggregation),
             agreement_threshold=float(args.agreement_threshold),
             alignment_threshold=float(args.alignment_threshold),
+        )
+
+    elif args.command == "claim3-prepare":
+        warmup_points = tuple(
+            int(item.strip())
+            for item in str(args.warmup_points).split(",")
+            if item.strip()
+        )
+
+        payload = run_claim3_experiment(
+            command="prepare",
+            freeze_run_id=args.freeze_run_id,
+            source_claim1_run_id=args.source_claim1_run_id,
+            run_id=args.run_id,
+            reports_root=args.reports_root,
+            input_path=args.input_path,
+            warmup_points=warmup_points,
+        )
+
+    elif args.command == "claim3-run":
+        payload = run_claim3_experiment(
+            command="run",
+            run_id=args.run_id,
+            reports_root=args.reports_root,
+            branch=args.branch,
+            resume=bool(args.resume),
+            show_progress=not bool(args.no_progress),
+        )
+
+    else:
+        payload = run_claim3_experiment(
+            command="summarize",
+            run_id=args.run_id,
+            reports_root=args.reports_root,
         )
 
     print(json.dumps(payload, ensure_ascii=False, indent=2))

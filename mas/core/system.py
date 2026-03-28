@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 from metagpt.logs import logger
 
 from mas.core.schemas import AgentAction
+from mas.infrastructure.evidence_pack_provider import coerce_fixed_evidence_pack
 
 from ..analysis.backprop import BackPropagator
 from ..analysis.executor import GraphExecutor
@@ -38,7 +39,16 @@ class LegalSystemDependencies:
 
 def _cosine_similarity(v1: Sequence[float], v2: Sequence[float]) -> float:
     """Compute cosine similarity between two vectors."""
-    if not v1 or not v2 or len(v1) != len(v2):
+    if v1 is None or v2 is None:
+        return 0.0
+
+    try:
+        len_v1 = len(v1)
+        len_v2 = len(v2)
+    except TypeError:
+        return 0.0
+
+    if len_v1 == 0 or len_v2 == 0 or len_v1 != len_v2:
         return 0.0
 
     numerator = sum(float(a) * float(b) for a, b in zip(v1, v2))
@@ -139,7 +149,11 @@ class LegalSystem:
 
         return value
 
-    def new_case(self, context: str) -> Tuple[ShadowGraph, Tuple[List[str], List[str]]]:
+    def new_case(
+        self,
+        context: str,
+        fixed_evidence_pack: dict[str, Any] | None = None,
+    ) -> Tuple[ShadowGraph, Tuple[List[str], List[str]]]:
         """Set up the system for a new case.
 
         This involves resetting the state, creating a new `ShadowGraph`, and
@@ -148,6 +162,8 @@ class LegalSystem:
 
         Args:
             context: A natural language description of the new case.
+            fixed_evidence_pack: Optional serialized memory-evidence bundle used
+                to bypass live long-memory retrieval during frozen tests.
 
         Returns:
             A tuple containing:
@@ -158,6 +174,16 @@ class LegalSystem:
         self._static_history_cases = []
         self._dynamic_law_cases = []
         sg = ShadowGraph()
+
+        if fixed_evidence_pack is not None:
+            pack = coerce_fixed_evidence_pack(fixed_evidence_pack)
+            self._static_history_cases = list(pack.active_history_cases)
+            sg.refresh_context(0)
+            return sg, (
+                list(pack.plaintiff_insights),
+                list(pack.defendant_insights),
+            )
+
         semantic_top_k = self._get_retrieval_top_k("semantic_path_top_k")
         initial_msgs, _ = self.memory.retrieve_memory(context, top_k=semantic_top_k)
         self._merge_static_cases(initial_msgs)
@@ -282,6 +308,12 @@ class LegalSystem:
         Args:
             current_graph: The current debate graph.
         """
+        if bool(getattr(self.cfg.experiment, "enable_fixed_evidence_pack", False)):
+            if self._dynamic_law_cases:
+                self._dynamic_law_cases = []
+
+            return
+
         if not current_graph:
             return
 
