@@ -5,6 +5,7 @@ from benchmarks.experiments.core.orchestrator import (
     run_claim2_experiment,
     run_claim3_experiment,
     run_claim4_experiment,
+    run_step14_reporting,
 )
 from benchmarks.experiments.core.step09a import (
     finalize_step09a_freeze,
@@ -18,6 +19,7 @@ __all__ = [
     "run_claim2_experiment",
     "run_claim3_experiment",
     "run_claim4_experiment",
+    "run_step14_reporting",
     "run_step09a_preflight",
     "select_step09a_dryrun_case_uids",
 ]

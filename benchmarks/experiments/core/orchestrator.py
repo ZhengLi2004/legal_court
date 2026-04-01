@@ -61,6 +61,12 @@ from benchmarks.experiments.methods.factory import (
     build_default_registry,
     build_method_registry,
 )
+from benchmarks.experiments.reporting.step14_runner import (
+    prepare_step14_reporting as _prepare_step14_reporting,
+)
+from benchmarks.experiments.reporting.step14_runner import (
+    rebuild_step14_reporting as _rebuild_step14_reporting,
+)
 from mas.config import SystemConfig
 
 PILOT_STAGE = "pilot"
@@ -1894,6 +1900,45 @@ def run_claim4_experiment(
     raise ValueError(f"Unknown Claim 4 command: {command}")
 
 
+def run_step14_reporting(
+    *,
+    command: str,
+    run_id: str,
+    reports_root: str | Path = DEFAULT_REPORTS_ROOT,
+    status_path: str | Path,
+    claim1_internal_run_id: str = "20260323_step10_claim1_status_small",
+    claim1_external_run_id: str = "20260326_step10_claim1_external_v2",
+    claim2_internal_run_id: str = "20260327_step11_claim2_internal_assistant3",
+    claim2_external_run_id: str = "20260327_step11_claim2_external_assistant3",
+    claim3_run_id: str = "20260327_step12_claim3_internal_current",
+    claim4_run_id: str = "20260328_step13_claim4_internal_current",
+) -> dict[str, Any]:
+    """Run Step 14 appendix prepare/rebuild orchestration."""
+    action = str(command).strip().lower()
+
+    if action == "prepare":
+        return _prepare_step14_reporting(
+            run_id=run_id,
+            reports_root=reports_root,
+            status_path=status_path,
+            claim1_internal_run_id=claim1_internal_run_id,
+            claim1_external_run_id=claim1_external_run_id,
+            claim2_internal_run_id=claim2_internal_run_id,
+            claim2_external_run_id=claim2_external_run_id,
+            claim3_run_id=claim3_run_id,
+            claim4_run_id=claim4_run_id,
+        )
+
+    if action == "rebuild":
+        return _rebuild_step14_reporting(
+            run_id=run_id,
+            reports_root=reports_root,
+            status_path=status_path,
+        )
+
+    raise ValueError(f"Unknown Step 14 command: {command}")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Experiment orchestrator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2004,6 +2049,60 @@ def _build_parser() -> argparse.ArgumentParser:
 
     claim4_summarize_parser.add_argument(
         "--reports-root", default=str(DEFAULT_REPORTS_ROOT)
+    )
+
+    step14_prepare_parser = subparsers.add_parser("step14-prepare")
+    step14_prepare_parser.add_argument("--run-id", required=True)
+
+    step14_prepare_parser.add_argument(
+        "--reports-root", default=str(DEFAULT_REPORTS_ROOT)
+    )
+
+    step14_prepare_parser.add_argument(
+        "--status-path",
+        default="benchmarks/experiments/artifacts/gold/gold_status_final.jsonl",
+    )
+
+    step14_prepare_parser.add_argument(
+        "--claim1-internal-run-id",
+        default="20260323_step10_claim1_status_small",
+    )
+
+    step14_prepare_parser.add_argument(
+        "--claim1-external-run-id",
+        default="20260326_step10_claim1_external_v2",
+    )
+
+    step14_prepare_parser.add_argument(
+        "--claim2-internal-run-id",
+        default="20260327_step11_claim2_internal_assistant3",
+    )
+
+    step14_prepare_parser.add_argument(
+        "--claim2-external-run-id",
+        default="20260327_step11_claim2_external_assistant3",
+    )
+
+    step14_prepare_parser.add_argument(
+        "--claim3-run-id",
+        default="20260327_step12_claim3_internal_current",
+    )
+
+    step14_prepare_parser.add_argument(
+        "--claim4-run-id",
+        default="20260328_step13_claim4_internal_current",
+    )
+
+    step14_rebuild_parser = subparsers.add_parser("step14-rebuild")
+    step14_rebuild_parser.add_argument("--run-id", required=True)
+
+    step14_rebuild_parser.add_argument(
+        "--reports-root", default=str(DEFAULT_REPORTS_ROOT)
+    )
+
+    step14_rebuild_parser.add_argument(
+        "--status-path",
+        default="benchmarks/experiments/artifacts/gold/gold_status_final.jsonl",
     )
 
     return parser
@@ -2131,6 +2230,28 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             command="summarize",
             run_id=args.run_id,
             reports_root=args.reports_root,
+        )
+
+    elif args.command == "step14-prepare":
+        payload = run_step14_reporting(
+            command="prepare",
+            run_id=args.run_id,
+            reports_root=args.reports_root,
+            status_path=args.status_path,
+            claim1_internal_run_id=args.claim1_internal_run_id,
+            claim1_external_run_id=args.claim1_external_run_id,
+            claim2_internal_run_id=args.claim2_internal_run_id,
+            claim2_external_run_id=args.claim2_external_run_id,
+            claim3_run_id=args.claim3_run_id,
+            claim4_run_id=args.claim4_run_id,
+        )
+
+    elif args.command == "step14-rebuild":
+        payload = run_step14_reporting(
+            command="rebuild",
+            run_id=args.run_id,
+            reports_root=args.reports_root,
+            status_path=args.status_path,
         )
 
     else:
