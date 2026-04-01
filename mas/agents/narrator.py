@@ -23,6 +23,9 @@ class GraphNarrator:
     converts each action into a somewhat mechanical sentence describing the
     logical operation, and then uses an LLM to "polish" these sentences into a
     coherent, well-written paragraph representing that turn's argument.
+
+    Attributes:
+        llm: LLM client used for transcript polishing.
     """
 
     def __init__(self, llm: GPTChat):

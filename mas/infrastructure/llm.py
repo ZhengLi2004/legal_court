@@ -22,14 +22,26 @@ completion_tokens, prompt_tokens = 0, 0
 
 @dataclass(frozen=True)
 class Message:
-    """Represents a single message in a chat conversation."""
+    """Represents a single message in a chat conversation.
+
+    Attributes:
+        role: OpenAI-style chat role.
+        content: Message content text.
+    """
 
     role: Literal["system", "user", "assistant"]
     content: str
 
 
 class ToolCallContractError(ValueError):
-    """Raised when the model response violates the expected tool-call contract."""
+    """Raised when the model response violates the expected tool-call contract.
+
+    This exception is reserved for strict tool-calling contract violations and
+    is intentionally distinct from ordinary transport or API failures.
+
+    Raises:
+        ValueError: Inherited base type for contract-violation reporting.
+    """
 
 
 @dataclass(frozen=True)
@@ -52,6 +64,9 @@ class LLMCallable(Protocol):
 
     Implementations must support plain chat generation and may expose strict
     function-calling helpers used by routing-sensitive code paths.
+
+    Attributes:
+        This protocol defines methods only and has no stored state.
     """
 
     def __call__(
@@ -136,7 +151,12 @@ class LLMCallable(Protocol):
 
 
 class LLM(ABC):
-    """Abstract base class for a language model client."""
+    """Abstract base class for a language model client.
+
+    Attributes:
+        model_name: Optional caller-specified model name override.
+        client: OpenAI-compatible API client instance.
+    """
 
     def __init__(
         self,
@@ -182,11 +202,14 @@ class LLM(ABC):
 
 
 class GPTChat(LLM):
-    """A concrete implementation for chat-based OpenAI-compatible models.
+    """Concrete implementation for chat-based OpenAI-compatible models.
 
     This class provides synchronous and asynchronous methods to interact with
     chat models. It includes a retry mechanism for handling transient API errors
     like rate limiting.
+
+    Attributes:
+        client: OpenAI-compatible API client instance inherited from ``LLM``.
     """
 
     def __init__(

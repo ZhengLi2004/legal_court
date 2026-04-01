@@ -17,7 +17,16 @@ from mas.session.session_status import SessionStatus, ensure_allowed_transition
 
 
 class SessionService:
-    """Encapsulate session lifecycle orchestration and runtime state transitions."""
+    """Encapsulate session lifecycle orchestration and runtime state transitions.
+
+    Attributes:
+        _engine_factory: Factory that creates a new debate engine.
+        _default_case_path: Default case path for missing request payloads.
+        _sessions: In-memory session registry.
+        _session_factory: Factory that builds session objects.
+        _record_event: Callback used to emit session events.
+        _utc_now_iso: UTC timestamp factory.
+    """
 
     def __init__(
         self,

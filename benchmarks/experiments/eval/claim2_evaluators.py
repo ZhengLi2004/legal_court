@@ -46,6 +46,21 @@ Evidence Window:
 
 @dataclass(frozen=True)
 class EvaluatorSpec:
+    """One evaluator endpoint or local model used by the Claim 2 pipeline.
+
+    Attributes:
+        name: Stable evaluator name written into votes and summaries.
+        model_name: Remote model id or local model display name.
+        base_url: OpenAI-compatible base URL for chat-backed evaluators.
+        api_key_env: Environment-variable name that stores the API key.
+        endpoint_version: Version tag for caching and reproducibility.
+        cohort: Evaluator cohort, such as `primary` or `supplementary`.
+        backend: Backend type, either `openai_chat` or `local_nli`.
+        local_model_path: Local model path used by `local_nli`.
+        device: Preferred device string for local models.
+        max_input_tokens: Maximum evaluator input budget recorded in snapshots.
+    """
+
     name: str
     model_name: str
     base_url: str = ""
@@ -75,6 +90,14 @@ class EvaluatorSpec:
 
 @dataclass(frozen=True)
 class EvaluatorProfile:
+    """Named collection of primary and supplementary Claim 2 evaluators.
+
+    Attributes:
+        profile_name: Human-readable profile identifier.
+        primary_evaluators: Evaluators used for the main Claim 2 vote.
+        supplementary_evaluators: Optional appendix-only evaluators.
+    """
+
     profile_name: str
     primary_evaluators: tuple[EvaluatorSpec, ...]
     supplementary_evaluators: tuple[EvaluatorSpec, ...] = ()
@@ -104,6 +127,12 @@ def _secret_fingerprint(value: str) -> dict[str, Any]:
 
 
 def build_claim2_prompt_snapshot() -> dict[str, Any]:
+    """Return the frozen prompt bundle used by Claim 2 NLI evaluators.
+
+    Returns:
+        A JSON-serializable prompt bundle used for evaluator snapshots and caches.
+    """
+
     return {
         "prompt_version": CLAIM2_NLI_PROMPT_VERSION,
         "system_prompt": CLAIM2_NLI_SYSTEM_PROMPT,
@@ -112,6 +141,18 @@ def build_claim2_prompt_snapshot() -> dict[str, Any]:
 
 
 def load_evaluator_profile(path: str | Path) -> EvaluatorProfile:
+    """Load and validate one evaluator profile JSON file.
+
+    Args:
+        path: Profile JSON path.
+
+    Returns:
+        A validated evaluator profile object.
+
+    Raises:
+        ValueError: If the JSON payload is malformed or violates profile rules.
+    """
+
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
 
     if not isinstance(payload, dict):
@@ -269,6 +310,15 @@ def _require_positive_int(
 def probe_evaluator_profile(
     profile: EvaluatorProfile,
 ) -> list[dict[str, Any]]:
+    """Probe every evaluator in a profile and return health-check metadata.
+
+    Args:
+        profile: Evaluator profile whose members should be probed.
+
+    Returns:
+        One health-check row per evaluator.
+    """
+
     rows: list[dict[str, Any]] = []
 
     for spec in (*profile.primary_evaluators, *profile.supplementary_evaluators):
@@ -278,6 +328,15 @@ def probe_evaluator_profile(
 
 
 def probe_evaluator(spec: EvaluatorSpec) -> dict[str, Any]:
+    """Probe one evaluator endpoint or local model without scoring any case.
+
+    Args:
+        spec: Evaluator specification to probe.
+
+    Returns:
+        A health-check payload describing latency, response excerpt, and errors.
+    """
+
     if spec.backend == "local_nli":
         return _probe_local_nli_evaluator(spec)
 
@@ -400,7 +459,13 @@ def _probe_local_nli_evaluator(spec: EvaluatorSpec) -> dict[str, Any]:
 
 
 class OpenAINliLabeler(NliLabeler):
-    """OpenAI-compatible evaluator with disk-backed label cache."""
+    """OpenAI-compatible evaluator with disk-backed label cache.
+
+    Args:
+        spec: Evaluator specification describing the remote endpoint.
+        cache_dir: Directory used to persist label-cache entries.
+        max_attempts: Maximum number of contract-preserving retries.
+    """
 
     def __init__(
         self,
@@ -508,7 +573,12 @@ class OpenAINliLabeler(NliLabeler):
 
 
 class LocalNliLabeler(NliLabeler):
-    """Local transformers-based NLI evaluator with disk-backed cache."""
+    """Local transformers-based NLI evaluator with disk-backed cache.
+
+    Args:
+        spec: Evaluator specification describing the local model.
+        cache_dir: Directory used to persist label-cache entries.
+    """
 
     def __init__(
         self,
@@ -591,6 +661,16 @@ def build_primary_labelers(
     *,
     cache_dir: str | Path,
 ) -> list[NliLabeler]:
+    """Instantiate cached labelers for the primary evaluator cohort.
+
+    Args:
+        profile: Evaluator profile containing primary evaluator specs.
+        cache_dir: Shared cache directory for emitted votes.
+
+    Returns:
+        Instantiated labelers in profile order.
+    """
+
     return [
         _build_labeler(spec, cache_dir=cache_dir) for spec in profile.primary_evaluators
     ]
@@ -601,6 +681,16 @@ def build_supplementary_labelers(
     *,
     cache_dir: str | Path,
 ) -> list[NliLabeler]:
+    """Instantiate cached labelers for the supplementary evaluator cohort.
+
+    Args:
+        profile: Evaluator profile containing supplementary evaluator specs.
+        cache_dir: Shared cache directory for emitted votes.
+
+    Returns:
+        Instantiated labelers in profile order.
+    """
+
     return [
         _build_labeler(spec, cache_dir=cache_dir)
         for spec in profile.supplementary_evaluators
@@ -612,6 +702,16 @@ def build_labelers_for_specs(
     *,
     cache_dir: str | Path,
 ) -> list[NliLabeler]:
+    """Instantiate cached labelers for an explicit evaluator spec list.
+
+    Args:
+        specs: Explicit evaluator specs to instantiate.
+        cache_dir: Shared cache directory for emitted votes.
+
+    Returns:
+        Instantiated labelers in the requested order.
+    """
+
     return [_build_labeler(spec, cache_dir=cache_dir) for spec in specs]
 
 

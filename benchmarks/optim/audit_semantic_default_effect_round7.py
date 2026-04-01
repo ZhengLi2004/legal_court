@@ -111,6 +111,24 @@ class _SeqMatcher:
 
 @dataclass
 class BinaryMetrics:
+    """Binary classification summary used in semantic default-effect audits.
+
+    Attributes:
+        tp: True-positive count.
+        fp: False-positive count.
+        tn: True-negative count.
+        fn: False-negative count.
+        precision_pos: Positive-class precision.
+        recall_pos: Positive-class recall.
+        f1_pos: Positive-class F1.
+        precision_neg: Negative-class precision.
+        recall_neg: Negative-class recall.
+        f1_neg: Negative-class F1.
+        macro_precision: Macro-averaged precision.
+        macro_recall: Macro-averaged recall.
+        macro_f1: Macro-averaged F1.
+    """
+
     tp: int
     fp: int
     tn: int
@@ -152,6 +170,15 @@ def _f1(precision: float, recall: float) -> float:
 
 
 def evaluate_binary(rows: List[Dict[str, Any]], pred_key: str) -> BinaryMetrics:
+    """Evaluate one binary prediction column against dataset labels.
+
+    Args:
+        rows: Dataset rows containing ``label`` and prediction columns.
+        pred_key: Column name storing the binary predictions to score.
+
+    Returns:
+        Aggregate binary classification metrics for ``pred_key``.
+    """
     tp = fp = tn = fn = 0
     for row in rows:
         label = int(row["label"])
@@ -274,6 +301,19 @@ def generate_dataset(
     fact_threshold: float,
     claim_threshold: float,
 ) -> Dict[str, Any]:
+    """Generate the synthetic semantic-default audit dataset.
+
+    Args:
+        seed: Random seed for deterministic generation.
+        size: Number of synthetic pairs to create.
+        valid_ratio: Fraction of rows assigned to the validation split.
+        positive_ratio: Fraction of positive examples to sample.
+        fact_threshold: Semantic threshold used for fact rows.
+        claim_threshold: Semantic threshold used for claim rows.
+
+    Returns:
+        Dataset payload containing generated rows and audit metadata.
+    """
     rng = random.Random(seed)
     rows: List[Dict[str, Any]] = []
 
@@ -534,6 +574,11 @@ def _render_report(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for semantic default-effect auditing.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=str, default="102,103,104,105,106")
     parser.add_argument("--size", type=int, default=600)
@@ -560,6 +605,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate the audit dataset and optional evaluation artifacts.
+
+    Raises:
+        ValueError: If no valid seed is supplied.
+    """
     args = parse_args()
     seeds = [int(token.strip()) for token in args.seeds.split(",") if token.strip()]
 

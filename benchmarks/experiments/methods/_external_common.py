@@ -455,7 +455,17 @@ def prepare_external_method_context(
 ) -> tuple[
     Any, GPTChat, dict[str, Any], list[dict[str, Any]], list[str], float, int, int
 ]:
-    """Prepare shared external-baseline execution context."""
+    """Prepare shared external-baseline execution context.
+
+    Args:
+        case: Canonical case payload.
+        storage_root_dir: Optional runtime storage root override.
+        seed: Optional deterministic seed.
+
+    Returns:
+        Tuple containing config, LLM client, prepared case payload, root-claim
+        rows, warning list, start time, and starting token counters.
+    """
     apply_seed(seed)
     prepared_case, warnings = prepare_case_for_engine(case)
     cfg = build_system_config(storage_root_dir=storage_root_dir)
@@ -485,6 +495,12 @@ def prepare_external_method_context(
 
 
 def write_trace_json(path: str | Path, payload: Any) -> None:
+    """Write an external-baseline trace payload as stable UTF-8 JSON.
+
+    Args:
+        path: Target JSON path.
+        payload: Trace payload to serialize.
+    """
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
 

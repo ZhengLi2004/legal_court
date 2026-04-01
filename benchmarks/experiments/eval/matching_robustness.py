@@ -27,6 +27,14 @@ FROZEN_GATE_FLIP_THRESHOLD = 0.1
 
 @dataclass(frozen=True)
 class PrimaryMetricResult:
+    """Normalized case-level metric output used by robustness scenarios.
+
+    Attributes:
+        case_scores: Per-case primary metric scores keyed by uid.
+        mean_dev: Optional precomputed mean over ``case_scores``.
+        details: Extra metric-specific diagnostics preserved for artifacts.
+    """
+
     case_scores: dict[str, float]
     mean_dev: float | None = None
     details: dict[str, Any] = field(default_factory=dict)
@@ -34,6 +42,15 @@ class PrimaryMetricResult:
 
 @dataclass(frozen=True)
 class MatchingScenario:
+    """One perturbation scenario applied to the base matching configuration.
+
+    Attributes:
+        name: Stable scenario identifier used in artifacts.
+        description: Human-readable perturbation summary.
+        config_overrides: Partial ``MatchingConfig`` override applied on top of
+            the base configuration.
+    """
+
     name: str
     description: str = ""
     config_overrides: dict[str, Any] = field(default_factory=dict)
@@ -41,6 +58,16 @@ class MatchingScenario:
 
 @dataclass(frozen=True)
 class MethodScenarioResult:
+    """Matching and metric outputs for one method under one scenario.
+
+    Attributes:
+        method_name: Method under evaluation.
+        scenario_name: Matching perturbation scenario name.
+        config: Effective matching configuration for the scenario.
+        case_bundles: Case-level matching bundles for the method/scenario.
+        metric: Primary metric output computed from ``case_bundles``.
+    """
+
     method_name: str
     scenario_name: str
     config: MatchingConfig
@@ -50,6 +77,18 @@ class MethodScenarioResult:
 
 @dataclass(frozen=True)
 class ScenarioRobustnessResult:
+    """Ranking-stability diagnostics for one perturbed matching scenario.
+
+    Attributes:
+        scenario_name: Perturbation scenario name.
+        passed: Whether the scenario passes the frozen robustness gate.
+        spearman_rho: Rank correlation versus the base scenario.
+        pairwise_flip_rate: Fraction of flipped pairwise method orderings.
+        ranking: Scenario ranking induced by the primary metric.
+        flipped_pairs: Method pairs whose ordering changed.
+        top_score_deltas: Largest score shifts relative to the base scenario.
+    """
+
     scenario_name: str
     passed: bool
     spearman_rho: float
@@ -61,6 +100,22 @@ class ScenarioRobustnessResult:
 
 @dataclass(frozen=True)
 class MatchingProtocolRun:
+    """Full Step 07 robustness run, including all scenarios and gate results.
+
+    Attributes:
+        protocol_version: Protocol identifier written into artifacts.
+        base_config: Base matching configuration before perturbations.
+        scenarios: Perturbation scenarios evaluated in addition to ``base``.
+        protocol_metadata: Extra metadata captured for reproducibility.
+        method_names: Ordered methods in the run.
+        case_uids: Ordered case universe used during evaluation.
+        method_prediction_counts: Raw prediction counts per method.
+        base_scenario_name: Name of the unperturbed scenario.
+        scenario_results: Nested scenario -> method -> metric/matching outputs.
+        robustness_results: Scenario-level ranking stability diagnostics.
+        gate: Frozen robustness gate summary.
+    """
+
     protocol_version: str
     base_config: MatchingConfig
     scenarios: tuple[MatchingScenario, ...]
@@ -75,7 +130,11 @@ class MatchingProtocolRun:
 
 
 class MatchingRobustnessGateError(RuntimeError):
-    """Raised when the frozen matching gate fails."""
+    """Raised when the frozen matching gate fails.
+
+    Attributes:
+        args: Standard runtime-error payload describing the failed gate.
+    """
 
 
 PrimaryMetricFn = Callable[
@@ -86,6 +145,15 @@ PrimaryMetricFn = Callable[
 def default_matching_scenarios(
     base_config: MatchingConfig | None = None,
 ) -> list[MatchingScenario]:
+    """Return the frozen perturbation set used by the matching gate.
+
+    Args:
+        base_config: Optional base configuration whose thresholds are perturbed.
+
+    Returns:
+        The ordered list of canonical robustness scenarios.
+    """
+
     resolved = base_config or MatchingConfig()
 
     return [
@@ -280,6 +348,18 @@ def _scenario_config(
 def load_dev_case_uids(
     dev_ids_path: str | Path = FROZEN_DEV_IDS_PATH,
 ) -> tuple[str, ...]:
+    """Load and de-duplicate the frozen dev case list for matching checks.
+
+    Args:
+        dev_ids_path: Path to the canonical dev-id payload.
+
+    Returns:
+        Ordered unique dev case uids.
+
+    Raises:
+        ValueError: If the payload does not contain an ``ids`` list.
+    """
+
     payload = json.loads(Path(dev_ids_path).read_text(encoding="utf-8"))
     raw_ids = payload.get("ids")
 
@@ -314,6 +394,29 @@ def run_matching_protocol(
     protocol_version: str = "step07_generic",
     protocol_metadata: Mapping[str, Any] | None = None,
 ) -> MatchingProtocolRun:
+    """Run the full Step 07 matching robustness protocol for many methods.
+
+    Args:
+        case_uids: Ordered case universe to evaluate.
+        gold_rows: Gold claim rows across the case universe.
+        method_predictions: Method-name to prediction-row mappings.
+        primary_metric_fn: Callback that scores case bundles for one method.
+        encoder: Text encoder used by the Step 07 matcher.
+        base_config: Optional base matching configuration.
+        scenarios: Optional perturbation scenarios; defaults to the frozen set.
+        gate_rho_threshold: Minimum acceptable ranking correlation.
+        gate_flip_threshold: Maximum acceptable pairwise flip rate.
+        artifact_dir: Optional directory for serialized artifacts.
+        protocol_version: Protocol identifier written into artifacts.
+        protocol_metadata: Extra reproducibility metadata.
+
+    Returns:
+        A fully populated robustness run with artifacts and gate summaries.
+
+    Raises:
+        ValueError: If no methods are provided or metric outputs are malformed.
+    """
+
     normalized_case_uids = tuple(str(uid) for uid in case_uids)
     resolved_base = base_config or MatchingConfig()
 
@@ -474,6 +577,25 @@ def run_frozen_matching_protocol(
     dev_ids_path: str | Path = FROZEN_DEV_IDS_PATH,
     enforce_gate: bool = True,
 ) -> MatchingProtocolRun:
+    """Run the repository's frozen matching protocol on the canonical dev split.
+
+    Args:
+        gold_rows: Gold claim rows for the frozen dev split.
+        method_predictions: Method predictions keyed by method name.
+        primary_metric_fn: Callback that scores case bundles for one method.
+        encoder: Text encoder used by the matcher.
+        artifact_dir: Optional artifact output directory.
+        dev_ids_path: Path to the canonical dev split ids.
+        enforce_gate: Whether to raise when the frozen gate fails.
+
+    Returns:
+        The completed frozen matching protocol run.
+
+    Raises:
+        MatchingRobustnessGateError: If ``enforce_gate`` is true and the gate
+            fails.
+    """
+
     case_uids = load_dev_case_uids(dev_ids_path)
 
     metadata = {
@@ -505,6 +627,15 @@ def run_frozen_matching_protocol(
 
 
 def assert_matching_gate(run: MatchingProtocolRun) -> None:
+    """Raise when one frozen matching protocol run fails the robustness gate.
+
+    Args:
+        run: Frozen matching protocol result to validate.
+
+    Raises:
+        MatchingRobustnessGateError: If the stored gate summary reports failure.
+    """
+
     if bool(run.gate.get("passed")):
         return
 
@@ -602,6 +733,13 @@ def _bucket_length(length: float, quantiles: tuple[float, float, float]) -> str:
 def write_matching_artifacts(
     run: MatchingProtocolRun, artifact_dir: str | Path
 ) -> None:
+    """Write serialized scenario bundles and gate summaries to disk.
+
+    Args:
+        run: Completed matching protocol run to serialize.
+        artifact_dir: Output directory for JSONL, JSON, and CSV artifacts.
+    """
+
     output_dir = Path(artifact_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 

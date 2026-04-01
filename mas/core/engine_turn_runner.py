@@ -81,9 +81,6 @@ async def run_engine_step(
         controller_idle_step: Controller idle-state enum/value to reset after turn.
         persist_snapshot: Whether to persist round snapshot after execution.
 
-    Returns:
-        None.
-
     Side Effects:
         Mutates engine turn/round status, transcript, convergence payload, turn
         artifacts, callbacks, and resource lifecycle.

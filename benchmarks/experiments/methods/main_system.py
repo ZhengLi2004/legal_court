@@ -18,7 +18,20 @@ def run_main_system(
     verbose: bool = False,
     test_mode_no_learning: bool = False,
 ) -> dict[str, Any]:
-    """Run the full debate system with default experiment toggles."""
+    """Run the full debate system with default experiment toggles.
+
+    Args:
+        case: Canonical case payload.
+        storage_root_dir: Optional runtime storage root override.
+        budget: Optional budget overrides.
+        seed: Optional deterministic seed.
+        retrieval_config: Optional retrieval overrides.
+        verbose: Whether to enable verbose runtime logging.
+        test_mode_no_learning: Disable learning side effects when ``True``.
+
+    Returns:
+        Canonical method result payload.
+    """
     return execute_method(
         method_name="main_system",
         case=case,

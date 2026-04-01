@@ -58,11 +58,42 @@ TASK_MAX_ATTEMPTS = 2
 
 
 class Claim4ExecutionError(RuntimeError):
-    """Raised when Claim 4 execution cannot continue."""
+    """Raised when Claim 4 execution cannot continue.
+
+    Attributes:
+        args: Standard runtime-error payload describing the failure.
+    """
 
 
 @dataclass(frozen=True)
 class Claim4Context:
+    """Frozen inputs, paths, and scoring references for one Claim 4 run.
+
+    Attributes:
+        freeze_run_id: Step 09A freeze bundle reused by the run.
+        source_claim1_run_id: Claim 1 source run used for full-budget anchors.
+        run_id: Destination Step 13 run identifier.
+        reports_root: Root directory storing experiment outputs.
+        input_path: Original case JSONL used to resolve evaluation cases.
+        claim_root: Root output directory for Claim 4 artifacts.
+        source_claim_root: Root directory of the source Claim 1 artifacts.
+        metric_root: Claim 1 metric directory used as the reference anchor.
+        manifest_path: Path to the prepared Claim 4 manifest.
+        budget_grid_path: Path to the serialized budget grid.
+        prereg_points_path: Path to preregistered analysis points.
+        reference_full_budget_path: Path to full-budget reference metrics.
+        noise_audit_path: Path to the consolidated noise audit JSON.
+        method_names: Ordered MAD-style methods considered by the experiment.
+        stage_uids_by_name: Mapping from stage name to ordered case ids.
+        gold_claim_rows: Gold claim rows used for per-case comparisons.
+        gold_status_rows: Gold status rows used for scoring.
+        matching_config: Frozen matching configuration reused from Claim 1.
+        retrieval_config: Frozen retrieval configuration snapshot.
+        seed: Shared deterministic seed for slice execution.
+        full_budget: Full-budget configuration used as the reference ceiling.
+        budget_points: Mapping from named budget points to runtime budgets.
+    """
+
     freeze_run_id: str
     source_claim1_run_id: str
     run_id: str
@@ -768,6 +799,23 @@ def prepare_claim4_experiment(
     reports_root: str | Path = DEFAULT_REPORTS_ROOT,
     input_path: str | Path = DEFAULT_INPUT_PATH,
 ) -> dict[str, Any]:
+    """Write manifests, budget grids, and reference anchors for Claim 4.
+
+    Args:
+        freeze_run_id: Step 09A freeze bundle that defines the shared protocol.
+        source_claim1_run_id: Completed Claim 1 run reused as the full-budget anchor.
+        run_id: Destination Step 13 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        input_path: Original case JSONL used to resolve evaluation cases.
+
+    Returns:
+        A preparation summary with manifest, budget grid, and anchor artifacts.
+
+    Raises:
+        FileNotFoundError: If prerequisite Claim 1 artifacts are missing.
+        ValueError: If the frozen protocol or source run is incompatible.
+    """
+
     ctx = _build_claim4_context(
         freeze_run_id=freeze_run_id,
         source_claim1_run_id=source_claim1_run_id,
@@ -1178,6 +1226,28 @@ def run_claim4_slice(
     verbose: bool = False,
     show_progress: bool = True,
 ) -> dict[str, Any]:
+    """Execute one Claim 4 slice for a single stage, policy, point, and repeat.
+
+    Args:
+        run_id: Prepared Claim 4 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        stage: Split name to evaluate, such as `dev` or `test`.
+        policy: Budget policy, either fixed or adaptive.
+        point: Named budget point such as `q25`, `q75`, or `full`.
+        repeat: Repeat index within the selected stage.
+        resume: Whether to reuse already-written case outputs.
+        verbose: Whether to enable verbose method execution logs.
+        show_progress: Whether to render progress bars.
+
+    Returns:
+        A payload containing execution, scoring, and runtime summaries.
+
+    Raises:
+        FileNotFoundError: If prepared Claim 4 artifacts are missing.
+        ValueError: If the stage, policy, point, or repeat is unsupported.
+        Claim4ExecutionError: If one or more case tasks fail irrecoverably.
+    """
+
     manifest = _read_json(Path(reports_root) / run_id / "claim4" / "manifest.json")
 
     ctx = _build_claim4_context(
@@ -1224,6 +1294,21 @@ def audit_claim4_stage(
     reports_root: str | Path = DEFAULT_REPORTS_ROOT,
     stage: str,
 ) -> dict[str, Any]:
+    """Audit one Claim 4 stage for completeness and repeat-level noise.
+
+    Args:
+        run_id: Prepared Claim 4 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        stage: Stage name whose completed slices should be audited.
+
+    Returns:
+        A stage-level audit payload with pass/fail status per policy and point.
+
+    Raises:
+        FileNotFoundError: If required slice metrics are missing.
+        ValueError: If the requested stage is unsupported.
+    """
+
     manifest = _read_json(Path(reports_root) / run_id / "claim4" / "manifest.json")
 
     ctx = _build_claim4_context(
@@ -1548,6 +1633,20 @@ def summarize_claim4_experiment(
     run_id: str,
     reports_root: str | Path = DEFAULT_REPORTS_ROOT,
 ) -> dict[str, Any]:
+    """Summarize Claim 4 diagnostics from completed slice outputs.
+
+    Args:
+        run_id: Prepared Claim 4 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+
+    Returns:
+        A dev-only diagnostic summary with delta tables and overlay artifacts.
+
+    Raises:
+        FileNotFoundError: If prepared Claim 4 artifacts are missing.
+        ValueError: If required dev-stage audits have not been completed.
+    """
+
     manifest = _read_json(Path(reports_root) / run_id / "claim4" / "manifest.json")
 
     ctx = _build_claim4_context(

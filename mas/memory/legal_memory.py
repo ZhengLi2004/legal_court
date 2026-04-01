@@ -142,9 +142,6 @@ class LegalGMemory(MASMemoryBase):
         Args:
             message: The `LegalMessage` object representing the completed case.
 
-        Returns:
-            None.
-
         Raises:
             AttributeError: If Chroma collection does not expose `upsert`.
             Assumption/Unverified: I/O or backend storage exceptions from index

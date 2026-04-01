@@ -252,6 +252,21 @@ def select_step09a_dryrun_case_uids(
     claims_path: str | Path = DEFAULT_GOLD_CLAIMS_PATH,
     sample_size: int = DEFAULT_DRYRUN_SAMPLE_SIZE,
 ) -> list[str]:
+    """Select dry-run case ids that are both in-dev and gold-claim covered.
+
+    Args:
+        input_path: Original case JSONL path.
+        dev_ids_path: Dev split id manifest path.
+        claims_path: Gold-claims JSONL path.
+        sample_size: Number of dry-run cases to select.
+
+    Returns:
+        Ordered case ids used by Step 09A dry-run and pilot execution.
+
+    Raises:
+        ValueError: If insufficient eligible cases are available.
+    """
+
     cases = load_cases_from_jsonl(input_path)
     case_uid_set = {case_uid(case) for case in cases}
     dev_uids = _load_dev_uids(dev_ids_path)
@@ -408,6 +423,26 @@ def run_step09a_preflight(
     registry_profile: str = INTERNAL_DEFAULT_PROFILE,
     full_max_turns: int = DEFAULT_FULL_MAX_TURNS,
 ) -> dict[str, Any]:
+    """Run Step 09A health checks and write the runtime snapshot bundle.
+
+    Args:
+        run_id: Step 09A run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        input_path: Original case JSONL path.
+        storage_root_dir: Optional memory root override.
+        dev_ids_path: Dev split id manifest path.
+        claims_path: Gold-claims JSONL path.
+        gold_status_path: Gold-status JSONL path.
+        split_manifest_path: Step 05 split manifest path.
+        sample_size: Number of dry-run cases to select.
+        seed: Shared deterministic seed written into the manifest.
+        registry_profile: Method registry profile to freeze.
+        full_max_turns: Full-budget max-turns ceiling used for budget grids.
+
+    Returns:
+        The preflight summary payload written to disk.
+    """
+
     resolved_registry_profile = normalize_registry_profile(registry_profile)
     cfg = build_system_config(str(storage_root_dir) if storage_root_dir else None)
     run_root = Path(reports_root) / run_id
@@ -523,6 +558,22 @@ def finalize_step09a_freeze(
     dryrun_summary_path: str | Path | None = None,
     seed: int = DEFAULT_SEED,
 ) -> dict[str, Any]:
+    """Finalize the Step 09A manifest after preflight and live dry-run pass.
+
+    Args:
+        run_id: Step 09A run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        dryrun_summary_path: Optional explicit live dry-run summary path.
+        seed: Shared deterministic seed copied into the freeze manifest.
+
+    Returns:
+        The finalized protocol manifest payload.
+
+    Raises:
+        FileNotFoundError: If required Step 09A inputs are missing.
+        ValueError: If preflight, dry-run, or git cleanliness checks fail.
+    """
+
     run_root = Path(reports_root) / run_id
     preflight_path = run_root / "preflight" / "preflight_health.json"
 
@@ -679,6 +730,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """CLI entrypoint for Step 09A preflight and finalize helpers.
+
+    Raises:
+        ValueError: If subcommand arguments or validation checks fail.
+        FileNotFoundError: If required Step 09A inputs are missing.
+    """
+
     parser = _build_parser()
     args = parser.parse_args()
 

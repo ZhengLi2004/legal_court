@@ -54,7 +54,23 @@ def _to_json_safe(value: Any) -> Any:
 
 @dataclass
 class DebateSession:
-    """Store runtime state for one debate session."""
+    """Store runtime state for one debate session.
+
+    Attributes:
+        session_id: Stable session identifier.
+        engine: Debate engine bound to the session.
+        status: Current lifecycle status.
+        created_at: Creation timestamp in UTC ISO format.
+        updated_at: Last-update timestamp in UTC ISO format.
+        last_error: Last surfaced error message, if any.
+        events: Recorded session events.
+        current_turn_uid: UID of the in-flight turn.
+        last_turn_uid: UID of the last completed turn.
+        next_seq: Next event sequence number.
+        event_subscribers: Streaming subscribers waiting for events.
+        lock: Session-level async lock.
+        failure_simulation: Optional failure toggles for testing.
+    """
 
     session_id: str
     engine: Any
@@ -75,7 +91,14 @@ class DebateSession:
 
 
 class SessionManager:
-    """Manage all in-memory debate sessions for API endpoints."""
+    """Manage all in-memory debate sessions for API endpoints.
+
+    Attributes:
+        _engine_factory: Factory used to construct fresh debate engines.
+        _default_case_path: Default case JSONL path for blank sessions.
+        _frontend_snapshots_dir: Directory for persisted frontend snapshots.
+        _sessions: In-memory session registry.
+    """
 
     def __init__(
         self,

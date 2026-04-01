@@ -49,7 +49,11 @@ def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
 
 
 class RuntimeEmbedding:
-    """Lightweight embedding wrapper aligned with runtime model usage."""
+    """Lightweight embedding wrapper aligned with runtime model usage.
+
+    Attributes:
+        _func: SentenceTransformer embedding callable used for inference.
+    """
 
     def __init__(self, model_path: str | None = None):
         from chromadb.utils import embedding_functions
@@ -72,7 +76,25 @@ class RuntimeEmbedding:
 
 @dataclass
 class EvalMetrics:
-    """Binary classification metrics for one threshold."""
+    """Binary classification metrics for one threshold.
+
+    Attributes:
+        threshold: Evaluated projection threshold.
+        tp: Count of true positive pairs.
+        fp: Count of false positive pairs.
+        tn: Count of true negative pairs.
+        fn: Count of false negative pairs.
+        precision_pos: Positive-class precision.
+        recall_pos: Positive-class recall.
+        f1_pos: Positive-class F1.
+        precision_neg: Negative-class precision.
+        recall_neg: Negative-class recall.
+        f1_neg: Negative-class F1.
+        macro_precision: Macro-averaged precision.
+        macro_recall: Macro-averaged recall.
+        macro_f1: Macro-averaged F1.
+        cost: Weighted false-positive / false-negative cost.
+    """
 
     threshold: float
     tp: int
@@ -123,7 +145,15 @@ def evaluate_threshold(
     scored_pairs: List[Dict[str, Any]],
     threshold: float,
 ) -> EvalMetrics:
-    """Evaluate one threshold against scored query/candidate pairs."""
+    """Evaluate one threshold against scored query/candidate pairs.
+
+    Args:
+        scored_pairs: Query/candidate rows with binary labels and similarities.
+        threshold: Decision threshold applied to cosine similarity.
+
+    Returns:
+        Metrics for the supplied threshold.
+    """
     tp = fp = tn = fn = 0
 
     for row in scored_pairs:
@@ -176,7 +206,18 @@ def aggregate_seed_metrics(
     metrics_by_seed: List[EvalMetrics],
     threshold: float,
 ) -> Dict[str, Any]:
-    """Aggregate per-seed metrics into one comparable row."""
+    """Aggregate per-seed metrics into one comparable row.
+
+    Args:
+        metrics_by_seed: Per-seed evaluation outputs for one threshold.
+        threshold: Threshold shared by the per-seed metrics.
+
+    Returns:
+        JSON-serializable aggregate row for scan ranking.
+
+    Raises:
+        ValueError: If ``metrics_by_seed`` is empty.
+    """
     if not metrics_by_seed:
         raise ValueError("metrics_by_seed cannot be empty")
 
@@ -206,7 +247,17 @@ def aggregate_seed_metrics(
 
 
 def select_best_row(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Select the best threshold row using F1-first and Recall tie-break."""
+    """Select the best threshold row using F1-first and Recall tie-break.
+
+    Args:
+        rows: Ranked scan rows produced by ``aggregate_seed_metrics``.
+
+    Returns:
+        The best-performing scan row under the configured tie-breakers.
+
+    Raises:
+        ValueError: If ``rows`` is empty.
+    """
     if not rows:
         raise ValueError("rows cannot be empty")
 
@@ -225,7 +276,16 @@ def select_best_row(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def threshold_range(start: float, end: float, step: float) -> List[float]:
-    """Build a closed float range with stable rounding."""
+    """Build a closed float range with stable rounding.
+
+    Args:
+        start: First threshold in the scan.
+        end: Final threshold in the scan.
+        step: Increment applied between thresholds.
+
+    Returns:
+        Rounded threshold values including both scan endpoints.
+    """
     values: List[float] = []
     cursor = start
 
@@ -570,6 +630,12 @@ def _render_report(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for projection-threshold tuning.
+
+    Returns:
+        Parsed command-line namespace for dataset generation, scoring, and
+        report output paths.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument(
@@ -631,6 +697,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run projection-threshold tuning and export ranked candidates.
+
+    Raises:
+        ValueError: If no valid seeds are supplied or the configured dataset
+            size is too small for this tuning round.
+    """
     args = parse_args()
     seeds = [int(token.strip()) for token in args.seeds.split(",") if token.strip()]
 

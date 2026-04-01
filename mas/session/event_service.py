@@ -17,7 +17,11 @@ from mas.session.event_stream import (
 
 
 class EventService:
-    """Encapsulate event query and subscriber operations per session."""
+    """Encapsulate event query and subscriber operations per session.
+
+    Attributes:
+        _get_session: Callable resolving one runtime session by id.
+    """
 
     def __init__(self, *, get_session: Callable[[str], Any]):
         """Initialize event service dependencies.

@@ -35,6 +35,24 @@ if str(REPO_ROOT) not in sys.path:
 
 @dataclass
 class BinaryMetrics:
+    """Binary classification summary for law-worker threshold sweeps.
+
+    Attributes:
+        tp: Count of positive rows predicted as found.
+        fp: Count of negative rows predicted as found.
+        tn: Count of negative rows predicted as not found.
+        fn: Count of positive rows predicted as not found.
+        precision_pos: Positive-class precision.
+        recall_pos: Positive-class recall.
+        f1_pos: Positive-class F1.
+        precision_neg: Negative-class precision.
+        recall_neg: Negative-class recall.
+        f1_neg: Negative-class F1.
+        macro_precision: Mean precision across the two classes.
+        macro_recall: Mean recall across the two classes.
+        macro_f1: Mean F1 across the two classes.
+    """
+
     tp: int
     fp: int
     tn: int
@@ -76,6 +94,15 @@ def _f1(precision: float, recall: float) -> float:
 
 
 def evaluate_binary(rows: List[Dict[str, Any]], threshold: float) -> BinaryMetrics:
+    """Evaluate one law-worker score threshold against labeled samples.
+
+    Args:
+        rows: Scored dataset rows with binary labels and ``max_score`` values.
+        threshold: Decision threshold applied to ``max_score``.
+
+    Returns:
+        Binary classification metrics for the supplied threshold.
+    """
     tp = fp = tn = fn = 0
 
     for row in rows:
@@ -122,6 +149,15 @@ def evaluate_binary(rows: List[Dict[str, Any]], threshold: float) -> BinaryMetri
 
 
 def false_found_rate(rows: List[Dict[str, Any]], threshold: float) -> float:
+    """Measure false-positive rate among negative rows at a threshold.
+
+    Args:
+        rows: Scored dataset rows containing labels and ``max_score``.
+        threshold: Decision threshold applied to ``max_score``.
+
+    Returns:
+        Share of negative rows predicted as found.
+    """
     negatives = [row for row in rows if int(row["label"]) == 0]
 
     if not negatives:
@@ -136,6 +172,16 @@ def false_found_rate_by_type(
     threshold: float,
     negative_type: str,
 ) -> float:
+    """Measure false-positive rate on one negative subtype.
+
+    Args:
+        rows: Scored dataset rows containing labels and subtype annotations.
+        threshold: Decision threshold applied to ``max_score``.
+        negative_type: Negative subtype to isolate before scoring.
+
+    Returns:
+        Share of subtype rows predicted as found.
+    """
     negatives = [
         row
         for row in rows
@@ -150,6 +196,16 @@ def false_found_rate_by_type(
 
 
 def threshold_range(start: float, end: float, step: float) -> List[float]:
+    """Build an inclusive floating-point threshold grid.
+
+    Args:
+        start: First threshold in the scan.
+        end: Final threshold in the scan.
+        step: Increment applied between thresholds.
+
+    Returns:
+        Rounded threshold values including both scan endpoints.
+    """
     values: List[float] = []
     cursor = start
 
@@ -192,7 +248,16 @@ def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
 
 
 class SyntheticLawScorer:
-    """Runtime-aligned vector scorer over synthetic law corpus."""
+    """Runtime-aligned vector scorer over synthetic law corpus.
+
+    Attributes:
+        embedding: SentenceTransformer embedding wrapper aligned with runtime.
+        embedding_cache: Text to vector cache for queries and law snippets.
+        search_cache: Query string to ranked retrieval hits cache.
+        corpus_docs: Current synthetic law corpus in document form.
+        corpus_matrix: Dense matrix of corpus embeddings.
+        corpus_norms: Cached vector norms for cosine scoring.
+    """
 
     def __init__(self, model_path: str):
         self.embedding = embedding_functions.SentenceTransformerEmbeddingFunction(
@@ -667,6 +732,12 @@ def _render_report(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for law-worker threshold tuning.
+
+    Returns:
+        Parsed command-line namespace for dataset generation, scoring, and
+        report output paths.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=str, default="92,93,94,95,96")
     parser.add_argument("--size", type=int, default=600)
@@ -710,6 +781,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run law-worker threshold tuning and export diagnostic artifacts.
+
+    Raises:
+        RuntimeError: If key cases cannot be built or scoring prerequisites are
+            missing.
+        ValueError: If no valid seeds are supplied.
+    """
     args = parse_args()
     seeds = [int(token.strip()) for token in args.seeds.split(",") if token.strip()]
 

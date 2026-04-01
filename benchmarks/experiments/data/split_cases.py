@@ -404,6 +404,11 @@ def _format_candidate_diagnostics(rows: list[dict[str, Any]]) -> str:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for Step 05 case splitting.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument(
@@ -476,6 +481,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Build the official Dev/Test split artifacts for experiment runs.
+
+    Raises:
+        ValueError: If split hyperparameters are invalid or duplicate uids are
+            detected in the input dataset.
+    """
     args = parse_args()
     output_dir = Path(args.output_dir)
     report_dir = Path(args.report_dir)

@@ -184,6 +184,11 @@ def _collect_zeroshot_rows(status_rows: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for status adjudication batch generation.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--uncertain-path", required=True)
     parser.add_argument("--status-path", required=False)
@@ -193,6 +198,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Build batched expert review queues for uncertain status judgments.
+
+    Returns:
+        Process exit code.
+
+    Raises:
+        ValueError: If batch size is invalid or review rows are duplicated.
+    """
     args = parse_args()
 
     if args.batch_size <= 0:

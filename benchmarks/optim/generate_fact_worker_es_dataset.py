@@ -78,7 +78,16 @@ NEGATIVE_LAW_HINTS = [
 
 @dataclass(frozen=True)
 class ESDoc:
-    """Minimal ES case document fields used for intent generation."""
+    """Minimal ES case document fields used for intent generation.
+
+    Attributes:
+        doc_id: Elasticsearch document identifier.
+        source_type: ES source partition such as ``book`` or ``judge``.
+        case_title: Case title text.
+        focus: Focus-section text.
+        facts: Fact-section text.
+        analysis: Analysis-section text.
+    """
 
     doc_id: str
     source_type: str
@@ -131,7 +140,15 @@ def _topic_from_intent(intent: str) -> str:
 
 
 def build_queries(intent: str, rng: random.Random) -> List[str]:
-    """Build 2-3 deterministic query variants for one intent."""
+    """Build 2-3 deterministic query variants for one intent.
+
+    Args:
+        intent: Source retrieval intent.
+        rng: Random generator controlling optional query expansion.
+
+    Returns:
+        Deduplicated query variants aligned with runtime query decomposition.
+    """
     topic = _topic_from_intent(intent)
 
     candidates = [
@@ -281,7 +298,23 @@ def generate_fact_worker_es_dataset(
     positive_ratio: float = 0.45,
     es_host: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Build one mixed ES+synthetic dataset for fact-worker threshold tuning."""
+    """Build one mixed ES+synthetic dataset for fact-worker threshold tuning.
+
+    Args:
+        seed: Random seed controlling ES sampling and synthetic negatives.
+        size: Total row count to generate.
+        valid_ratio: Validation split ratio.
+        positive_ratio: Share of positive rows in the final dataset.
+        es_host: Optional Elasticsearch host override.
+
+    Returns:
+        Dataset payload containing rows, key cases, and summary statistics.
+
+    Raises:
+        RuntimeError: If Elasticsearch is unreachable or no positive ES
+            documents can be sampled.
+        ValueError: If the constructed dataset size is inconsistent.
+    """
     rng = random.Random(seed)
     resolved_host = es_host or os.getenv("ES_HOST", "http://127.0.0.1:9200")
     es = Elasticsearch(resolved_host, request_timeout=30)
@@ -480,6 +513,11 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for fact-worker retrieval dataset generation.
+
+    Returns:
+        Parsed command-line namespace for dataset sizes and output paths.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=82)
     parser.add_argument("--size", type=int, default=600)
@@ -509,6 +547,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate the ES-backed fact-worker retrieval dataset.
+
+    Raises:
+        RuntimeError: If Elasticsearch is unreachable or source documents are
+            unavailable.
+        ValueError: If the generated dataset size is inconsistent.
+    """
     args = parse_args()
 
     payload = generate_fact_worker_es_dataset(

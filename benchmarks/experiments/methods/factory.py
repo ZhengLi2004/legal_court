@@ -127,7 +127,17 @@ _METHOD_SEMANTICS: dict[str, dict[str, Any]] = {
 
 
 def normalize_registry_profile(profile: str | None) -> str:
-    """Validate and normalize one registry profile name."""
+    """Validate and normalize one registry profile name.
+
+    Args:
+        profile: Optional profile name requested by the caller.
+
+    Returns:
+        A normalized profile string guaranteed to be in the allowlist.
+
+    Raises:
+        ValueError: If the requested profile name is unsupported.
+    """
     resolved = (
         str(profile or INTERNAL_DEFAULT_PROFILE).strip() or INTERNAL_DEFAULT_PROFILE
     )
@@ -143,7 +153,14 @@ def normalize_registry_profile(profile: str | None) -> str:
 def build_method_registry(
     profile: str = INTERNAL_DEFAULT_PROFILE,
 ) -> dict[str, MethodRunner]:
-    """Build one method registry for the requested experiment profile."""
+    """Build one method registry for the requested experiment profile.
+
+    Args:
+        profile: Registry profile controlling which methods are exposed.
+
+    Returns:
+        A mapping from method name to method runner.
+    """
     resolved = normalize_registry_profile(profile)
 
     if resolved == INTERNAL_DEFAULT_PROFILE:
@@ -161,14 +178,25 @@ def build_method_registry(
 
 
 def build_default_registry() -> dict[str, MethodRunner]:
-    """Build the default internal method registry used by experiment orchestrators."""
+    """Build the default internal method registry used by experiment orchestrators.
+
+    Returns:
+        The default internal-only method registry.
+    """
     return build_method_registry(INTERNAL_DEFAULT_PROFILE)
 
 
 def build_method_registry_snapshot(
     profile: str = INTERNAL_DEFAULT_PROFILE,
 ) -> dict[str, Any]:
-    """Build frozen registry semantics for one profile."""
+    """Build frozen registry semantics for one profile.
+
+    Args:
+        profile: Registry profile to serialize.
+
+    Returns:
+        A JSON-serializable snapshot of method names and method semantics.
+    """
     registry = build_method_registry(profile)
     method_names = sorted(registry.keys())
 
@@ -189,7 +217,14 @@ def build_method_registry_snapshot(
 def build_prereg_comparisons(
     profile: str = INTERNAL_DEFAULT_PROFILE,
 ) -> dict[str, list[str]]:
-    """Build preregistered comparison groups for one profile."""
+    """Build preregistered comparison groups for one profile.
+
+    Args:
+        profile: Registry profile whose method set should be compared.
+
+    Returns:
+        A mapping from focal method to preregistered comparator methods.
+    """
     method_names = set(build_method_registry(profile).keys())
 
     if "main_system" not in method_names:

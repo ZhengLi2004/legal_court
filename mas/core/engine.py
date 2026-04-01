@@ -39,7 +39,12 @@ from .system import LegalSystem
 
 
 class Turn(Enum):
-    """Enumeration to represent whose turn it is in the debate."""
+    """Enumeration to represent whose turn it is in the debate.
+
+    Attributes:
+        PLAINTIFF: Plaintiff turn.
+        DEFENDANT: Defendant turn.
+    """
 
     PLAINTIFF = "plaintiff"
     DEFENDANT = "defendant"
@@ -327,9 +332,6 @@ class DebateEngine:
     async def open_resources(self):
         """Open persistent infrastructure resources.
 
-        Returns:
-            None.
-
         Side Effects:
             Opens `fact_es` and `law_es` connections when present.
         """
@@ -341,9 +343,6 @@ class DebateEngine:
 
     async def close_resources(self):
         """Close persistent infrastructure resources.
-
-        Returns:
-            None.
 
         Side Effects:
             Closes `fact_es` and `law_es` connections when present.
@@ -359,9 +358,6 @@ class DebateEngine:
 
         Args:
             persist_snapshot: Whether to append a round snapshot after execution.
-
-        Returns:
-            None.
         """
         await run_engine_step(
             self,
@@ -371,11 +367,7 @@ class DebateEngine:
         )
 
     async def adjudicate(self):
-        """Execute final adjudication workflow.
-
-        Returns:
-            None.
-        """
+        """Execute final adjudication workflow."""
         await run_engine_adjudication(self)
 
     def get_snapshot(self) -> Dict[str, Any]:

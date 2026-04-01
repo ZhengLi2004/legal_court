@@ -30,6 +30,14 @@ def truncate_by_tokens(text: str, max_tokens: int, ellipsis: str = "...") -> str
     Notes:
         - Uses `cl100k_base` as a model-agnostic proxy tokenizer.
         - Falls back to char-length truncation when tokenizer is unavailable.
+
+    Args:
+        text: Raw text to truncate.
+        max_tokens: Maximum token budget proxy.
+        ellipsis: Suffix appended after truncation.
+
+    Returns:
+        Token-truncated text that fits within the requested budget proxy.
     """
     if not text:
         return ""

@@ -83,7 +83,14 @@ DOMAIN_LAW_SPECS: List[Dict[str, Any]] = [
 
 @dataclass(frozen=True)
 class LawSetDoc:
-    """Case-like law set unit for pair construction."""
+    """Case-like law set unit for pair construction.
+
+    Attributes:
+        doc_id: Source document identifier.
+        source: High-level origin label such as ``es`` or ``synthetic``.
+        source_type: ES source partition when the document comes from ES.
+        laws: Canonicalized law-token set extracted from the document.
+    """
 
     doc_id: str
     source: str
@@ -93,7 +100,23 @@ class LawSetDoc:
 
 @dataclass(frozen=True)
 class PairSample:
-    """One binary threshold sample."""
+    """One binary threshold sample.
+
+    Attributes:
+        sample_id: Stable sample identifier.
+        seed: Random seed used to build the sample.
+        split: Dataset split label.
+        label: Gold binary label for the pair.
+        pair_type: Pair construction recipe name.
+        source: High-level source label such as ``es`` or ``synthetic``.
+        query_laws: Canonicalized query-side law tokens.
+        candidate_laws: Canonicalized candidate-side law tokens.
+        jaccard: Precomputed Jaccard overlap score.
+        overlap_count: Size of the intersection between the two law sets.
+        union_count: Size of the union between the two law sets.
+        negative_type: Optional negative subtype annotation.
+        boundary_hint: Whether the sample lies near the intended threshold.
+    """
 
     sample_id: str
     seed: int
@@ -469,7 +492,23 @@ def generate_law_jaccard_dataset(
     positive_ratio: float = 0.45,
     es_host: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Build one mixed ES+synthetic Round-9 dataset."""
+    """Build one mixed ES+synthetic Round-9 dataset.
+
+    Args:
+        seed: Random seed controlling ES sampling and synthetic generation.
+        size: Total row count to generate.
+        valid_ratio: Validation split ratio.
+        positive_ratio: Share of positive rows in the final dataset.
+        es_host: Optional Elasticsearch host override.
+
+    Returns:
+        Dataset payload containing rows, key cases, and summary statistics.
+
+    Raises:
+        RuntimeError: If Elasticsearch is unreachable or no law-set documents
+            can be sampled.
+        ValueError: If the constructed dataset size is inconsistent.
+    """
     rng = random.Random(seed)
     resolved_host = es_host or os.getenv("ES_HOST", "http://127.0.0.1:9200")
     es = Elasticsearch(resolved_host, request_timeout=30)
@@ -679,6 +718,11 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for law-Jaccard dataset generation.
+
+    Returns:
+        Parsed command-line namespace for dataset sizes and output paths.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=102)
     parser.add_argument("--size", type=int, default=600)
@@ -708,6 +752,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate the ES-backed law-set overlap dataset.
+
+    Raises:
+        RuntimeError: If Elasticsearch is unreachable or no law-set documents
+            can be sampled.
+        ValueError: If the generated dataset size is inconsistent.
+    """
     args = parse_args()
 
     payload = generate_law_jaccard_dataset(

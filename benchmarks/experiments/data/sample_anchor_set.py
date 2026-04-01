@@ -65,6 +65,11 @@ def _allocate(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for claim or joint-anchor sampling.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True)
     parser.add_argument("--claims-path", required=True)
@@ -201,6 +206,11 @@ def _build_blind_rows(
 
 
 def main() -> int:
+    """Sample anchor review packets and write blind-review exports.
+
+    Returns:
+        Process exit code.
+    """
     args = parse_args()
     joint = bool(args.status_path)
     case_map = _load_case_map(Path(args.input))

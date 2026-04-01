@@ -47,7 +47,11 @@ def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
 
 
 class RuntimeEmbedding:
-    """Lightweight embedding wrapper aligned with runtime model usage."""
+    """Lightweight embedding wrapper aligned with runtime model usage.
+
+    Attributes:
+        _func: SentenceTransformer embedding callable used for inference.
+    """
 
     def __init__(self, model_path: str | None = None):
         from chromadb.utils import embedding_functions
@@ -66,7 +70,23 @@ class RuntimeEmbedding:
 
 @dataclass
 class BinaryMetrics:
-    """Binary metrics for one threshold and one task."""
+    """Binary metrics for one threshold and one task.
+
+    Attributes:
+        tp: Count of true positive rows.
+        fp: Count of false positive rows.
+        tn: Count of true negative rows.
+        fn: Count of false negative rows.
+        precision_pos: Positive-class precision.
+        recall_pos: Positive-class recall.
+        f1_pos: Positive-class F1.
+        precision_neg: Negative-class precision.
+        recall_neg: Negative-class recall.
+        f1_neg: Negative-class F1.
+        macro_precision: Macro-averaged precision.
+        macro_recall: Macro-averaged recall.
+        macro_f1: Macro-averaged F1.
+    """
 
     tp: int
     fp: int
@@ -109,6 +129,15 @@ def _f1(precision: float, recall: float) -> float:
 
 
 def evaluate_binary(rows: List[Dict[str, Any]], threshold: float) -> BinaryMetrics:
+    """Evaluate one insight-retrieval similarity threshold.
+
+    Args:
+        rows: Retrieval or dedup rows with binary labels and similarities.
+        threshold: Decision threshold applied to cosine similarity.
+
+    Returns:
+        Binary classification metrics for the supplied threshold.
+    """
     tp = fp = tn = fn = 0
 
     for row in rows:
@@ -155,7 +184,15 @@ def evaluate_binary(rows: List[Dict[str, Any]], threshold: float) -> BinaryMetri
 
 
 def contamination_rate(rows: List[Dict[str, Any]], threshold: float) -> float:
-    """Measure wrong-side positive rate among predicted positive retrieval hits."""
+    """Measure wrong-side positive rate among predicted positive retrieval hits.
+
+    Args:
+        rows: Retrieval rows containing plaintiff/defendant side annotations.
+        threshold: Decision threshold applied to cosine similarity.
+
+    Returns:
+        Share of predicted-positive rows whose insight side is contaminated.
+    """
     positives = 0
     contaminated = 0
 
@@ -177,6 +214,16 @@ def contamination_rate(rows: List[Dict[str, Any]], threshold: float) -> float:
 
 
 def threshold_range(start: float, end: float, step: float) -> List[float]:
+    """Build an inclusive floating-point threshold grid.
+
+    Args:
+        start: First threshold in the scan.
+        end: Final threshold in the scan.
+        step: Increment applied between thresholds.
+
+    Returns:
+        Rounded threshold values including both scan endpoints.
+    """
     values: List[float] = []
     cursor = start
 
@@ -573,6 +620,11 @@ def _render_report(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for insight-threshold tuning.
+
+    Returns:
+        Parsed command-line namespace for retrieval, dedup, and report outputs.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=str, default="52,53,54,55,56")
     parser.add_argument("--retrieval-size", type=int, default=720)
@@ -604,6 +656,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run insight-threshold tuning and export ranked threshold rows.
+
+    Raises:
+        ValueError: If no valid seeds are supplied.
+    """
     args = parse_args()
     seeds = [int(token.strip()) for token in args.seeds.split(",") if token.strip()]
 

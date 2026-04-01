@@ -52,6 +52,9 @@ class AnalyzeSearchResults(Action):
     This action takes a user's query and the raw text from a search tool,
     then uses a language model with a specific prompt template to generate a
     concise, actionable analysis.
+
+    Attributes:
+        name: Action identifier exposed to MetaGPT role orchestration.
     """
 
     name: str = "AnalyzeSearchResults"
@@ -88,6 +91,9 @@ class FormulateSearchQueries(Action):
     This action takes a natural language statement of intent and uses a
     language model to break it down into multiple, concrete query strings
     suitable for a search engine.
+
+    Attributes:
+        name: Action identifier exposed to MetaGPT role orchestration.
     """
 
     name: str = "FormulateSearchQueries"
@@ -146,6 +152,9 @@ class ProjectAndAnalyze(Action):
     set of historical cases to find similar argument structures connected to
     those anchors. Finally, it uses an LLM to analyze the retrieved historical
     context and provide strategic advice.
+
+    Attributes:
+        name: Action identifier exposed to MetaGPT role orchestration.
     """
 
     @staticmethod

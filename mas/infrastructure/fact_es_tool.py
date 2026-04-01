@@ -16,6 +16,11 @@ class FactEsTool(BaseEsTool):
 
     This class inherits from `BaseEsTool` and presets the index name, vector
     field, and source fields for querying a pre-defined legal cases index.
+
+    Attributes:
+        INDEX_NAME: Elasticsearch index name for case retrieval.
+        VECTOR_FIELD: Dense-vector field used for similarity search.
+        SOURCE_FIELDS: Source fields returned with each hit.
     """
 
     INDEX_NAME = "rag_legal_cases"

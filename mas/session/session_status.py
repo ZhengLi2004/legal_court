@@ -7,7 +7,17 @@ from typing import Dict, Set
 
 
 class SessionStatus(str, Enum):
-    """Define canonical lifecycle statuses for one runtime session."""
+    """Define canonical lifecycle statuses for one runtime session.
+
+    Attributes:
+        CREATED: Session created but not yet initialized.
+        SETTING_UP: Setup is currently running.
+        SETUP_DONE: Setup completed successfully.
+        DEBATING: Debate loop is active.
+        READY_FOR_ADJUDICATION: Ready to call the judge.
+        FINISHED: Debate and adjudication finished.
+        ERROR: Session entered an error state.
+    """
 
     CREATED = "CREATED"
     SETTING_UP = "SETTING_UP"

@@ -86,7 +86,16 @@ OOD_NEGATIVE_PAIRS = [
 
 @dataclass(frozen=True)
 class ESDoc:
-    """Minimal ES case payload for semantic pair generation."""
+    """Minimal ES case payload for semantic pair generation.
+
+    Attributes:
+        doc_id: Stable document identifier.
+        source_type: Corpus/source label for the document.
+        case_title: Human-readable case title.
+        focus: Short topical focus string.
+        facts: Fact summary used for synthesis.
+        analysis: Analysis summary used for synthesis.
+    """
 
     doc_id: str
     source_type: str
@@ -269,7 +278,18 @@ def generate_semantic_path_dataset(
     positive_ratio: float = 0.45,
     es_host: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Build one mixed ES+synthetic dataset for semantic-path threshold tuning."""
+    """Build one mixed ES+synthetic dataset for semantic-path threshold tuning.
+
+    Args:
+        seed: Random seed for deterministic sampling.
+        size: Number of examples to generate.
+        valid_ratio: Fraction of rows placed into the validation split.
+        positive_ratio: Fraction of positive examples to sample.
+        es_host: Optional Elasticsearch host used for source retrieval.
+
+    Returns:
+        Dataset payload with rows and source-level metadata.
+    """
     rng = random.Random(seed)
     resolved_host = es_host or os.getenv("ES_HOST", "http://127.0.0.1:9200")
     es = Elasticsearch(resolved_host, request_timeout=30)
@@ -470,6 +490,11 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for semantic-path dataset generation.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=112)
     parser.add_argument("--size", type=int, default=600)
@@ -499,6 +524,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate the semantic path retrieval dataset."""
     args = parse_args()
 
     payload = generate_semantic_path_dataset(

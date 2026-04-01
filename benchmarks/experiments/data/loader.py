@@ -10,8 +10,15 @@ from typing import Any
 def load_cases_from_jsonl(path: str | Path) -> list[dict[str, Any]]:
     """Load a JSONL file into a list of case dictionaries.
 
-    The loader accepts one JSON object per non-empty line and returns all
-    successfully parsed objects in order.
+    Args:
+        path: JSONL file path containing one case object per line.
+
+    Returns:
+        Parsed case dictionaries in file order.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        ValueError: If one line is not valid JSON or not a JSON object.
     """
     file_path = Path(path)
 

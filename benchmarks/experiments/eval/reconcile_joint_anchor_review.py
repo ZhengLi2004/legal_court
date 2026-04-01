@@ -155,6 +155,11 @@ def _apply_decisions(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for joint-anchor reconciliation.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--blind-a", required=True)
     parser.add_argument("--blind-b", required=True)
@@ -166,6 +171,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Reconcile paired joint-anchor reviews and apply adjudicated overrides.
+
+    Returns:
+        Process exit code.
+    """
     args = parse_args()
     rows_a = _load_jsonl(Path(args.blind_a))
     rows_b = _load_jsonl(Path(args.blind_b))

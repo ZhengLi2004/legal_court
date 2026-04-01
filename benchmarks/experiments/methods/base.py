@@ -41,12 +41,26 @@ DEFAULT_EXPERIMENT_GOLD_STATUS_PATH = Path(
 
 
 def normalize_space(text: str) -> str:
-    """Collapse repeated whitespace for stable claim text."""
+    """Collapse repeated whitespace for stable claim text.
+
+    Args:
+        text: Raw text that may contain repeated spaces or newlines.
+
+    Returns:
+        A normalized string with internal whitespace collapsed to single spaces.
+    """
     return " ".join(str(text or "").split())
 
 
 def case_uid(case: Mapping[str, Any]) -> str:
-    """Return one stable case uid across experiment data shapes."""
+    """Return one stable case uid across experiment data shapes.
+
+    Args:
+        case: Case payload from sampling data, API snapshots, or experiment results.
+
+    Returns:
+        A stable uid string derived from explicit ids or a content-hash fallback.
+    """
     direct = str(case.get("uid", "") or case.get("case_uid", "") or "").strip()
 
     if direct:
@@ -193,7 +207,17 @@ def _resolve_experiment_root_claim_rows(
 def prepare_case_for_engine(
     case: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Normalize benchmark case payload into engine setup shape."""
+    """Normalize benchmark case payload into engine setup shape.
+
+    Args:
+        case: Raw benchmark case payload.
+
+    Returns:
+        A tuple of normalized case payload and warning strings collected in setup.
+
+    Raises:
+        ValueError: If gold claim or gold status seeds cannot be resolved.
+    """
     warnings: list[str] = []
     payload = deepcopy(dict(case))
     content = payload.get("content") or {}
@@ -235,7 +259,11 @@ def prepare_case_for_engine(
 
 
 def apply_seed(seed: int | None) -> None:
-    """Apply deterministic seed to standard local RNGs."""
+    """Apply deterministic seed to standard local RNGs.
+
+    Args:
+        seed: Optional integer seed. `None` leaves RNG state unchanged.
+    """
     if seed is None:
         return
 
@@ -262,7 +290,24 @@ def build_method_config(
     budget: Mapping[str, Any] | None = None,
     retrieval_config: Mapping[str, Any] | None = None,
 ) -> tuple[Any, list[str]]:
-    """Create one per-run mutable config with experiment overrides."""
+    """Create one per-run mutable config with experiment overrides.
+
+    Args:
+        storage_root_dir: Optional storage root override for runtime memory.
+        skip_validate_step: Whether to bypass the validate step.
+        test_mode_no_learning: Whether to disable learning-side effects.
+        enable_fixed_evidence_pack: Whether fixed evidence-pack injection is enabled.
+        disable_recall_worker: Whether to disable the recall worker.
+        disable_initial_insights: Whether to disable initial insight generation.
+        budget: Optional budget overrides such as `max_turns`.
+        retrieval_config: Optional retrieval overrides for the method run.
+
+    Returns:
+        A configured mutable system config and any configuration warnings.
+
+    Raises:
+        ValueError: If an override references an unknown retrieval setting.
+    """
     cfg = build_system_config(storage_root_dir=storage_root_dir)
     warnings: list[str] = []
     cfg.experiment.skip_validate_step = bool(skip_validate_step)
@@ -570,7 +615,14 @@ def _execute_structured_single_pass(
 
 
 def validate_method_result(result: Mapping[str, Any]) -> None:
-    """Validate Step 09 runner output schema."""
+    """Validate Step 09 runner output schema.
+
+    Args:
+        result: Candidate method result payload.
+
+    Raises:
+        ValueError: If required fields, status labels, or claim coverage are invalid.
+    """
     required_top_level = {
         "method",
         "case_uid",
@@ -656,7 +708,28 @@ def execute_method(
     disable_initial_insights: bool = False,
     direct_adjudication: bool = False,
 ) -> dict[str, Any]:
-    """Run one experiment method on one case and return normalized output."""
+    """Run one experiment method on one case and return normalized output.
+
+    Args:
+        method_name: Method identifier written into the result payload.
+        case: Raw case payload to execute.
+        storage_root_dir: Optional storage root override for runtime memory.
+        budget: Optional budget overrides such as `max_turns`.
+        seed: Optional deterministic seed for the execution.
+        retrieval_config: Optional retrieval overrides for the method run.
+        verbose: Whether to enable verbose engine logging.
+        skip_validate_step: Whether to bypass the validate step.
+        test_mode_no_learning: Whether to disable learning-side effects.
+        disable_recall_worker: Whether to disable the recall worker.
+        disable_initial_insights: Whether to disable initial insight generation.
+        direct_adjudication: Whether to bypass debate and use one structured pass.
+
+    Returns:
+        A normalized method result payload matching Step 09 and Step 10 contracts.
+
+    Raises:
+        ValueError: If the input case or emitted result schema is invalid.
+    """
     if case is None:
         raise ValueError("`case` must be provided.")
 
@@ -818,7 +891,12 @@ def execute_method(
 
 
 def write_json(path: str | Path, payload: Mapping[str, Any]) -> None:
-    """Write one JSON artifact to disk."""
+    """Write one JSON artifact to disk.
+
+    Args:
+        path: Destination file path.
+        payload: Mapping payload serialized as UTF-8 JSON.
+    """
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
 

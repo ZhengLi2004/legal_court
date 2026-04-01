@@ -164,7 +164,31 @@ def run_step09_dryrun(
     resume: bool = False,
     registry_profile: str = INTERNAL_DEFAULT_PROFILE,
 ) -> dict[str, Any]:
-    """Run all registered Step 09 methods on a small deterministic Dev slice."""
+    """Run all registered Step 09 methods on a small deterministic Dev slice.
+
+    Args:
+        input_path: Case JSONL path.
+        dev_ids_path: Dev-scope uid list path.
+        output_dir: Directory for dry-run artifacts.
+        storage_root_dir: Optional runtime storage root override.
+        registry: Optional prebuilt method registry.
+        methods: Optional subset of method names.
+        selected_uids_path: Optional explicit case-selection file.
+        sample_size: Number of dev cases to evaluate when no selection file exists.
+        budget: Optional per-method budget overrides.
+        seed: Deterministic random seed.
+        retrieval_config: Optional retrieval overrides.
+        verbose: Whether to enable verbose method logging.
+        show_progress: Whether to show the tqdm progress bar.
+        resume: Whether to reuse existing completed outputs.
+        registry_profile: Registry profile identifier to activate.
+
+    Returns:
+        Dry-run summary payload written to ``summary.json``.
+
+    Raises:
+        ValueError: If requested methods or selected cases are invalid.
+    """
     cases = load_cases_from_jsonl(input_path)
     case_map = {case_uid(case): case for case in cases}
 
@@ -411,6 +435,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Run the Step 09 dry-run CLI entrypoint."""
     parser = _build_parser()
     args = parser.parse_args()
 

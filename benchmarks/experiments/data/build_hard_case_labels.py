@@ -22,7 +22,15 @@ from benchmarks.experiments.data.step05_features import get_case_features
 
 @dataclass(frozen=True)
 class RuleThresholds:
-    """Thresholds used by hard-case labeling rules."""
+    """Thresholds used by hard-case labeling rules.
+
+    Attributes:
+        claim_q75: Q75 threshold for claim counts.
+        text_q75: Q75 threshold for text lengths.
+        law_q75: Q75 threshold for law citation counts.
+        person_q75: Q75 threshold for person-name counts.
+        cause_count_min: Minimum distinct-cause threshold.
+    """
 
     claim_q75: int
     text_q75: int
@@ -380,6 +388,11 @@ def _load_id_set(path: Path, key: str) -> set[str]:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for hard-case label generation.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument(
@@ -449,6 +462,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Build hard-case labels and accompanying audit artifacts for Step 05."""
     args = parse_args()
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

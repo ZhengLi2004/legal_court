@@ -42,7 +42,11 @@ _DIRECT_VERDICT_SCHEMA = {
 
 
 class BaseJudge(ABC):
-    """Abstract interface for direct root-claim adjudication."""
+    """Abstract interface for direct root-claim adjudication.
+
+    Attributes:
+        None. Concrete subclasses only need to implement ``adjudicate``.
+    """
 
     @abstractmethod
     async def adjudicate(self, graph: ShadowGraph) -> Dict[str, NodeStatus]:
@@ -50,7 +54,11 @@ class BaseJudge(ABC):
 
 
 class LLMJudge(BaseJudge):
-    """Judge implementation backed by one strict JSON-schema completion."""
+    """Judge implementation backed by one strict JSON-schema completion.
+
+    Attributes:
+        llm: OpenAI-compatible client used for strict adjudication calls.
+    """
 
     def __init__(self, llm: GPTChat):
         self.llm = llm

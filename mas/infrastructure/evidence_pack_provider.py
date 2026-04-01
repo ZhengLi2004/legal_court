@@ -12,7 +12,13 @@ from mas.core.graph import LegalMessage
 
 @dataclass(frozen=True)
 class FixedEvidencePack:
-    """Serializable snapshot of memory-driven evidence for one case."""
+    """Serializable snapshot of memory-driven evidence for one case.
+
+    Attributes:
+        plaintiff_insights: Plaintiff-side insights injected into the case.
+        defendant_insights: Defendant-side insights injected into the case.
+        active_history_cases: Retrieved history cases exposed to the engine.
+    """
 
     plaintiff_insights: list[str]
     defendant_insights: list[str]
@@ -43,7 +49,17 @@ class FixedEvidencePack:
 
 
 def coerce_fixed_evidence_pack(payload: Any) -> FixedEvidencePack:
-    """Validate one fixed evidence-pack payload."""
+    """Validate one fixed evidence-pack payload.
+
+    Args:
+        payload: Raw pack payload or ``FixedEvidencePack`` instance.
+
+    Returns:
+        Normalized fixed evidence pack.
+
+    Raises:
+        ValueError: If the payload cannot be interpreted as a pack.
+    """
     if isinstance(payload, FixedEvidencePack):
         return payload
 
@@ -58,7 +74,15 @@ def build_fixed_evidence_pack_for_context(
     storage_root_dir: str,
     context: str,
 ) -> dict[str, Any]:
-    """Generate one fixed evidence pack from a frozen memory snapshot."""
+    """Generate one fixed evidence pack from a frozen memory snapshot.
+
+    Args:
+        storage_root_dir: Memory snapshot root directory.
+        context: Serialized case context string.
+
+    Returns:
+        Serialized fixed evidence pack for the context.
+    """
     from mas.infrastructure.legal_system_factory import build_legal_system
     from mas.infrastructure.settings_provider import build_system_config
 
@@ -78,7 +102,15 @@ def build_fixed_evidence_pack_map_for_contexts(
     storage_root_dir: str,
     contexts_by_uid: dict[str, str],
 ) -> dict[str, dict[str, Any]]:
-    """Generate fixed evidence packs for multiple cases with one system instance."""
+    """Generate fixed evidence packs for multiple cases with one system instance.
+
+    Args:
+        storage_root_dir: Memory snapshot root directory.
+        contexts_by_uid: Case contexts keyed by uid.
+
+    Returns:
+        Mapping from uid to serialized fixed evidence pack.
+    """
     from mas.infrastructure.legal_system_factory import build_legal_system
     from mas.infrastructure.settings_provider import build_system_config
 
@@ -101,7 +133,12 @@ def write_fixed_evidence_pack_map(
     path: str | Path,
     rows: dict[str, dict[str, Any]],
 ) -> None:
-    """Persist one uid -> fixed evidence pack mapping."""
+    """Persist one uid -> fixed evidence pack mapping.
+
+    Args:
+        path: Output JSON file path.
+        rows: Mapping from uid to serialized fixed evidence pack.
+    """
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(
@@ -111,7 +148,17 @@ def write_fixed_evidence_pack_map(
 
 
 def read_fixed_evidence_pack_map(path: str | Path) -> dict[str, dict[str, Any]]:
-    """Load one uid -> fixed evidence pack mapping and validate rows."""
+    """Load one uid -> fixed evidence pack mapping and validate rows.
+
+    Args:
+        path: Input JSON file path.
+
+    Returns:
+        Validated mapping from uid to serialized fixed evidence pack.
+
+    Raises:
+        ValueError: If the payload is empty or malformed.
+    """
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
 
     if not isinstance(payload, dict) or not payload:
@@ -129,7 +176,18 @@ def extract_fixed_evidence_pack_for_uid(
     mapping: dict[str, dict[str, Any]],
     uid: str,
 ) -> dict[str, Any]:
-    """Return one validated fixed evidence pack for the requested uid."""
+    """Return one validated fixed evidence pack for the requested uid.
+
+    Args:
+        mapping: Uid-to-pack mapping.
+        uid: Target case uid.
+
+    Returns:
+        Validated serialized pack for the requested uid.
+
+    Raises:
+        KeyError: If the uid is absent from the mapping.
+    """
     key = str(uid)
 
     if key not in mapping:
@@ -141,5 +199,12 @@ def extract_fixed_evidence_pack_for_uid(
 def list_history_case_ids(
     history_cases: Iterable[LegalMessage],
 ) -> list[str]:
-    """Return stable case ids for one history-case collection."""
+    """Return stable case ids for one history-case collection.
+
+    Args:
+        history_cases: History-case messages.
+
+    Returns:
+        Stable case-id list preserving input order.
+    """
     return [str(item.case_id) for item in history_cases]

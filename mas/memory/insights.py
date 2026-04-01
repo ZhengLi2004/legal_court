@@ -53,7 +53,13 @@ _PLACEHOLDER_INSIGHT_CONTENTS = {
 
 
 class InsightSide(str, Enum):
-    """Enumeration for the party an insight is most relevant to."""
+    """Enumeration for the party an insight is most relevant to.
+
+    Attributes:
+        PLAINTIFF: Plaintiff-oriented insight.
+        DEFENDANT: Defendant-oriented insight.
+        COMMON: Insight shared by both parties.
+    """
 
     PLAINTIFF = "PLAINTIFF"
     DEFENDANT = "DEFENDANT"

@@ -22,6 +22,19 @@ def summarize_claim4_budget_grid(
     family_name: str = "claim4",
     reference_method: str = "main_system",
 ) -> dict[str, Any]:
+    """Bootstrap Claim 4 budget points and compare them to a reference method.
+
+    Args:
+        budget_scores: Nested ``method -> point -> case`` score mapping.
+        prereg_points: Optional preregistered point families to preserve.
+        bootstrap_config: Optional bootstrap configuration override.
+        family_name: Family label written into the summary payload.
+        reference_method: Method used for paired delta summaries.
+
+    Returns:
+        Claim 4 budget-grid payload with bootstrap summaries and paired deltas.
+    """
+
     config = bootstrap_config or BootstrapConfig()
     normalized = validate_nested_case_score_mapping(budget_scores, name="budget_scores")
     summaries: dict[str, dict[str, Any]] = {}

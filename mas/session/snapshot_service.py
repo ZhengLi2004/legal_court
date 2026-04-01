@@ -31,7 +31,17 @@ from mas.session.teamflow_stream import build_teamflow_stream
 
 
 class SnapshotService:
-    """Encapsulate snapshot persistence, replay export, and restore flows."""
+    """Encapsulate snapshot persistence, replay export, and restore flows.
+
+    Attributes:
+        _get_session: Callable resolving one runtime session by id.
+        _create_session: Callable creating a fresh runtime session.
+        _get_event_history: Callable fetching session events.
+        _frontend_snapshots_dir: Directory for persisted frontend snapshots.
+        _to_json_safe: Serializer for arbitrary Python values.
+        _utc_now_iso: UTC timestamp factory.
+        _derive_status: Callable deriving session status from engine state.
+    """
 
     def __init__(
         self,

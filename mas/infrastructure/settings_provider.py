@@ -10,7 +10,15 @@ from mas.config import SystemConfig
 
 @dataclass(frozen=True)
 class LLMConfigView:
-    """Expose immutable LLM defaults for runtime client construction."""
+    """Expose immutable LLM defaults for runtime client construction.
+
+    Attributes:
+        temperature: Default sampling temperature.
+        max_tokens: Default maximum completion length.
+        model_name: Default model identifier.
+        base_url: OpenAI-compatible API base URL.
+        api_key: Credential used by runtime LLM clients.
+    """
 
     temperature: float
     max_tokens: int
@@ -21,7 +29,12 @@ class LLMConfigView:
 
 @dataclass(frozen=True)
 class DedupThresholds:
-    """Store node-deduplication thresholds used by graph execution."""
+    """Store node-deduplication thresholds used by graph execution.
+
+    Attributes:
+        fact_threshold: Deduplication threshold for fact nodes.
+        other_threshold: Deduplication threshold for non-fact nodes.
+    """
 
     fact_threshold: float
     other_threshold: float
@@ -31,7 +44,15 @@ def apply_storage_root_override(
     config: SystemConfig,
     storage_root_dir: str | None = None,
 ) -> SystemConfig:
-    """Apply one explicit storage-root override to a config instance."""
+    """Apply one explicit storage-root override to a config instance.
+
+    Args:
+        config: Base system configuration object.
+        storage_root_dir: Optional override path for runtime storage.
+
+    Returns:
+        Configuration instance with the resolved storage root applied.
+    """
     if not storage_root_dir:
         return config
 

@@ -55,7 +55,17 @@ _PERSONA_SCHEMA = {
 
 
 def normalize_root_claim_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize one externally supplied root-claim row."""
+    """Normalize one externally supplied root-claim row.
+
+    Args:
+        row: Raw root-claim mapping from fixtures or experiment artifacts.
+
+    Returns:
+        Normalized root-claim row with required canonical fields.
+
+    Raises:
+        ValueError: If the row lacks a non-empty claim text.
+    """
     claim_text_raw = str(
         row.get("claim_text_raw", "") or row.get("claim_text_norm", "") or ""
     ).strip()
@@ -100,7 +110,14 @@ def normalize_root_claim_row(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def build_root_claim_node_metadata(row: Mapping[str, Any]) -> dict[str, Any]:
-    """Build graph metadata for one root-claim node."""
+    """Build graph metadata for one root-claim node.
+
+    Args:
+        row: Raw or normalized root-claim row.
+
+    Returns:
+        Graph metadata dictionary for the root-claim node.
+    """
     normalized = normalize_root_claim_row(row)
 
     metadata: dict[str, Any] = {
@@ -171,6 +188,10 @@ class CaseInitializer:
 
     This class orchestrates several LLM calls to perform the key setup tasks
     required before the `DebateEngine` can start a simulation.
+
+    Attributes:
+        llm: LLM client used for fact decomposition, claim generation, and
+            persona synthesis.
     """
 
     def __init__(self, llm: GPTChat):

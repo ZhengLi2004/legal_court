@@ -22,12 +22,33 @@ def _normalize_compact(text: str) -> str:
 
 
 class TextEncoder(Protocol):
+    """Minimal encoder interface required by the Step 07 matcher.
+
+    The matcher only depends on batched text-to-vector conversion and assumes
+    the returned matrix is 2D and row-aligned with the input texts.
+
+    Attributes:
+        None. This protocol only constrains the ``encode`` method.
+    """
+
     def encode(self, texts: list[str]) -> np.ndarray:
-        """Encode texts into a 2D float array."""
+        """Encode texts into a 2D float array.
+
+        Args:
+            texts: Claim texts to encode in batch order.
+
+        Returns:
+            A 2D float array whose rows align with ``texts``.
+        """
 
 
 class SentenceTransformerTextEncoder:
-    """Thin wrapper around sentence-transformers for local matching."""
+    """Thin wrapper around sentence-transformers for local matching.
+
+    Args:
+        model_path: Local sentence-transformers model path.
+        device: Optional device override forwarded to the backend model.
+    """
 
     def __init__(self, model_path: str, device: str | None = None) -> None:
         from sentence_transformers import SentenceTransformer
@@ -49,6 +70,22 @@ class SentenceTransformerTextEncoder:
 
 @dataclass(frozen=True)
 class MatchingConfig:
+    """Frozen configuration for claim deduplication and one-to-one matching.
+
+    Attributes:
+        dedup_similarity_threshold: Cosine threshold above which prediction
+            rows are clustered as semantic duplicates.
+        match_similarity_threshold: Minimum semantic similarity required for a
+            feasible gold/prediction match.
+        semantic_weight: Weight assigned to semantic distance in the Hungarian
+            assignment cost.
+        length_penalty_weight: Weight assigned to claim-length mismatch.
+        length_mode: Reserved selector for length normalization strategy.
+        text_field: Claim-row field used as matcher input text.
+        unmatched_cost: Cost assigned to leaving one item unmatched.
+        infeasible_cost: Sentinel cost for impossible assignments.
+    """
+
     dedup_similarity_threshold: float = 0.82
     match_similarity_threshold: float = 0.67
     semantic_weight: float = 0.85
@@ -61,6 +98,18 @@ class MatchingConfig:
 
 @dataclass(frozen=True)
 class DedupCluster:
+    """One semantic duplicate cluster among prediction claims.
+
+    Attributes:
+        cluster_id: Stable cluster identifier scoped to one case and method.
+        representative_claim_id: Claim chosen as the cluster representative.
+        member_claim_ids: All member claim ids in the duplicate cluster.
+        representative_row: Representative prediction row.
+        member_rows: Raw member rows that collapsed into the cluster.
+        centroid_similarity: Similarity between the representative embedding and
+            the cluster centroid.
+    """
+
     cluster_id: str
     representative_claim_id: str
     member_claim_ids: tuple[str, ...]
@@ -71,6 +120,20 @@ class DedupCluster:
 
 @dataclass(frozen=True)
 class MatchPair:
+    """One matched gold/prediction claim pair with scoring metadata.
+
+    Attributes:
+        uid: Case uid shared by the matched rows.
+        method_name: Method that produced the prediction row.
+        gold_row: Matched gold claim row.
+        prediction_row: Matched prediction claim row.
+        semantic_similarity: Embedding cosine similarity for the pair.
+        length_gap: Relative claim-length mismatch penalty term.
+        cost: Final assignment cost used by the Hungarian solver.
+        matching_mode: ``semantic`` or ``claim_id_direct``.
+        direct_claim_id: Matched claim id for direct seeded matching.
+    """
+
     uid: str
     method_name: str
     gold_row: dict[str, Any]
@@ -84,6 +147,22 @@ class MatchPair:
 
 @dataclass(frozen=True)
 class CaseMatchBundle:
+    """All matching outputs for one method on one case under one scenario.
+
+    Attributes:
+        uid: Case uid.
+        method_name: Method name under evaluation.
+        scenario_name: Matching perturbation scenario name.
+        gold_rows: Gold claim rows for the case.
+        prediction_rows_raw: Original prediction rows before deduplication.
+        prediction_rows_deduped: Prediction rows after duplicate collapse.
+        dedup_clusters: Duplicate-cluster metadata for predictions.
+        matched_pairs: One-to-one matched claim pairs.
+        unmatched_gold_rows: Gold rows left unmatched after assignment.
+        unmatched_prediction_rows: Deduplicated prediction rows left unmatched.
+        matching_mode: ``semantic`` or ``claim_id_direct``.
+    """
+
     uid: str
     method_name: str
     scenario_name: str
@@ -128,6 +207,16 @@ def _should_use_claim_id_direct_matching(
 
 
 def claim_text(row: Mapping[str, Any], config: MatchingConfig) -> str:
+    """Read and normalize the configured text field from one claim row.
+
+    Args:
+        row: Claim row from either gold or prediction data.
+        config: Matching configuration that selects the text field.
+
+    Returns:
+        A whitespace-normalized claim text string.
+    """
+
     value = row.get(config.text_field, "")
 
     if value is None:
@@ -137,6 +226,19 @@ def claim_text(row: Mapping[str, Any], config: MatchingConfig) -> str:
 
 
 def require_claim_text(row: Mapping[str, Any], config: MatchingConfig) -> str:
+    """Return non-empty normalized claim text or raise a descriptive error.
+
+    Args:
+        row: Claim row from either gold or prediction data.
+        config: Matching configuration that selects the text field.
+
+    Returns:
+        A non-empty normalized claim text.
+
+    Raises:
+        ValueError: If the configured text field is empty after normalization.
+    """
+
     text = claim_text(row, config)
 
     if text:
@@ -267,6 +369,20 @@ def deduplicate_prediction_rows(
     config: MatchingConfig,
     embedding_cache: dict[tuple[str, str], np.ndarray] | None = None,
 ) -> tuple[list[dict[str, Any]], list[DedupCluster]]:
+    """Collapse semantically duplicate prediction rows before matching.
+
+    Args:
+        uid: Case uid shared by the prediction rows.
+        method_name: Method that produced the rows.
+        rows: Raw prediction rows for one case.
+        encoder: Text encoder used for duplicate clustering.
+        config: Matching configuration controlling duplicate thresholds.
+        embedding_cache: Optional reusable text-embedding cache.
+
+    Returns:
+        A pair of deduplicated prediction rows and duplicate-cluster metadata.
+    """
+
     prepared_rows = _prepare_prediction_rows(rows)
     _ensure_unique_case_claim_ids(prepared_rows, uid=uid, row_kind="prediction")
 
@@ -429,6 +545,23 @@ def match_case_claims(
     scenario_name: str = "base",
     embedding_cache: dict[tuple[str, str], np.ndarray] | None = None,
 ) -> CaseMatchBundle:
+    """Match one case's gold claims against one method's prediction claims.
+
+    Args:
+        uid: Case uid shared by the rows.
+        method_name: Method that produced the predictions.
+        gold_rows: Gold claim rows for one case.
+        prediction_rows: Prediction claim rows for the same case.
+        encoder: Text encoder used for semantic similarity scoring.
+        config: Matching configuration controlling thresholds and costs.
+        scenario_name: Matching protocol scenario name.
+        embedding_cache: Optional shared embedding cache.
+
+    Returns:
+        A case-level bundle containing deduplication, matching, and unmatched
+        row diagnostics for the method/case pair.
+    """
+
     gold_rows_copied = [_copy_row(row) for row in gold_rows]
     prediction_rows_raw = _prepare_prediction_rows(prediction_rows)
     _ensure_unique_case_claim_ids(gold_rows_copied, uid=uid, row_kind="gold")
@@ -608,6 +741,22 @@ def build_method_case_matches(
     scenario_name: str = "base",
     embedding_cache: dict[tuple[str, str], np.ndarray] | None = None,
 ) -> list[CaseMatchBundle]:
+    """Build per-case matching bundles for one method over a case universe.
+
+    Args:
+        case_uids: Ordered case universe to evaluate.
+        gold_rows: Gold claim rows across the case universe.
+        prediction_rows: Prediction rows for one method across the same cases.
+        method_name: Method name associated with ``prediction_rows``.
+        encoder: Text encoder used for semantic similarity scoring.
+        config: Matching configuration controlling thresholds and costs.
+        scenario_name: Matching perturbation scenario name.
+        embedding_cache: Optional shared embedding cache reused across cases.
+
+    Returns:
+        Ordered case-level matching bundles aligned with ``case_uids``.
+    """
+
     normalized_case_uids = tuple(str(uid) for uid in case_uids)
     _validate_case_universe(gold_rows, case_uids=normalized_case_uids)
     _validate_case_universe(prediction_rows, case_uids=normalized_case_uids)

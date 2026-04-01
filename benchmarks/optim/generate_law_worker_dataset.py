@@ -18,7 +18,15 @@ from typing import Any, Dict, List
 
 @dataclass(frozen=True)
 class LawDoc:
-    """Synthetic law article record for retrieval simulation."""
+    """Synthetic law article record for retrieval simulation.
+
+    Attributes:
+        doc_id: Synthetic document identifier.
+        law_name: Law name shown in the article citation.
+        article_id: Article identifier within the synthetic corpus.
+        content: Synthetic article content.
+        domain: High-level legal domain label.
+    """
 
     doc_id: str
     law_name: str
@@ -205,7 +213,15 @@ def _build_article_content(spec: Dict[str, Any], idx: int, rng: random.Random) -
 
 
 def build_synthetic_law_corpus(seed: int, per_domain: int = 12) -> List[LawDoc]:
-    """Build synthetic law corpus used by Round-6 retrieval simulation."""
+    """Build synthetic law corpus used by Round-6 retrieval simulation.
+
+    Args:
+        seed: Random seed controlling article wording and ordering.
+        per_domain: Number of synthetic articles per domain template.
+
+    Returns:
+        Synthetic law corpus used to score retrieval queries offline.
+    """
     rng = random.Random(seed)
     docs: List[LawDoc] = []
     cursor = 0
@@ -379,7 +395,21 @@ def generate_law_worker_dataset(
     valid_ratio: float = 0.2,
     positive_ratio: float = 0.45,
 ) -> Dict[str, Any]:
-    """Generate one synthetic dataset for Round-6 tuning."""
+    """Generate one synthetic dataset for Round-6 tuning.
+
+    Args:
+        seed: Random seed controlling corpus generation and row sampling.
+        size: Total row count to generate.
+        valid_ratio: Validation split ratio.
+        positive_ratio: Share of positive rows in the final dataset.
+
+    Returns:
+        Dataset payload containing retrieval rows, summary statistics, key
+        cases, and the synthetic law corpus.
+
+    Raises:
+        RuntimeError: If the constructed dataset size is inconsistent.
+    """
     rng = random.Random(seed)
     corpus = build_synthetic_law_corpus(seed=seed, per_domain=12)
     positive_total = int(round(size * positive_ratio))
@@ -580,6 +610,11 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for law-worker retrieval dataset generation.
+
+    Returns:
+        Parsed command-line namespace for dataset sizes and output paths.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=92)
     parser.add_argument("--size", type=int, default=600)
@@ -616,6 +651,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate the synthetic law-worker retrieval dataset.
+
+    Raises:
+        RuntimeError: If the generated dataset size is inconsistent.
+    """
     args = parse_args()
 
     payload = generate_law_worker_dataset(

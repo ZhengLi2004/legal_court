@@ -130,10 +130,13 @@ _CHOOSE_PLAN_OR_PUSH_TOOL = {
 
 
 class AssessFactNeeds(Action):
-    """An action to assess the need for additional factual evidence.
+    """Assess the need for additional factual evidence.
 
     This action uses the agent's persona and the current graph context to
     determine if searching for more facts is strategically necessary.
+
+    Attributes:
+        name: Stable action name exposed to the controller.
     """
 
     name: str = "AssessFactNeeds"
@@ -174,10 +177,13 @@ class AssessFactNeeds(Action):
 
 
 class AssessLawNeeds(Action):
-    """An action to assess the need for legal statute retrieval.
+    """Assess the need for legal statute retrieval.
 
     This action uses the agent's persona and the current graph context to
     determine if searching for legal articles is strategically necessary.
+
+    Attributes:
+        name: Stable action name exposed to the controller.
     """
 
     name: str = "AssessLawNeeds"
@@ -218,10 +224,14 @@ class AssessLawNeeds(Action):
 
 
 class AssessRecallNeeds(Action):
-    """An action to assess the need to recall strategies from historical cases.
+    """Assess the need to recall strategies from historical cases.
 
     This action uses the agent's persona and the current graph context to
-    determine if consulting similar past cases for strategic insights is necessary.
+    determine if consulting similar past cases for strategic insights is
+    necessary.
+
+    Attributes:
+        name: Stable action name exposed to the controller.
     """
 
     name: str = "AssessRecallNeeds"
@@ -262,12 +272,15 @@ class AssessRecallNeeds(Action):
 
 
 class VerifyAndDecide(Action):
-    """An action to verify worker advice and decide on final graph operations.
+    """Verify worker advice and decide on final graph operations.
 
     This action synthesizes the information gathered by worker agents with the
-    current debate state to generate a sequence of concrete `AgentAction`s to
-    modify the debate graph. It also incorporates feedback from previous failed
-    attempts to avoid repeating mistakes.
+    current debate state to generate a sequence of concrete ``AgentAction``\s
+    to modify the debate graph. It also incorporates feedback from previous
+    failed attempts to avoid repeating mistakes.
+
+    Attributes:
+        name: Stable action name exposed to the controller.
     """
 
     name: str = "VerifyAndDecide"
@@ -339,7 +352,14 @@ class VerifyAndDecide(Action):
 
 
 class ChoosePlanOrPush(Action):
-    """Route controller next step between plan and push."""
+    """Route controller next step between plan and push.
+
+    This action exists to separate tactical action synthesis from controller
+    loop control.
+
+    Attributes:
+        name: Stable action name exposed to the controller.
+    """
 
     name: str = "ChoosePlanOrPush"
 
@@ -403,7 +423,14 @@ class ChoosePlanOrPush(Action):
 
 
 class PlanTool(Action):
-    """Plan tool: assess needs, synthesize worker advice, and validate JSON actions."""
+    """Assess needs, synthesize worker advice, and validate JSON actions.
+
+    This wrapper groups the controller's planning-side helper actions so the
+    engine can request one reusable planning object per role.
+
+    Attributes:
+        name: Stable action name exposed to the controller.
+    """
 
     name: str = "PlanTool"
 
@@ -557,7 +584,13 @@ class PlanTool(Action):
 
 
 class PushTool(Action):
-    """Push tool: apply validated actions to the debate graph."""
+    """Apply validated actions to the debate graph.
+
+    This wrapper keeps graph execution separate from planning and validation.
+
+    Attributes:
+        name: Stable action name exposed to the controller.
+    """
 
     name: str = "PushTool"
 

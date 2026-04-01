@@ -35,7 +35,14 @@ def _ensure_list(value: Any) -> list[Any]:
 
 
 def count_claims_from_text(text: str) -> int:
-    """Estimate the number of诉讼请求 items from claim text."""
+    """Estimate the number of诉讼请求 items from claim text.
+
+    Args:
+        text: Raw claim section text.
+
+    Returns:
+        Heuristic count of enumerated claim/request items.
+    """
     stripped = (text or "").strip()
 
     if not stripped:
@@ -55,7 +62,17 @@ def count_claims_from_text(text: str) -> int:
 
 
 def get_case_features(case: dict[str, Any]) -> dict[str, Any]:
-    """Extract Step 05 stratification features from one case record."""
+    """Extract Step 05 stratification features from one case record.
+
+    Args:
+        case: Raw case record from the cleaned JSONL corpus.
+
+    Returns:
+        Feature dictionary used for Step 05 stratified sampling.
+
+    Raises:
+        ValueError: If required top-level sections or fields are missing.
+    """
     meta_info = case.get("metaInfo")
     content = case.get("content")
     extra_info = case.get("extraInfo")
@@ -103,7 +120,19 @@ def get_case_features(case: dict[str, Any]) -> dict[str, Any]:
 def q_value(
     values: Iterable[float], q: float, *, as_int_ceil: bool = True
 ) -> float | int:
-    """Compute quantile value with optional ceil-to-int conversion."""
+    """Compute quantile value with optional ceil-to-int conversion.
+
+    Args:
+        values: Numeric iterable to summarize.
+        q: Quantile in ``[0, 1]``.
+        as_int_ceil: Whether to return ``ceil(value)`` as an integer.
+
+    Returns:
+        Quantile value, optionally rounded up to an integer.
+
+    Raises:
+        ValueError: If ``values`` is empty.
+    """
     arr = np.asarray(list(values), dtype=float)
 
     if arr.size == 0:

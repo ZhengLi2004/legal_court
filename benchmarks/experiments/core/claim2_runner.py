@@ -50,11 +50,29 @@ CLAIM2_ALIGNMENT_THRESHOLD = 0.10
 
 
 class Claim2ExecutionError(RuntimeError):
-    """Raised when Claim 2 execution cannot continue."""
+    """Raised when Claim 2 execution cannot continue.
+
+    Attributes:
+        args: Standard runtime-error payload describing the failure.
+    """
 
 
 @dataclass(frozen=True)
 class Claim1SourceRun:
+    """Resolved metadata and artifact paths for one completed Claim 1 run.
+
+    Attributes:
+        run_id: Source Claim 1 run identifier.
+        claim_root: Root directory containing the Claim 1 artifacts.
+        summary: Parsed `run_summary.json` payload from the source run.
+        freeze_run_id: Step 09A freeze bundle consumed by the source run.
+        method_names: Ordered method names available in the source run.
+        dev_scope_path: Path to the Dev split scope used by Claim 1.
+        test_scope_path: Path to the Test split scope used by Claim 1.
+        dev_raw_dir: Directory containing Dev raw prediction files.
+        test_raw_dir: Directory containing Test raw prediction files.
+    """
+
     run_id: str
     claim_root: Path
     summary: dict[str, Any]
@@ -1128,6 +1146,33 @@ def run_claim2_experiment(
     agreement_threshold: float = CLAIM2_AGREEMENT_THRESHOLD,
     alignment_threshold: float = CLAIM2_ALIGNMENT_THRESHOLD,
 ) -> dict[str, Any]:
+    """Execute the formal Claim 2 consistency and faithfulness pipeline.
+
+    Args:
+        freeze_run_id: Step 09A run that recorded the shared experiment config.
+        source_claim1_run_id: Completed Claim 1 run consumed as the source output.
+        run_id: Destination Step 11 run id.
+        reports_root: Root directory that stores experiment outputs.
+        input_path: Original case JSONL used to recover case texts.
+        evaluator_profile_path: JSON profile describing the evaluator ensemble.
+        methods: Optional subset of Claim 1 methods to score.
+        resume: Whether to reuse cached case diagnostics and evaluator votes.
+        verbose: Unused verbosity flag kept for CLI compatibility.
+        show_progress: Whether to display progress bars.
+        top_k: Maximum aligned evidence windows kept per assertion.
+        aggregation: Assertion-to-case aggregation mode for faithfulness scoring.
+        agreement_threshold: Majority-agreement gate applied on the dev stage.
+        alignment_threshold: Minimum evidence-alignment score to keep one window.
+
+    Returns:
+        A summary payload containing written artifact paths and per-method metrics.
+
+    Raises:
+        FileNotFoundError: If prerequisite Step 09A or Claim 1 artifacts are missing.
+        ValueError: If the requested methods or evaluator profile are incompatible.
+        Claim2ExecutionError: If one stage fails irrecoverably during execution.
+    """
+
     del verbose
     _load_step09a_manifest(freeze_run_id=freeze_run_id, reports_root=reports_root)
 

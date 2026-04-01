@@ -21,6 +21,20 @@ REQUIRED_TOP_LEVEL_KEYS = ("method", "case_uid", "claims", "status")
 
 @dataclass(frozen=True)
 class ParsedClaim:
+    """Normalized claim row extracted from one method result file.
+
+    Attributes:
+        claim_id: Stable claim identifier from the method result.
+        uid: Case uid.
+        claim_text_raw: Original claim text as emitted by the method.
+        claim_text_norm: Normalized claim text used for signature matching.
+        action: Parsed canonical action field when available.
+        target: Parsed canonical target field when available.
+        amount: Parsed canonical amount field when available.
+        stage_role: Parsed canonical stage/role field when available.
+        canonical_signature: Signature used for consistency checks.
+    """
+
     claim_id: str
     uid: str
     claim_text_raw: str
@@ -37,6 +51,14 @@ class ParsedClaim:
 
 @dataclass(frozen=True)
 class ParseFailure:
+    """One parser failure attached to a claim or to the whole case payload.
+
+    Attributes:
+        reason: Machine-readable failure category.
+        detail: Human-readable failure explanation.
+        claim_id: Optional claim id associated with the failure.
+    """
+
     reason: str
     detail: str
     claim_id: str = ""
@@ -47,6 +69,14 @@ class ParseFailure:
 
 @dataclass(frozen=True)
 class ConflictEdge:
+    """One logical contradiction detected among normalized claim signatures.
+
+    Attributes:
+        canonical_signature: Shared signature exhibiting inconsistent statuses.
+        claim_ids: Claim ids participating in the conflict.
+        statuses: Distinct statuses observed for the signature.
+    """
+
     canonical_signature: str
     claim_ids: tuple[str, ...]
     statuses: tuple[str, ...]
@@ -57,6 +87,20 @@ class ConflictEdge:
 
 @dataclass(frozen=True)
 class ConsistencyParseResult:
+    """Structured parsing output for one method on one case.
+
+    Attributes:
+        method: Method name.
+        case_uid: Case uid.
+        parsed_claims: Successfully parsed claims.
+        claim_status_sets: Canonical signature to status-set mapping.
+        conflict_edges: Detected logical contradictions.
+        coverage_passed: Whether all required rows were parsed successfully.
+        parse_failures: Structured parser failures.
+        input_claim_count: Raw claim row count in the payload.
+        input_status_count: Raw status row count in the payload.
+    """
+
     method: str
     case_uid: str
     parsed_claims: tuple[ParsedClaim, ...]
@@ -83,6 +127,17 @@ class ConsistencyParseResult:
 
 @dataclass(frozen=True)
 class ParseCoverageSummary:
+    """Aggregate parse coverage statistics across many method-case results.
+
+    Attributes:
+        case_count: Number of parsed method-case payloads.
+        fully_parsed_case_count: Count of payloads that passed coverage.
+        claim_count_total: Total raw claim count across payloads.
+        claim_count_parsed: Total successfully parsed claim count.
+        parse_failure_count: Aggregate parse failure count.
+        parse_failure_reason_breakdown: Failure counts by reason code.
+    """
+
     case_count: int
     fully_parsed_case_count: int
     claim_count_total: int
@@ -136,7 +191,14 @@ def _build_result_with_top_level_failures(
 
 
 def parse_method_result(result: Mapping[str, Any]) -> ConsistencyParseResult:
-    """Parse one Step 10 method result into Step 11 consistency diagnostics."""
+    """Parse one Step 10 method result into Step 11 consistency diagnostics.
+
+    Args:
+        result: Serialized Step 10 method result payload.
+
+    Returns:
+        Structured consistency parse diagnostics for the payload.
+    """
     payload = dict(result)
     top_level_failures: list[ParseFailure] = []
 
@@ -347,6 +409,15 @@ def parse_method_result(result: Mapping[str, Any]) -> ConsistencyParseResult:
 
 
 def parse_method_result_file(path: str | Path) -> ConsistencyParseResult:
+    """Read a saved method result JSON file and parse it for Claim 2.
+
+    Args:
+        path: JSON result file produced by one Claim 1 method run.
+
+    Returns:
+        Parsed Claim 2 consistency result.
+    """
+
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     return parse_method_result(payload)
 
@@ -354,6 +425,18 @@ def parse_method_result_file(path: str | Path) -> ConsistencyParseResult:
 def summarize_parse_results(
     results: list[ConsistencyParseResult] | tuple[ConsistencyParseResult, ...],
 ) -> ParseCoverageSummary:
+    """Aggregate parse coverage and failure reasons over many case results.
+
+    Args:
+        results: Parsed per-case Claim 2 consistency results.
+
+    Returns:
+        Aggregate coverage and failure summary.
+
+    Raises:
+        ValueError: If ``results`` is empty.
+    """
+
     if not results:
         raise ValueError("results must not be empty")
 

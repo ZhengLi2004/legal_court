@@ -17,7 +17,14 @@ PRIMARY_SECTION = "原告诉称"
 
 
 class SyntaxSplitter(Protocol):
-    """Protocol for optional HanLP-backed local splitting."""
+    """Protocol for optional HanLP-backed local splitting.
+
+    Implementations split a composite request block into candidate claim spans
+    before the rule-based extractor normalizes them.
+
+    Attributes:
+        None. This protocol only defines the required ``split`` method.
+    """
 
     def split(self, text: str, action_aliases: list[str]) -> list[tuple[str, int, int]]:
         """Split one composite claim string into claim spans."""
@@ -25,7 +32,17 @@ class SyntaxSplitter(Protocol):
 
 @dataclass(frozen=True)
 class RequestBlockResult:
-    """Store one located request block inside plaintiff text."""
+    """Store one located request block inside plaintiff text.
+
+    Attributes:
+        text: Full plaintiff section text.
+        source: Cue source used to locate the block.
+        cue: Matched cue text.
+        start: Absolute start offset of the block.
+        end: Absolute end offset of the block.
+        body_start: Absolute start offset of the substantive request body.
+        body_end: Absolute end offset of the substantive request body.
+    """
 
     text: str
     source: str
@@ -42,7 +59,13 @@ class RequestBlockResult:
 
 @dataclass(frozen=True)
 class SourceSpan:
-    """Absolute span in `content.原告诉称`."""
+    """Absolute span in `content.原告诉称`.
+
+    Attributes:
+        section: Source section name.
+        start: Absolute start offset.
+        end: Absolute end offset.
+    """
 
     section: str
     start: int
@@ -51,7 +74,22 @@ class SourceSpan:
 
 @dataclass
 class ClaimItem:
-    """One finalized claim row before serialization."""
+    """One finalized claim row before serialization.
+
+    Attributes:
+        claim_text_raw: Raw normalized claim text.
+        claim_text_norm: Canonical normalized claim signature.
+        source_span: Absolute source span in plaintiff text.
+        request_block_source: How the request block was located.
+        boundary_source: How the claim boundaries were derived.
+        claim_source: Claim origin, e.g. rule or expert adjudication.
+        action: Canonical action label.
+        target: Canonical target string.
+        amount: Extracted amount string.
+        liability: Canonical liability string.
+        stage_role: Coarse stage-role label.
+        claim_flags: Extraction flags or warnings.
+    """
 
     claim_text_raw: str
     claim_text_norm: str
@@ -69,7 +107,14 @@ class ClaimItem:
 
 @dataclass
 class RuleExtractionResult:
-    """Store rule-path extraction result for one case."""
+    """Store rule-path extraction result for one case.
+
+    Attributes:
+        request_block: Located request block, if any.
+        claims: Extracted claim items.
+        trigger_reasons: Reasons why expert review may still be needed.
+        auto_candidates: Raw candidate strings considered during extraction.
+    """
 
     request_block: RequestBlockResult | None
     claims: list[ClaimItem]
@@ -83,7 +128,21 @@ class RuleExtractionResult:
 
 @dataclass
 class CaseClaimExtractionResult:
-    """Final extraction result for one case."""
+    """Final extraction result for one case.
+
+    Attributes:
+        uid: Case uid.
+        split: Dataset split label.
+        hard_case: Hard-case indicator.
+        sample_cause: Sample cause label.
+        stage: Procedural stage.
+        claims: Final accepted claims for the case.
+        request_block: Located request block, if any.
+        auto_candidates: Raw candidate strings considered by the rule path.
+        review_reasons: Reasons that triggered manual review.
+        needs_manual_review: Whether expert review is still required.
+        claim_source: Final claim-source label.
+    """
 
     uid: str
     split: str
@@ -100,7 +159,29 @@ class CaseClaimExtractionResult:
 
 @dataclass(frozen=True)
 class RuleBundle:
-    """Frozen extraction rules compiled from JSON."""
+    """Frozen extraction rules compiled from JSON.
+
+    Attributes:
+        first_instance_label_cues: First-instance label cues.
+        first_instance_inline_cues: First-instance inline cues.
+        first_instance_long_tail_cues: Long-tail first-instance cues.
+        appeal_label_cues: Appeal-stage label cues.
+        appeal_inline_cues: Appeal-stage inline cues.
+        section_stop_cues: Cues that terminate the request block.
+        procedural_fee_keywords: Keywords for fee-only procedural claims.
+        meta_appeal_patterns: Meta-appeal-only regex patterns.
+        split_connectors: Connectors used during clause splitting.
+        petition_prefixes: Prefixes stripped from substantive requests.
+        actor_prefix_patterns: Actor-name prefixes to strip.
+        negative_request_prefix_patterns: Negative request prefixes to strip.
+        label_follow_prefixes: Allowed label-follow prefixes.
+        evidence_like_keywords: Keywords that suggest evidentiary rather than
+            substantive content.
+        obvious_request_markers: Surface markers suggesting a request block.
+        argument_like_patterns: Patterns that indicate argumentative text.
+        no_action_max_chars: Max chars for action-less claims.
+        short_claim_chars: Length threshold used for short-claim flags.
+    """
 
     first_instance_label_cues: tuple[str, ...]
     first_instance_inline_cues: tuple[str, ...]
@@ -124,7 +205,15 @@ class RuleBundle:
 
 @dataclass(frozen=True)
 class NumberMarker:
-    """One numbered-item marker inside request text."""
+    """One numbered-item marker inside request text.
+
+    Attributes:
+        level: Numbering hierarchy level.
+        start: Start offset of the marker.
+        end: End offset of the marker.
+        kind: Marker type identifier.
+        marker_text: Raw marker text.
+    """
 
     level: int
     start: int
@@ -135,7 +224,13 @@ class NumberMarker:
 
 @dataclass
 class NumberNode:
-    """One node in the numbered request tree."""
+    """One node in the numbered request tree.
+
+    Attributes:
+        marker: Marker that anchors the numbered node.
+        body_end: Optional end offset of the node body.
+        children: Nested numbered children.
+    """
 
     marker: NumberMarker
     body_end: int | None = None
@@ -161,7 +256,14 @@ _MULTI_SPACE_RE = re.compile(r"\s+")
 
 
 def load_rule_bundle(path: str | Path) -> RuleBundle:
-    """Load frozen Step 06 extraction rules from JSON."""
+    """Load frozen Step 06 extraction rules from JSON.
+
+    Args:
+        path: JSON file containing the frozen extraction rules.
+
+    Returns:
+        Parsed Step 06 rule bundle.
+    """
 
     data = json.loads(Path(path).read_text(encoding="utf-8"))
 
@@ -192,7 +294,14 @@ def load_rule_bundle(path: str | Path) -> RuleBundle:
 
 
 def load_claim_ontology(path: str | Path) -> dict[str, Any]:
-    """Load frozen claim ontology JSON."""
+    """Load frozen claim ontology JSON.
+
+    Args:
+        path: JSON file containing the claim ontology.
+
+    Returns:
+        Parsed ontology payload.
+    """
 
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
@@ -203,6 +312,9 @@ class HanLPTokenizerSplitter:
     The implementation intentionally uses the tokenizer model only. It avoids
     hard-coding cache paths and relies on `HANLP_HOME` / `HF_HOME` when set by
     the caller environment.
+
+    Attributes:
+        _tokenizer: Lazily loaded HanLP tokenizer instance.
     """
 
     def __init__(self) -> None:
@@ -304,7 +416,14 @@ class HanLPTokenizerSplitter:
 
 
 def normalize_space(text: str) -> str:
-    """Collapse whitespace while keeping original punctuation."""
+    """Collapse whitespace while keeping original punctuation.
+
+    Args:
+        text: Raw text span.
+
+    Returns:
+        Whitespace-normalized text.
+    """
 
     return _MULTI_SPACE_RE.sub("", text or "").strip()
 
@@ -562,7 +681,16 @@ def extract_request_block(
     stage: str,
     rules: RuleBundle,
 ) -> RequestBlockResult | None:
-    """Locate the request block inside `content.原告诉称`."""
+    """Locate the request block inside ``content.原告诉称``.
+
+    Args:
+        plaintiff_text: Raw ``content.原告诉称`` text.
+        stage: Procedural stage label.
+        rules: Frozen extraction rule bundle.
+
+    Returns:
+        Located request block, or ``None`` when no reliable block is found.
+    """
 
     text = plaintiff_text or ""
     stage_key = _stage_key(stage)
@@ -1498,7 +1626,17 @@ def extract_rule_claims(
     ontology: dict[str, Any],
     syntax_splitter: SyntaxSplitter | None,
 ) -> RuleExtractionResult:
-    """Extract claims with rules and local HanLP splitting only."""
+    """Extract claims with rules and local HanLP splitting only.
+
+    Args:
+        case: Raw case payload.
+        rules: Frozen extraction rule bundle.
+        ontology: Claim ontology payload.
+        syntax_splitter: Optional HanLP-backed splitter.
+
+    Returns:
+        Rule-path extraction result for the case.
+    """
 
     content = case.get("content") or {}
     extra = case.get("extraInfo") or {}
@@ -1539,7 +1677,23 @@ def build_claim_from_expert_span(
     ontology: dict[str, Any],
     adjudication_reason: str = "",
 ) -> ClaimItem:
-    """Build one normalized claim from an expert-selected span in `原告诉称`."""
+    """Build one normalized claim from an expert-selected span in `原告诉称`.
+
+    Args:
+        case: Raw case payload.
+        start: Expert-selected span start offset.
+        end: Expert-selected span end offset.
+        rules: Frozen extraction rule bundle.
+        ontology: Claim ontology payload.
+        adjudication_reason: Optional audit note attached to failures.
+
+    Returns:
+        Normalized claim item derived from the expert span.
+
+    Raises:
+        ValueError: If the span is out of range or cannot be normalized into a
+            substantive claim.
+    """
 
     content = case.get("content") or {}
     extra = case.get("extraInfo") or {}
@@ -1608,7 +1762,14 @@ def build_claim_from_expert_span(
 
 
 def claim_item_from_row(row: dict[str, Any]) -> ClaimItem:
-    """Reconstruct one ClaimItem from a serialized claim row."""
+    """Reconstruct one ClaimItem from a serialized claim row.
+
+    Args:
+        row: Serialized claim row.
+
+    Returns:
+        Reconstructed in-memory claim item.
+    """
 
     span = row["source_span"]
 
@@ -1639,7 +1800,17 @@ def merge_claim_result(
     rule_result: RuleExtractionResult,
     adjudicated_claims: list[ClaimItem] | None = None,
 ) -> CaseClaimExtractionResult:
-    """Combine metadata with rule-path or expert-adjudicated result."""
+    """Combine metadata with rule-path or expert-adjudicated result.
+
+    Args:
+        case: Raw case payload.
+        split_meta: Split metadata for the case.
+        rule_result: Rule-path extraction result.
+        adjudicated_claims: Optional expert-adjudicated claim list.
+
+    Returns:
+        Final per-case claim extraction result.
+    """
 
     meta = case.get("metaInfo") or {}
     extra = case.get("extraInfo") or {}
@@ -1672,7 +1843,14 @@ def merge_claim_result(
 def serialize_claim_rows(
     results: list[CaseClaimExtractionResult],
 ) -> list[dict[str, Any]]:
-    """Flatten case-level results into one row per claim."""
+    """Flatten case-level results into one row per claim.
+
+    Args:
+        results: Per-case claim extraction results.
+
+    Returns:
+        Serialized claim rows suitable for JSONL export.
+    """
 
     rows: list[dict[str, Any]] = []
 
@@ -1712,7 +1890,15 @@ def serialize_claim_rows(
 def build_uncertain_rows(
     results: list[CaseClaimExtractionResult], case_map: dict[str, dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Serialize uncertain cases for manual review."""
+    """Serialize uncertain cases for manual review.
+
+    Args:
+        results: Per-case claim extraction results.
+        case_map: Case payloads keyed by uid.
+
+    Returns:
+        Manual-review rows for uncertain cases.
+    """
 
     rows: list[dict[str, Any]] = []
 
@@ -1761,7 +1947,19 @@ def build_summary(
     total_cases: int,
     rules: RuleBundle,
 ) -> dict[str, Any]:
-    """Build high-level extraction summary for Step 06 reporting."""
+    """Build high-level extraction summary for Step 06 reporting.
+
+    Args:
+        results: Per-case claim extraction results.
+        claim_rows: Serialized accepted claim rows.
+        uncertain_rows: Serialized uncertain review rows.
+        expert_audit_rows: Expert audit rows from adjudication.
+        total_cases: Total cases processed in the run.
+        rules: Frozen extraction rule bundle.
+
+    Returns:
+        Aggregate Step 06 summary statistics.
+    """
 
     claims_per_case: dict[str, int] = {}
 
@@ -1859,7 +2057,14 @@ def build_summary(
 def build_reason_count_rows(
     uncertain_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Build flat reason counts CSV rows."""
+    """Build flat reason counts CSV rows.
+
+    Args:
+        uncertain_rows: Serialized uncertain review rows.
+
+    Returns:
+        Flat reason/count rows for CSV export.
+    """
 
     counts: dict[str, int] = {}
 
@@ -1873,7 +2078,13 @@ def build_reason_count_rows(
 def configure_hanlp_env(
     *, hanlp_home: str | None, hf_home: str | None, hanlp_verbose: str | None
 ) -> None:
-    """Apply optional HanLP/HF cache overrides before importing HanLP."""
+    """Apply optional HanLP/HF cache overrides before importing HanLP.
+
+    Args:
+        hanlp_home: Optional HanLP cache directory override.
+        hf_home: Optional Hugging Face cache directory override.
+        hanlp_verbose: Optional HanLP verbosity override.
+    """
 
     if hanlp_home:
         os.environ["HANLP_HOME"] = hanlp_home

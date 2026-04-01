@@ -69,6 +69,23 @@ def evaluate_claim1_metrics(
     bootstrap_config: BootstrapConfig | None = None,
     family_name: str = "claim1",
 ) -> dict[str, Any]:
+    """Compute the frozen Claim 1 metric bundle for one method/scenario.
+
+    Args:
+        case_bundles: Step 07 case-match bundles for one method and scenario.
+        gold_status_rows: Gold status rows keyed by ``uid`` and ``claim_id``.
+        bootstrap_config: Optional bootstrap configuration override.
+        family_name: Family label written into the metric payload.
+
+    Returns:
+        Full frozen Claim 1 metric bundle, including main summaries, per-case
+        scores, confusion matrices, and aggregate bookkeeping.
+
+    Raises:
+        ValueError: If the bundles mix methods/scenarios or if required gold
+            status rows are missing.
+    """
+
     config = bootstrap_config or BootstrapConfig()
     gold_lookup = _gold_status_lookup(gold_status_rows)
     method_names = sorted({bundle.method_name for bundle in case_bundles})

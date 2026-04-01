@@ -16,6 +16,11 @@ class LawEsTool(BaseEsTool):
 
     This class inherits from `BaseEsTool` and presets the index name, vector
     field, and source fields for querying a pre-defined legal statutes index.
+
+    Attributes:
+        INDEX_NAME: Elasticsearch index name for statute retrieval.
+        VECTOR_FIELD: Dense-vector field used for similarity search.
+        SOURCE_FIELDS: Source fields returned with each hit.
     """
 
     INDEX_NAME = "rag_legal_laws"

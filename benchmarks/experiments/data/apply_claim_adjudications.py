@@ -199,6 +199,11 @@ def _normalize_review_row(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for merging claim adjudication decisions.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True)
     parser.add_argument("--rule-claims", required=True)
@@ -229,6 +234,14 @@ def _collect_reviews(reviews_dir: Path) -> dict[str, dict[str, Any]]:
 
 
 def main() -> int:
+    """Apply expert claim adjudications and write finalized gold claim artifacts.
+
+    Returns:
+        Process exit code.
+
+    Raises:
+        ValueError: If expert review files are missing or inconsistent.
+    """
     args = parse_args()
     input_path = Path(args.input)
     rule_claims_path = Path(args.rule_claims)

@@ -44,11 +44,39 @@ CLAIM3_DEFAULT_WARMUP_POINTS = (0, 25, 50, 100)
 
 
 class Claim3ExecutionError(RuntimeError):
-    """Raised when Claim 3 execution cannot continue."""
+    """Raised when Claim 3 execution cannot continue.
+
+    Attributes:
+        args: Standard runtime-error payload describing the failure.
+    """
 
 
 @dataclass(frozen=True)
 class Claim3Context:
+    """Frozen inputs, paths, and protocol state for one Claim 3 run.
+
+    Attributes:
+        freeze_run_id: Step 09A freeze bundle used to seed the run.
+        source_claim1_run_id: Claim 1 run reused as the reference source.
+        run_id: Destination Step 12 run identifier.
+        reports_root: Root directory storing all experiment reports.
+        input_path: Original case JSONL used for warmup and evaluation cases.
+        claim_root: Root output directory for Claim 3 artifacts.
+        manifest_path: Path to the warmup manifest written by prepare.
+        job_plan_path: Path to the generated execution plan.
+        fixed_pack_path: Path to the serialized fixed evidence pack.
+        reference_anchor_path: Path to reference Claim 1 anchor metrics.
+        warmup_points: Warmup prefixes evaluated by the experiment.
+        eval_uids: Ordered evaluation case ids.
+        warmup_pool_uids: Ordered pool of warmup case ids.
+        gold_claim_rows: Gold claim rows restricted to the source task universe.
+        gold_status_rows: Gold status rows restricted to the source task universe.
+        matching_config: Frozen matching configuration reused from Claim 1.
+        budget: Full-budget configuration reused by Claim 3.
+        retrieval_config: Frozen retrieval config snapshot reused by the runner.
+        seed: Shared deterministic seed for repeated execution.
+    """
+
     freeze_run_id: str
     source_claim1_run_id: str
     run_id: str
@@ -534,6 +562,24 @@ def prepare_claim3_experiment(
     input_path: str | Path = DEFAULT_INPUT_PATH,
     warmup_points: tuple[int, ...] = CLAIM3_DEFAULT_WARMUP_POINTS,
 ) -> dict[str, Any]:
+    """Prepare manifests and fixed evidence packs for Claim 3.
+
+    Args:
+        freeze_run_id: Step 09A freeze bundle that defines the shared protocol.
+        source_claim1_run_id: Completed Claim 1 run that provides reference metrics.
+        run_id: Destination Step 12 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        input_path: Original case JSONL used to build warmup and eval pools.
+        warmup_points: Warmup prefixes to snapshot and later score.
+
+    Returns:
+        A preparation summary with manifest, job-plan, and anchor artifact paths.
+
+    Raises:
+        FileNotFoundError: If the referenced Claim 1 artifacts are missing.
+        ValueError: If the warmup points or frozen inputs are inconsistent.
+    """
+
     ctx = _build_claim3_context(
         freeze_run_id=freeze_run_id,
         source_claim1_run_id=source_claim1_run_id,
@@ -852,6 +898,24 @@ def run_claim3_branch(
     resume: bool = False,
     show_progress: bool = True,
 ) -> dict[str, Any]:
+    """Run one Claim 3 branch across all configured warmup points.
+
+    Args:
+        run_id: Prepared Claim 3 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        branch: Branch name, either `normal` or `fixed-pack`.
+        resume: Whether to reuse per-case raw predictions already on disk.
+        show_progress: Whether to render progress bars for long-running work.
+
+    Returns:
+        A branch summary containing completed points and artifact paths.
+
+    Raises:
+        FileNotFoundError: If required manifests or snapshots are missing.
+        ValueError: If the branch name is unsupported.
+        Claim3ExecutionError: If execution cannot continue after preparation.
+    """
+
     claim_root = Path(reports_root) / run_id / "claim3"
     manifest = _read_json(claim_root / "warmup_manifest.json")
 
@@ -934,6 +998,20 @@ def summarize_claim3_experiment(
     run_id: str,
     reports_root: str | Path = DEFAULT_REPORTS_ROOT,
 ) -> dict[str, Any]:
+    """Aggregate finished Claim 3 branches into curves and attribution labels.
+
+    Args:
+        run_id: Prepared Claim 3 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+
+    Returns:
+        A summary payload with normal and fixed-pack curves plus attribution labels.
+
+    Raises:
+        FileNotFoundError: If prepared branch artifacts are missing.
+        ValueError: If required branch summaries have not been produced yet.
+    """
+
     claim_root = Path(reports_root) / run_id / "claim3"
     manifest = _read_json(claim_root / "warmup_manifest.json")
 

@@ -49,6 +49,24 @@ STEP14_STATUS_MODE = "label_only"
 
 @dataclass(frozen=True)
 class Step14Context:
+    """Resolved paths and source-run mapping for one Step 14 rebuild bundle.
+
+    Attributes:
+        run_id: Step 14 run identifier.
+        reports_root: Shared experiment reports root.
+        run_root: Root directory for the Step 14 run.
+        step14_root: Output directory for rebuilt appendix artifacts.
+        manifest_path: Frozen manifest path.
+        dependency_state_path: Frozen dependency-state path.
+        rebuild_plan_path: Rebuild-plan path.
+        appendix_index_json_path: JSON appendix index path.
+        appendix_index_md_path: Markdown appendix index path.
+        rebuild_summary_path: Final rebuild-summary path.
+        gold_claims_path: Frozen gold claims path.
+        prepared_status_path: Status path captured at prepare time.
+        source_runs: Source run id mapping used for rebuild.
+    """
+
     run_id: str
     reports_root: Path
     run_root: Path
@@ -719,6 +737,23 @@ def prepare_step14_reporting(
     claim3_run_id: str = DEFAULT_STEP14_CLAIM3_RUN_ID,
     claim4_run_id: str = DEFAULT_STEP14_CLAIM4_RUN_ID,
 ) -> dict[str, Any]:
+    """Freeze Step 14 dependencies before any label-only rebuild occurs.
+
+    Args:
+        run_id: Step 14 run identifier.
+        reports_root: Experiment reports root directory.
+        status_path: Current gold-status path captured for future rebuilds.
+        claim1_internal_run_id: Source internal Claim 1 run id.
+        claim1_external_run_id: Source external Claim 1 run id.
+        claim2_internal_run_id: Source internal Claim 2 run id.
+        claim2_external_run_id: Source external Claim 2 run id.
+        claim3_run_id: Source Claim 3 run id.
+        claim4_run_id: Source Claim 4 run id.
+
+    Returns:
+        Prepared Step 14 manifest payload.
+    """
+
     source_runs = {
         "claim1_internal": claim1_internal_run_id,
         "claim1_external": claim1_external_run_id,
@@ -1694,6 +1729,39 @@ def _build_claim2_ref(
 ) -> dict[str, Any]:
     claim_root = reports_root / source_run_id / "claim2"
     summary = _read_json(claim_root / "run_summary.json")
+    export_dir = output_dir / source_name
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    files_to_copy = [
+        "run_summary.json",
+        "main_table.json",
+        "main_table.csv",
+        "evaluator_agreement_matrix.csv",
+        "parse_failure_audit.json",
+        "faithfulness_decomposition.json",
+    ]
+
+    stage_files = [
+        "main_table.json",
+        "main_table.csv",
+        "evaluator_agreement_matrix.csv",
+        "parse_failure_audit.json",
+        "faithfulness_decomposition.json",
+        "method_metrics.json",
+        "execution_summary.json",
+    ]
+
+    for name in files_to_copy:
+        _copy_optional_file(claim_root / name, export_dir / name)
+
+    for stage_name in ("dev", "test"):
+        stage_src = claim_root / stage_name
+        if not stage_src.exists():
+            continue
+        stage_dst = export_dir / stage_name
+        stage_dst.mkdir(parents=True, exist_ok=True)
+        for name in stage_files:
+            _copy_optional_file(stage_src / name, stage_dst / name)
 
     payload = {
         "source_name": source_name,
@@ -1702,9 +1770,11 @@ def _build_claim2_ref(
         "reason": "status_relabel_unaffected",
         "run_summary": summary,
         "artifacts": {
-            "run_summary": str(claim_root / "run_summary.json"),
-            "main_table_json": str(claim_root / "main_table.json"),
-            "main_table_csv": str(claim_root / "main_table.csv"),
+            "run_summary": str(export_dir / "run_summary.json"),
+            "main_table_json": str(export_dir / "main_table.json"),
+            "main_table_csv": str(export_dir / "main_table.csv"),
+            "dev_dir": str(export_dir / "dev"),
+            "test_dir": str(export_dir / "test"),
         },
     }
 
@@ -1718,6 +1788,22 @@ def rebuild_step14_reporting(
     reports_root: str | Path,
     status_path: str | Path,
 ) -> dict[str, Any]:
+    """Rebuild appendix artifacts after a label-only gold-status update.
+
+    Args:
+        run_id: Prepared Step 14 run identifier.
+        reports_root: Experiment reports root directory.
+        status_path: Current gold-status path used for rebuild.
+
+    Returns:
+        Final rebuild summary payload.
+
+    Raises:
+        FileNotFoundError: If the prepared manifest is missing.
+        ValueError: If the current status file changes the claim universe rather
+            than labels only.
+    """
+
     manifest = _read_json(Path(reports_root) / run_id / "step14" / "manifest.json")
 
     ctx = _build_ctx(

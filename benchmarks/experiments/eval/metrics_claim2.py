@@ -24,6 +24,20 @@ def evaluate_claim2_metrics(
     mcnemar_inputs: Mapping[str, Sequence[str]] | None = None,
     stuart_maxwell_inputs: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, Any]:
+    """Wrap Claim 2 per-case scores with bootstrap and optional tests.
+
+    Args:
+        per_case_scores: Per-case Claim 2 scores keyed by uid.
+        bootstrap_config: Optional bootstrap configuration override.
+        family_name: Family label written into the metric payload.
+        p_values: Optional family of precomputed p-values for correction.
+        mcnemar_inputs: Optional McNemar input payload.
+        stuart_maxwell_inputs: Optional Stuart-Maxwell input payload.
+
+    Returns:
+        Claim 2 metric payload with bootstrap summary and optional tests.
+    """
+
     config = bootstrap_config or BootstrapConfig()
     normalized = validate_case_score_mapping(per_case_scores, name="per_case_scores")
     tests: dict[str, Any] = {}

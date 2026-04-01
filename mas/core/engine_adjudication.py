@@ -14,9 +14,6 @@ async def run_engine_adjudication(engine: Any) -> None:
     Args:
         engine: Debate engine instance.
 
-    Returns:
-        None.
-
     Side Effects:
         Performs graph garbage collection, calls judge adjudication, updates
         convergence/adjudication logs, triggers post-learning, and marks engine

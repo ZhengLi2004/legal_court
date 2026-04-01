@@ -34,6 +34,9 @@ async def run_experiment(*, memory_dir: str | None = None):
     4.  Prints a summary of each turn's action to the console.
     5.  After the loop, it prints the final status of the root claims.
     6.  Ensures that all resources (like database connections) are closed properly.
+
+    Args:
+        memory_dir: Optional override for the runtime memory directory.
     """
     config = build_system_config(memory_dir)
     engine = DebateEngine(config=config)
@@ -84,6 +87,9 @@ def main(argv: list[str] | None = None):
 
     This wrapper creates and owns an asyncio loop so the script can be invoked
     directly from synchronous entry points.
+
+    Args:
+        argv: Optional command-line argument override.
     """
     args = _build_parser().parse_args(argv)
     loop = asyncio.new_event_loop()

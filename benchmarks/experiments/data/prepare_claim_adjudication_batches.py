@@ -107,6 +107,11 @@ def _render_batch_markdown(batch_id: str, rows: list[dict[str, Any]]) -> str:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for claim adjudication batch generation.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--uncertain-path", required=True)
     parser.add_argument("--output-dir", required=True)
@@ -115,6 +120,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Chunk uncertain claim cases into expert review batches.
+
+    Returns:
+        Process exit code.
+
+    Raises:
+        ValueError: If ``batch-size`` is not positive.
+    """
     args = parse_args()
 
     if args.batch_size <= 0:

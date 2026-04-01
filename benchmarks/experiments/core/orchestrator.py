@@ -83,6 +83,23 @@ CLAIM1_TEST_MODE_NO_LEARNING = True
 
 @dataclass(frozen=True)
 class FreezeBundle:
+    """Resolved Step 09A artifacts consumed by later experiment stages.
+
+    Attributes:
+        freeze_run_id: Step 09A run identifier.
+        run_root: Root directory containing all frozen Step 09A artifacts.
+        manifest: Parsed protocol freeze manifest.
+        split_refs: Frozen split-reference payload.
+        gold_refs: Frozen gold-reference payload.
+        budget_grid: Serialized budget grid shared by later stages.
+        matching_protocol_snapshot: Frozen matching protocol description.
+        metric_contract_snapshot: Frozen metric contract snapshot.
+        method_registry_snapshot: Frozen method registry snapshot.
+        selected_dryrun_cases: Selected dry-run case manifest.
+        preflight_health: Preflight health-check payload.
+        live_dryrun_summary: Live dry-run execution summary.
+    """
+
     freeze_run_id: str
     run_root: Path
     manifest: dict[str, Any]
@@ -98,7 +115,11 @@ class FreezeBundle:
 
 
 class Claim1ExecutionError(RuntimeError):
-    """Raised when Claim 1 execution cannot continue."""
+    """Raised when Claim 1 execution cannot continue.
+
+    Attributes:
+        args: Standard runtime-error payload describing the failure.
+    """
 
 
 def _now_iso() -> str:
@@ -1363,6 +1384,32 @@ def run_claim1_experiment(
     encoder: Any | None = None,
     registry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Run one Claim 1 stage from a prepared Step 09A bundle.
+
+    Args:
+        stage: Stage name, either `pilot` or `full`.
+        freeze_run_id: Step 09A bundle reused as the execution contract.
+        run_id: Destination Step 10 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        input_path: Original case JSONL used to recover case payloads.
+        storage_root_dir: Optional memory root override for method execution.
+        pilot_review_path: Completed pilot review file required by `full`.
+        methods: Optional subset of frozen methods to execute.
+        verbose: Whether to enable verbose per-method logging.
+        show_progress: Whether to render progress bars.
+        resume: Whether to reuse already-written per-case outputs.
+        encoder: Optional matching encoder override.
+        registry: Optional method registry override used for testing.
+
+    Returns:
+        A stage summary containing metric artifacts and execution outputs.
+
+    Raises:
+        FileNotFoundError: If frozen artifacts or prior pilot artifacts are missing.
+        ValueError: If stage arguments or pilot gating requirements are invalid.
+        MatchingRobustnessGateError: If the full-stage dev gate does not pass.
+    """
+
     if stage not in {PILOT_STAGE, FULL_STAGE}:
         raise ValueError(f"Unsupported Claim 1 stage: {stage}")
 
@@ -1761,7 +1808,27 @@ def run_claim2_experiment(
     agreement_threshold: float = 0.70,
     alignment_threshold: float = 0.10,
 ) -> dict[str, Any]:
-    """Run the finalized Step 11 Claim 2 orchestration flow."""
+    """Run the finalized Step 11 Claim 2 orchestration flow.
+
+    Args:
+        freeze_run_id: Step 09A freeze bundle used by the Claim 2 source run.
+        source_claim1_run_id: Completed Claim 1 run consumed by Claim 2.
+        run_id: Destination Step 11 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        input_path: Original case JSONL used to recover case texts.
+        evaluator_profile_path: JSON evaluator profile path.
+        methods: Optional subset of methods to score.
+        resume: Whether to reuse cached votes and case diagnostics.
+        verbose: Whether to emit verbose execution logs.
+        show_progress: Whether to render progress bars.
+        top_k: Maximum aligned evidence windows kept per assertion.
+        aggregation: Faithfulness aggregation mode.
+        agreement_threshold: Dev agreement gate threshold.
+        alignment_threshold: Minimum alignment score kept for evidence windows.
+
+    Returns:
+        A summary payload emitted by the Step 11 runner.
+    """
     return _run_claim2_experiment(
         freeze_run_id=freeze_run_id,
         source_claim1_run_id=source_claim1_run_id,
@@ -1793,7 +1860,26 @@ def run_claim3_experiment(
     resume: bool = False,
     show_progress: bool = True,
 ) -> dict[str, Any]:
-    """Run Claim 3 prepare/run/summarize orchestration."""
+    """Run Claim 3 prepare/run/summarize orchestration.
+
+    Args:
+        command: One of `prepare`, `run`, or `summarize`.
+        freeze_run_id: Step 09A bundle id required by `prepare`.
+        source_claim1_run_id: Source Claim 1 run id required by `prepare`.
+        run_id: Step 12 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        input_path: Original case JSONL used by `prepare`.
+        warmup_points: Warmup prefixes evaluated by Claim 3.
+        branch: Branch name required by `run`.
+        resume: Whether to reuse existing branch outputs.
+        show_progress: Whether to render progress bars for long-running work.
+
+    Returns:
+        The payload emitted by the selected Claim 3 subcommand.
+
+    Raises:
+        ValueError: If command-specific required arguments are missing.
+    """
     action = str(command).strip().lower()
 
     if action == "prepare":
@@ -1848,7 +1934,29 @@ def run_claim4_experiment(
     verbose: bool = False,
     show_progress: bool = True,
 ) -> dict[str, Any]:
-    """Run Claim 4 prepare/run/audit/summarize orchestration."""
+    """Run Claim 4 prepare/run/audit/summarize orchestration.
+
+    Args:
+        command: One of `prepare`, `run`, `audit`, or `summarize`.
+        freeze_run_id: Step 09A bundle id required by `prepare`.
+        source_claim1_run_id: Source Claim 1 run id required by `prepare`.
+        run_id: Step 13 run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        input_path: Original case JSONL used by `prepare`.
+        stage: Stage name required by `run` and `audit`.
+        policy: Budget policy required by `run`.
+        point: Budget point required by `run`.
+        repeat: Repeat index required by `run`.
+        resume: Whether to reuse existing per-case outputs.
+        verbose: Whether to enable verbose method logging.
+        show_progress: Whether to render progress bars.
+
+    Returns:
+        The payload emitted by the selected Claim 4 subcommand.
+
+    Raises:
+        ValueError: If command-specific required arguments are missing.
+    """
     action = str(command).strip().lower()
 
     if action == "prepare":
@@ -1913,7 +2021,23 @@ def run_step14_reporting(
     claim3_run_id: str = "20260327_step12_claim3_internal_current",
     claim4_run_id: str = "20260328_step13_claim4_internal_current",
 ) -> dict[str, Any]:
-    """Run Step 14 appendix prepare/rebuild orchestration."""
+    """Run Step 14 appendix prepare/rebuild orchestration.
+
+    Args:
+        command: One of `prepare` or `rebuild`.
+        run_id: Step 14 reporting run identifier.
+        reports_root: Root directory that stores experiment outputs.
+        status_path: Gold-status file path used for dependency tracking.
+        claim1_internal_run_id: Source Claim 1 internal run.
+        claim1_external_run_id: Source Claim 1 external run.
+        claim2_internal_run_id: Source Claim 2 internal run.
+        claim2_external_run_id: Source Claim 2 external run.
+        claim3_run_id: Source Claim 3 run.
+        claim4_run_id: Source Claim 4 run.
+
+    Returns:
+        The payload emitted by the selected Step 14 subcommand.
+    """
     action = str(command).strip().lower()
 
     if action == "prepare":
@@ -2109,6 +2233,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
+    """Dispatch the benchmark CLI to the requested experiment command.
+
+    Args:
+        argv: Optional argument vector override used by tests or wrappers.
+
+    Returns:
+        The payload produced by the selected subcommand.
+
+    Raises:
+        ValueError: If subcommand arguments are incomplete or incompatible.
+        FileNotFoundError: If required experiment artifacts are missing.
+    """
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 

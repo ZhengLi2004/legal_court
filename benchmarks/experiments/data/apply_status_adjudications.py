@@ -64,6 +64,11 @@ def _collect_reviews(reviews_dir: Path) -> dict[tuple[str, str], dict[str, Any]]
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for applying manual status adjudications.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True)
     parser.add_argument("--status-path", required=True)
@@ -75,6 +80,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Merge expert status adjudications into the finalized gold status file.
+
+    Returns:
+        Process exit code.
+
+    Raises:
+        ValueError: If required review queues are missing or inconsistent.
+    """
     args = parse_args()
     input_path = Path(args.input)
     status_path = Path(args.status_path)

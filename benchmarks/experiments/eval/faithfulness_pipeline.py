@@ -22,6 +22,16 @@ VALID_EVAL_LABELS = {"E", "N", "C"}
 
 @dataclass(frozen=True)
 class EvidenceWindow:
+    """One evidence span extracted from the source judgment text.
+
+    Attributes:
+        window_id: Stable identifier within one case.
+        section: Source section name from the case payload.
+        text: Extracted evidence text.
+        start: Character start offset within the source section.
+        end: Character end offset within the source section.
+    """
+
     window_id: str
     section: str
     text: str
@@ -34,6 +44,17 @@ class EvidenceWindow:
 
 @dataclass(frozen=True)
 class ClaimAssertion:
+    """Status-conditioned natural-language assertion derived from one claim.
+
+    Attributes:
+        assertion_id: Stable assertion identifier.
+        case_uid: Case identifier owning the claim.
+        claim_id: Gold claim identifier.
+        claim_text: Original claim text.
+        status_eval: Status label that conditions the assertion text.
+        assertion_text: Natural-language assertion evaluated for faithfulness.
+    """
+
     assertion_id: str
     case_uid: str
     claim_id: str
@@ -47,6 +68,13 @@ class ClaimAssertion:
 
 @dataclass(frozen=True)
 class AlignmentHit:
+    """One scored evidence-window candidate for an assertion.
+
+    Attributes:
+        window: Candidate evidence window.
+        score: Alignment score assigned by the aligner.
+    """
+
     window: EvidenceWindow
     score: float
 
@@ -56,6 +84,15 @@ class AlignmentHit:
 
 @dataclass(frozen=True)
 class AlignmentResult:
+    """Alignment outcome for one assertion after threshold filtering.
+
+    Attributes:
+        assertion: Assertion being aligned.
+        aligned_hits: Candidate hits that survived threshold filtering.
+        success: Whether at least one aligned hit was retained.
+        candidate_hits: Top-k candidate hits before threshold filtering.
+    """
+
     assertion: ClaimAssertion
     aligned_hits: tuple[AlignmentHit, ...]
     success: bool
@@ -72,6 +109,15 @@ class AlignmentResult:
 
 @dataclass(frozen=True)
 class AgreementMatrix:
+    """Pairwise and majority-agreement statistics for evaluator votes.
+
+    Attributes:
+        pairwise: Pairwise agreement matrix keyed by evaluator name.
+        overall_majority_agreement: Mean majority-agreement score per item.
+        uncertain_rate: Fraction of items with no unique majority label.
+        item_count: Number of labeled items included in the matrix.
+    """
+
     pairwise: dict[str, dict[str, float]]
     overall_majority_agreement: float
     uncertain_rate: float
@@ -83,6 +129,15 @@ class AgreementMatrix:
 
 @dataclass(frozen=True)
 class AgreementGateResult:
+    """Pass/fail view of the evaluator agreement gate.
+
+    Attributes:
+        passed: Whether the gate threshold was met.
+        threshold: Agreement threshold used by the gate.
+        overall_majority_agreement: Observed majority-agreement value.
+        uncertain_rate: Observed uncertain-item rate.
+    """
+
     passed: bool
     threshold: float
     overall_majority_agreement: float
@@ -94,6 +149,17 @@ class AgreementGateResult:
 
 @dataclass(frozen=True)
 class AssertionFaithfulness:
+    """Final faithfulness label and vote trace for one assertion.
+
+    Attributes:
+        assertion_id: Assertion identifier.
+        case_uid: Owning case id.
+        claim_id: Gold claim identifier.
+        aligned: Whether the assertion aligned to at least one evidence window.
+        final_label: Final aggregated label for the assertion.
+        window_majority_labels: Majority label emitted per aligned window.
+    """
+
     assertion_id: str
     case_uid: str
     claim_id: str
@@ -107,6 +173,20 @@ class AssertionFaithfulness:
 
 @dataclass(frozen=True)
 class FaithfulnessSummary:
+    """Case-level and assertion-level Claim 2 faithfulness aggregates.
+
+    Attributes:
+        alignment_success_rate: Fraction of assertions with aligned evidence.
+        entailment_rate_on_aligned: Fraction of aligned assertions labeled entailment.
+        overall_faithfulness: Product-style overall faithfulness score.
+        uncertain_rate: Fraction of aligned assertions with uncertain final labels.
+        aggregation_mode: Case-level aggregation mode used for scoring.
+        agreement_matrix: Agreement statistics over evaluator votes.
+        per_case_results: Per-case aggregate scores.
+        per_assertion_results: Per-assertion final labels and trace info.
+        vote_sequences: Raw evaluator vote sequences keyed by evaluator name.
+    """
+
     alignment_success_rate: float
     entailment_rate_on_aligned: float
     overall_faithfulness: float
@@ -137,12 +217,24 @@ class FaithfulnessSummary:
 
 
 class EvidenceAligner(Protocol):
+    """Protocol for scoring one assertion against one evidence window.
+
+    Attributes:
+        threshold: Score threshold used to decide whether a hit is aligned.
+    """
+
     threshold: float
 
     def score(self, assertion_text: str, window: EvidenceWindow) -> float: ...
 
 
 class NliLabeler(Protocol):
+    """Protocol for labeling one assertion-window pair as E/N/C.
+
+    Attributes:
+        name: Stable evaluator name written into vote traces.
+    """
+
     name: str
 
     def label(self, assertion: ClaimAssertion, window: EvidenceWindow) -> str: ...
@@ -161,7 +253,11 @@ def _normalize_tokens(text: str) -> set[str]:
 
 
 class DeterministicOverlapAligner:
-    """Simple deterministic aligner for tests and offline scaffolding."""
+    """Simple deterministic aligner for tests and offline scaffolding.
+
+    Attributes:
+        threshold: Minimum score required for an aligned hit.
+    """
 
     def __init__(self, *, threshold: float = 0.1) -> None:
         if threshold < 0.0 or threshold > 1.0:
@@ -182,7 +278,13 @@ class DeterministicOverlapAligner:
 
 
 class EmbeddingCosineAligner:
-    """Embedding-based cosine aligner for offline Step 11 evaluation."""
+    """Embedding-based cosine aligner for offline Step 11 evaluation.
+
+    Attributes:
+        embedding_func: Embedding provider used for text encoding.
+        threshold: Minimum score required for an aligned hit.
+        _cache: In-memory text-to-vector cache.
+    """
 
     def __init__(self, embedding_func: Any, *, threshold: float = 0.1) -> None:
         if threshold < 0.0 or threshold > 1.0:
@@ -210,7 +312,17 @@ class EmbeddingCosineAligner:
 
 
 def extract_evidence_windows(case_payload: Mapping[str, Any]) -> list[EvidenceWindow]:
-    """Extract deterministic evidence windows from case content sections."""
+    """Extract deterministic evidence windows from case content sections.
+
+    Args:
+        case_payload: Case payload containing a `content` mapping.
+
+    Returns:
+        A deterministic list of section-level evidence windows.
+
+    Raises:
+        ValueError: If `case_payload['content']` is not a mapping.
+    """
     content = case_payload.get("content") or {}
 
     if not isinstance(content, Mapping):
@@ -240,7 +352,14 @@ def extract_evidence_windows(case_payload: Mapping[str, Any]) -> list[EvidenceWi
 def build_claim_assertions(
     parsed_result: ConsistencyParseResult,
 ) -> list[ClaimAssertion]:
-    """Build one status-conditioned assertion per parsed claim/status pair."""
+    """Build one status-conditioned assertion per parsed claim/status pair.
+
+    Args:
+        parsed_result: Parsed Claim 2 consistency result for one method output.
+
+    Returns:
+        One assertion per parsed claim and observed status label.
+    """
     claims_by_id = {claim.claim_id: claim for claim in parsed_result.parsed_claims}
     assertions: list[ClaimAssertion] = []
 
@@ -287,6 +406,21 @@ def align_assertions(
     *,
     top_k: int = 3,
 ) -> list[AlignmentResult]:
+    """Score every assertion against candidate evidence windows and keep top hits.
+
+    Args:
+        assertions: Assertions to align.
+        windows: Evidence windows extracted from the case text.
+        aligner: Aligner used to score assertion-window pairs.
+        top_k: Maximum number of candidate windows retained per assertion.
+
+    Returns:
+        Alignment results for all assertions in input order.
+
+    Raises:
+        ValueError: If `top_k` is not positive.
+    """
+
     if top_k <= 0:
         raise ValueError("top_k must be > 0")
 
@@ -324,6 +458,19 @@ def rethreshold_alignment_results(
     *,
     threshold: float,
 ) -> list[AlignmentResult]:
+    """Re-evaluate stored alignment candidates under a new score threshold.
+
+    Args:
+        alignment_results: Previously computed alignment results with candidates.
+        threshold: New score threshold applied to stored candidate hits.
+
+    Returns:
+        Updated alignment results under the new threshold.
+
+    Raises:
+        ValueError: If `threshold` falls outside `[0, 1]`.
+    """
+
     if threshold < 0.0 or threshold > 1.0:
         raise ValueError("threshold must be within [0, 1]")
 
@@ -361,6 +508,18 @@ def _majority_vote(labels: Sequence[str]) -> str:
 
 
 def compute_agreement_matrix(votes: Mapping[str, Sequence[str]]) -> AgreementMatrix:
+    """Compute pairwise agreement and majority consistency over evaluator votes.
+
+    Args:
+        votes: Mapping from evaluator name to ordered vote sequences.
+
+    Returns:
+        Pairwise agreement rates plus majority-agreement aggregates.
+
+    Raises:
+        ValueError: If vote sequences are empty or length-mismatched.
+    """
+
     if not votes:
         raise ValueError("votes must not be empty")
 
@@ -421,6 +580,16 @@ def validate_agreement_gate(
     *,
     threshold: float = 0.70,
 ) -> AgreementGateResult:
+    """Apply the majority-agreement threshold to one matrix or summary object.
+
+    Args:
+        summary: Agreement matrix or full faithfulness summary.
+        threshold: Minimum acceptable majority-agreement score.
+
+    Returns:
+        A pass/fail view of the agreement gate.
+    """
+
     matrix = (
         summary.agreement_matrix
         if isinstance(summary, FaithfulnessSummary)
@@ -441,6 +610,20 @@ def score_faithfulness(
     *,
     aggregation: str = "any",
 ) -> FaithfulnessSummary:
+    """Aggregate evaluator votes into Claim 2 faithfulness statistics.
+
+    Args:
+        alignment_results: Alignment outcomes for all assertions.
+        labelers: Evaluators used to label aligned assertion-window pairs.
+        aggregation: Case-level aggregation mode.
+
+    Returns:
+        Faithfulness summary with agreement, per-case, and per-assertion outputs.
+
+    Raises:
+        ValueError: If aggregation mode is unsupported or labelers are invalid.
+    """
+
     normalized_aggregation = str(aggregation or "").strip().lower()
 
     if normalized_aggregation not in {"any", "majority", "max_score"}:

@@ -28,7 +28,20 @@ def run_external_naive_mad(
     verbose: bool = False,
     test_mode_no_learning: bool = False,
 ) -> dict[str, Any]:
-    """Run one independent experiment-side MAD baseline without memory or retrieval."""
+    """Run one independent experiment-side MAD baseline without memory or retrieval.
+
+    Args:
+        case: Canonical case payload.
+        storage_root_dir: Optional runtime storage root override.
+        budget: Optional budget overrides.
+        seed: Optional deterministic seed.
+        retrieval_config: Optional retrieval overrides, unused by this baseline.
+        verbose: Whether to enable verbose logging, unused here.
+        test_mode_no_learning: Learning toggle, unused for this external method.
+
+    Returns:
+        Canonical method result payload.
+    """
     del verbose, test_mode_no_learning
 
     (

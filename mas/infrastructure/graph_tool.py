@@ -47,9 +47,6 @@ class GraphTool:
 
         Args:
             graph: The `ShadowGraph` for the current turn.
-
-        Returns:
-            None.
         """
         self.current_graph = graph
 

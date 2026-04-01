@@ -64,6 +64,11 @@ def _allocate(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for status-anchor sampling.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input")
     parser.add_argument("--status-path", required=True)
@@ -74,6 +79,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Sample status anchors and export paired blind-review files.
+
+    Returns:
+        Process exit code.
+    """
     args = parse_args()
     status_rows = _load_jsonl(Path(args.status_path))
     case_map: dict[str, dict[str, Any]] = {}

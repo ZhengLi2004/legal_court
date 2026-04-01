@@ -16,6 +16,17 @@ def summarize_claim3_curve(
     bootstrap_config: BootstrapConfig | None = None,
     family_name: str = "claim3",
 ) -> dict[str, Any]:
+    """Bootstrap every point on one or more Claim 3 score curves.
+
+    Args:
+        curve_scores: Nested ``series -> point -> case`` score mapping.
+        bootstrap_config: Optional bootstrap configuration override.
+        family_name: Family label written into the summary payload.
+
+    Returns:
+        Claim 3 curve payload with normalized scores and bootstrap summaries.
+    """
+
     config = bootstrap_config or BootstrapConfig()
     normalized = validate_nested_case_score_mapping(curve_scores, name="curve_scores")
     summaries: dict[str, dict[str, Any]] = {}

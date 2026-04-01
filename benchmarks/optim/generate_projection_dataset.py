@@ -16,7 +16,17 @@ from typing import Any, Dict, List
 
 @dataclass(frozen=True)
 class IssueTemplate:
-    """One semantic issue profile used to synthesize debate-style arguments."""
+    """One semantic issue profile used to synthesize debate-style arguments.
+
+    Attributes:
+        issue_id: Stable template identifier.
+        domain: High-level legal domain name.
+        plaintiff_points: Plaintiff-side argument variants.
+        defendant_points: Defendant-side argument variants.
+        fact_clauses: Factual clauses inserted into candidate texts.
+        law_clauses: Legal clauses inserted into candidate texts.
+        distractor_clauses: Off-topic distractors for hard negatives.
+    """
 
     issue_id: str
     domain: str
@@ -565,7 +575,16 @@ def generate_projection_dataset(
     total_pairs: int = 600,
     valid_ratio: float = 0.2,
 ) -> List[Dict[str, Any]]:
-    """Generate labeled query/candidate pairs for projection-threshold tuning."""
+    """Generate labeled query/candidate pairs for projection-threshold tuning.
+
+    Args:
+        seed: Random seed for deterministic sampling.
+        total_pairs: Total number of query/candidate pairs to generate.
+        valid_ratio: Fraction of rows placed into the validation split.
+
+    Returns:
+        Synthetic projection dataset rows.
+    """
     if total_pairs < 100:
         raise ValueError("total_pairs must be >= 100")
 
@@ -653,6 +672,11 @@ def _write_jsonl(path: Path, records: List[Dict[str, Any]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for projection dataset generation.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument(
@@ -696,6 +720,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate the projection-threshold tuning dataset."""
     args = parse_args()
 
     dataset = generate_projection_dataset(

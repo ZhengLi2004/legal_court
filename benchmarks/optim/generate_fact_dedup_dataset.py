@@ -16,7 +16,20 @@ from typing import Any, Dict, List, Sequence
 
 @dataclass(frozen=True)
 class LeaseProfile:
-    """Structured lease-fact slots used to render fact sentences."""
+    """Structured lease-fact slots used to render fact sentences.
+
+    Attributes:
+        sign_date: Contract signing date.
+        start_date: Lease start date.
+        end_date: Lease end date.
+        lessor: Lessor party name.
+        lessee: Lessee party name.
+        location: Property location string.
+        building: Building description.
+        use_text: Permitted-use description.
+        monthly_rent: Monthly rent amount.
+        deposit: Security-deposit amount.
+    """
 
     sign_date: str
     start_date: str
@@ -430,7 +443,17 @@ def generate_fact_dedup_dataset(
     valid_ratio: float = 0.2,
     positive_ratio: float = 0.45,
 ) -> Dict[str, Any]:
-    """Build one synthetic fact-dedup dataset payload."""
+    """Build one synthetic fact-dedup dataset payload.
+
+    Args:
+        seed: Random seed for deterministic sampling.
+        size: Number of examples to generate.
+        valid_ratio: Fraction of rows placed into the validation split.
+        positive_ratio: Fraction of semantic-duplicate pairs.
+
+    Returns:
+        Dataset payload with rows and generation metadata.
+    """
     rng = random.Random(seed)
     fact_types = list(FACT_RENDERERS.keys())
     pairs: List[Dict[str, Any]] = []
@@ -486,6 +509,11 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for fact deduplication dataset generation.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=62)
     parser.add_argument("--size", type=int, default=500)
@@ -507,6 +535,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate the synthetic fact-deduplication training dataset."""
     args = parse_args()
 
     payload = generate_fact_dedup_dataset(

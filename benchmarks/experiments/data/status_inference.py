@@ -77,6 +77,30 @@ _SPACE_RE = re.compile(r"\s+")
 
 @dataclass(frozen=True)
 class StatusRuleBundle:
+    """Frozen heuristic and model thresholds used by Step 06A status inference.
+
+    Attributes:
+        sections: Judgment sections eligible for evidence retrieval.
+        window_sentence_max: Maximum number of sentences per evidence window.
+        retrieval_top_k: Hybrid retriever candidate count before reranking.
+        rerank_keep_k: Number of candidates kept after cross-encoder reranking.
+        bm25_weight: Weight assigned to sparse retrieval scores.
+        dense_weight: Weight assigned to dense retrieval scores.
+        zeroshot_labels: Canonical-to-natural-language label mapping.
+        zeroshot_hypothesis_template: Hypothesis template for zero-shot NLI.
+        zeroshot_min_confidence: Minimum top-label confidence for auto-labeling.
+        zeroshot_min_margin: Minimum top-two margin for auto-labeling.
+        section_priority: Preferred ordering among candidate evidence sections.
+        appeal_request_patterns: Regex patterns that indicate appeal requests.
+        original_trial_recital_patterns: Patterns for prior-instance recitals.
+        appeal_reject_patterns: Patterns indicating appeal rejection.
+        reject_other_patterns: Patterns indicating generalized rejection.
+        partial_support_patterns: Patterns indicating partial support only.
+        direct_reject_patterns: Patterns indicating direct rejection.
+        direct_accept_patterns: Patterns indicating direct support.
+        review_reason_priority: Priority ordering for manual-review reasons.
+    """
+
     sections: tuple[str, ...]
     window_sentence_max: int
     retrieval_top_k: int
@@ -100,6 +124,16 @@ class StatusRuleBundle:
 
 @dataclass(frozen=True)
 class EvidenceWindow:
+    """One candidate evidence span retrieved from the judgment text.
+
+    Attributes:
+        section: Source judgment section.
+        text: Normalized window text.
+        start: Absolute start offset in the section text.
+        end: Absolute end offset in the section text.
+        sentence_count: Number of merged sentences in the window.
+    """
+
     section: str
     text: str
     start: int
@@ -109,6 +143,16 @@ class EvidenceWindow:
 
 @dataclass
 class RankedEvidence:
+    """Evidence window plus retrieval, rerank, and fusion scores.
+
+    Attributes:
+        window: Underlying evidence window.
+        bm25_score: Sparse retrieval score.
+        dense_score: Dense retrieval score.
+        combined_score: Hybrid retrieval score before reranking.
+        rerank_score: Optional cross-encoder rerank score.
+    """
+
     window: EvidenceWindow
     bm25_score: float
     dense_score: float
@@ -118,12 +162,28 @@ class RankedEvidence:
 
 @dataclass
 class StatusPrediction:
+    """Predicted status row together with its uncertainty flag.
+
+    Attributes:
+        row: Serialized status row.
+        uncertain: Whether the row should still be treated as uncertain.
+    """
+
     row: dict[str, Any]
     uncertain: bool = False
 
 
 @dataclass
 class EvidenceIndex:
+    """Dense and sparse retrieval structures built from one case document.
+
+    Attributes:
+        windows: Evidence windows extracted from the case.
+        tokenized_windows: Sparse-retrieval tokens for each window.
+        embeddings: Dense embeddings aligned with ``windows``.
+        bm25: Sparse retrieval backend over ``tokenized_windows``.
+    """
+
     windows: list[EvidenceWindow]
     tokenized_windows: list[list[str]]
     embeddings: np.ndarray
@@ -131,14 +191,41 @@ class EvidenceIndex:
 
 
 def normalize_space(text: str) -> str:
+    """Collapse repeated whitespace while preserving token order.
+
+    Args:
+        text: Raw text span.
+
+    Returns:
+        Whitespace-normalized text.
+    """
+
     return _SPACE_RE.sub(" ", str(text or "")).strip()
 
 
 def normalize_compact(text: str) -> str:
+    """Remove all whitespace from one text span after normalization.
+
+    Args:
+        text: Raw text span.
+
+    Returns:
+        Fully compacted text without whitespace.
+    """
+
     return "".join(normalize_space(text).split())
 
 
 def load_status_rule_bundle(path: str | Path) -> StatusRuleBundle:
+    """Load the frozen Step 06A rule bundle from disk.
+
+    Args:
+        path: JSON file containing the frozen rule bundle.
+
+    Returns:
+        Parsed status-inference rule bundle.
+    """
+
     data = json.loads(Path(path).read_text(encoding="utf-8"))
 
     return StatusRuleBundle(
@@ -173,18 +260,54 @@ def load_status_rule_bundle(path: str | Path) -> StatusRuleBundle:
 
 
 def action_family(action: str) -> str:
+    """Map one action label to a coarse action family.
+
+    Args:
+        action: Canonical action label.
+
+    Returns:
+        Coarse family label such as ``monetary`` or ``declaratory``.
+    """
+
     return ACTION_FAMILY_MAP.get(str(action or ""), "other")
 
 
 def canonical_to_eval(status: str) -> str:
+    """Convert one canonical status label into the evaluation label space.
+
+    Args:
+        status: Canonical status label in the inference space.
+
+    Returns:
+        Evaluation-space label used by downstream experiments.
+    """
+
     return STATUS_EVAL_MAP[str(status)]
 
 
 def build_action_aliases(ontology: dict[str, Any]) -> dict[str, list[str]]:
+    """Build sorted action aliases from the ontology payload.
+
+    Args:
+        ontology: Claim ontology payload with action aliases.
+
+    Returns:
+        Canonical action to sorted alias-list mapping.
+    """
+
     return _build_alias_map(ontology.get("actions") or {})
 
 
 def build_liability_aliases(ontology: dict[str, Any]) -> dict[str, list[str]]:
+    """Build sorted liability aliases from the ontology payload.
+
+    Args:
+        ontology: Claim ontology payload with liability aliases.
+
+    Returns:
+        Canonical liability to sorted alias-list mapping.
+    """
+
     return _build_alias_map(ontology.get("liability") or {})
 
 
@@ -251,6 +374,15 @@ def _split_sentences(text: str) -> list[tuple[str, int, int]]:
 def build_evidence_windows(
     case: dict[str, Any], rules: StatusRuleBundle
 ) -> list[EvidenceWindow]:
+    """Split configured case sections into overlapping evidence windows.
+
+    Args:
+        case: Raw case payload containing judgment sections.
+        rules: Status inference rule bundle.
+
+    Returns:
+        Deduplicated overlapping evidence windows across configured sections.
+    """
     content = case.get("content") or {}
     windows: list[EvidenceWindow] = []
 
@@ -297,6 +429,13 @@ def build_evidence_windows(
 
 
 class DenseRetriever:
+    """Sentence-transformer encoder used for dense evidence retrieval.
+
+    Args:
+        model_path: Local sentence-transformer model path.
+        device: Optional device override. Defaults to CUDA when available.
+    """
+
     def __init__(self, model_path: str, device: str | None = None) -> None:
         import torch
 
@@ -318,6 +457,12 @@ class DenseRetriever:
 
 
 class CrossEncoderReranker:
+    """Cross-encoder reranker for candidate evidence windows.
+
+    Args:
+        model_path: Local cross-encoder model path.
+    """
+
     def __init__(self, model_path: str) -> None:
         import torch
 
@@ -367,6 +512,13 @@ class CrossEncoderReranker:
 
 
 class ZeroShotStatusClassifier:
+    """Zero-shot classifier wrapper for fallback status prediction.
+
+    Args:
+        model_path: Zero-shot classification model path.
+        hypothesis_template: Hypothesis template used by the classifier.
+    """
+
     def __init__(self, model_path: str, hypothesis_template: str) -> None:
         import torch
 
@@ -394,6 +546,16 @@ def build_evidence_index(
     rules: StatusRuleBundle,
     embedder: DenseRetriever,
 ) -> EvidenceIndex:
+    """Build BM25 and dense-retrieval indexes over case evidence windows.
+
+    Args:
+        case: Raw case payload.
+        rules: Status inference rule bundle.
+        embedder: Dense retrieval backend.
+
+    Returns:
+        Evidence index containing sparse and dense retrieval structures.
+    """
     windows = build_evidence_windows(case, rules)
     tokenized = [_char_tokens(window.text) for window in windows]
     bm25 = BM25Okapi(tokenized if tokenized else [["空"]])
@@ -421,6 +583,14 @@ def _scale_scores(scores: list[float]) -> list[float]:
 
 
 def build_status_query(row: dict[str, Any]) -> str:
+    """Assemble the retrieval query text for one gold claim row.
+
+    Args:
+        row: Gold claim row awaiting status inference.
+
+    Returns:
+        Retrieval query text assembled from normalized claim fields.
+    """
     parts = [
         str(row.get("claim_text_norm", "") or ""),
         str(row.get("action", "") or ""),
@@ -440,6 +610,17 @@ def retrieve_candidates(
     rules: StatusRuleBundle,
     embedder: DenseRetriever,
 ) -> list[RankedEvidence]:
+    """Retrieve top evidence candidates with hybrid BM25 and dense scoring.
+
+    Args:
+        row: Gold claim row awaiting status inference.
+        index: Evidence retrieval index for the case.
+        rules: Status inference rule bundle.
+        embedder: Dense retrieval backend used for the query vector.
+
+    Returns:
+        Top hybrid-ranked evidence candidates before reranking.
+    """
     if not index.windows:
         return []
 
@@ -493,6 +674,17 @@ def rerank_candidates(
     reranker: CrossEncoderReranker,
     rules: StatusRuleBundle,
 ) -> list[RankedEvidence]:
+    """Rerank hybrid-retrieved evidence candidates with a cross encoder.
+
+    Args:
+        row: Gold claim row awaiting status inference.
+        candidates: Hybrid retrieval candidates.
+        reranker: Cross-encoder reranker.
+        rules: Status inference rule bundle.
+
+    Returns:
+        Top reranked evidence candidates.
+    """
     if not candidates:
         return []
     query = build_status_query(row)
@@ -551,6 +743,14 @@ def _amount_to_float(value: str) -> float | None:
 
 
 def extract_amount_values(text: str) -> list[float]:
+    """Extract normalized numeric yuan amounts from free-form Chinese text.
+
+    Args:
+        text: Free-form Chinese text.
+
+    Returns:
+        Normalized numeric amounts in yuan.
+    """
     values: list[float] = []
 
     for match in _AMOUNT_RE.finditer(str(text or "")):
@@ -715,6 +915,18 @@ def detect_partial_support(
     action_alias_map: dict[str, list[str]] | None = None,
     liability_alias_map: dict[str, list[str]] | None = None,
 ) -> bool:
+    """Detect whether evidence only partially supports a requested claim.
+
+    Args:
+        row: Gold claim row under evaluation.
+        evidence_text: Candidate evidence text.
+        rules: Status inference rule bundle.
+        action_alias_map: Optional action alias mapping.
+        liability_alias_map: Optional liability alias mapping.
+
+    Returns:
+        True when the evidence appears to support only part of the claim.
+    """
     if _is_request_recital_only(evidence_text, rules):
         return False
 
@@ -1055,6 +1267,21 @@ def should_autolabel_zeroshot(
     action_alias_map: dict[str, list[str]],
     liability_alias_map: dict[str, list[str]],
 ) -> bool:
+    """Decide whether zero-shot status output is reliable enough to keep.
+
+    Args:
+        row: Gold claim row under evaluation.
+        evidence_text: Top reranked evidence text.
+        status_canonical: Top zero-shot canonical status label.
+        top_score: Top zero-shot confidence score.
+        margin: Margin between the top two zero-shot labels.
+        rules: Status inference rule bundle.
+        action_alias_map: Action alias mapping.
+        liability_alias_map: Liability alias mapping.
+
+    Returns:
+        True when the zero-shot prediction is reliable enough for auto-labeling.
+    """
     if top_score < rules.zeroshot_min_confidence or margin < rules.zeroshot_min_margin:
         return False
 
@@ -1160,6 +1387,18 @@ def direct_support_match(
     liability_alias_map: dict[str, list[str]],
     rules: StatusRuleBundle,
 ) -> bool:
+    """Return whether evidence directly supports the claim as written.
+
+    Args:
+        row: Gold claim row under evaluation.
+        evidence_text: Candidate evidence text.
+        action_alias_map: Action alias mapping.
+        liability_alias_map: Liability alias mapping.
+        rules: Status inference rule bundle.
+
+    Returns:
+        True when the evidence directly supports the claim as written.
+    """
     signals = _match_signals(
         row, evidence_text, action_alias_map, liability_alias_map, rules
     )
@@ -1281,6 +1520,18 @@ def direct_reject_match(
     liability_alias_map: dict[str, list[str]],
     rules: StatusRuleBundle,
 ) -> bool:
+    """Return whether evidence directly rejects the claim as written.
+
+    Args:
+        row: Gold claim row under evaluation.
+        evidence_text: Candidate evidence text.
+        action_alias_map: Action alias mapping.
+        liability_alias_map: Liability alias mapping.
+        rules: Status inference rule bundle.
+
+    Returns:
+        True when the evidence directly rejects the claim as written.
+    """
     signals = _match_signals(
         row, evidence_text, action_alias_map, liability_alias_map, rules
     )
@@ -1349,6 +1600,16 @@ def _row_start_offset(row: dict[str, Any]) -> int:
 def is_probable_appeal_claim(
     case: dict[str, Any], row: dict[str, Any], rules: StatusRuleBundle
 ) -> bool:
+    """Heuristically detect whether a second-instance claim is an appeal request.
+
+    Args:
+        case: Raw case payload.
+        row: Gold claim row under evaluation.
+        rules: Status inference rule bundle.
+
+    Returns:
+        True when the row is likely an appeal request rather than a recital.
+    """
     if str(row.get("stage", "")) != "二审":
         return False
 
@@ -1392,6 +1653,23 @@ def build_status_row(
     confidence: float | None,
     review_reason: str = "",
 ) -> dict[str, Any]:
+    """Build one finalized automatic status row.
+
+    Args:
+        row: Gold claim row under evaluation.
+        status_canonical: Canonical status label.
+        status_source: Source of the label, e.g. ``rule`` or ``zeroshot``.
+        decision_mode: Fine-grained decision-path label.
+        evidence: Optional supporting evidence candidate.
+        confidence: Optional confidence score.
+        review_reason: Optional manual-review rationale.
+
+    Returns:
+        Serialized automatic status row.
+
+    Raises:
+        ValueError: If ``status_canonical`` is outside the canonical label set.
+    """
     if status_canonical not in STATUS_CANONICAL:
         raise ValueError(f"invalid status_canonical={status_canonical}")
 
@@ -1444,6 +1722,16 @@ def build_uncertain_row(
     candidates: list[RankedEvidence],
     review_reason: str,
 ) -> dict[str, Any]:
+    """Build one manual-review row with serialized candidate evidence.
+
+    Args:
+        row: Gold claim row under evaluation.
+        candidates: Candidate evidence windows retained for review.
+        review_reason: Primary reason for manual review.
+
+    Returns:
+        Serialized manual-review row.
+    """
     case_candidates = []
 
     for item in candidates:
@@ -1494,6 +1782,21 @@ def infer_case_statuses(
     reranker: CrossEncoderReranker,
     zeroshot: ZeroShotStatusClassifier,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Infer statuses for all gold claims belonging to a single case.
+
+    Args:
+        case: Raw case payload.
+        claim_rows: Gold claim rows belonging to the case.
+        rules: Status inference rule bundle.
+        action_alias_map: Action alias mapping.
+        liability_alias_map: Liability alias mapping.
+        embedder: Dense retrieval backend.
+        reranker: Cross-encoder reranker.
+        zeroshot: Zero-shot fallback classifier.
+
+    Returns:
+        A pair of automatic status rows and uncertain manual-review rows.
+    """
     if not claim_rows:
         return [], []
 
@@ -1771,6 +2074,17 @@ def build_status_summary(
     total_claims: int,
     mode: str,
 ) -> dict[str, Any]:
+    """Aggregate summary statistics for a status-inference export.
+
+    Args:
+        auto_rows: Automatically labeled status rows.
+        uncertain_rows: Manual-review rows.
+        total_claims: Total claim count processed in the run.
+        mode: Export mode identifier.
+
+    Returns:
+        Aggregate summary payload for reporting and auditing.
+    """
     by_source: dict[str, int] = {}
     by_canonical: dict[str, int] = {}
     by_decision_mode: dict[str, int] = {}

@@ -27,6 +27,10 @@ class GraphProjector:
     4. This extracted historical subgraph, converted to text, provides the
        agent with valuable context on how similar arguments were developed
        and countered in the past.
+
+    Attributes:
+        matcher: Semantic matcher used for anchor and history-node lookup.
+        cfg: Root system configuration.
     """
 
     def __init__(self, matcher: SemanticMatcher, config: SystemConfig):

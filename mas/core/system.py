@@ -26,7 +26,17 @@ from .graph import LegalMessage, NodeStatus, NodeType, ShadowGraph
 
 @dataclass(frozen=True)
 class LegalSystemDependencies:
-    """Runtime dependencies required by `LegalSystem`."""
+    """Runtime dependencies required by `LegalSystem`.
+
+    Attributes:
+        llm: Primary LLM client.
+        embedding_func: Embedding backend used across recall paths.
+        projection_matcher: Matcher for projection retrieval.
+        insight_matcher: Matcher for insight retrieval.
+        dedup_matcher: Matcher for graph deduplication.
+        dedup_thresholds: Deduplication threshold bundle.
+        judge: Final adjudicator implementation.
+    """
 
     llm: Any
     embedding_func: Any
@@ -349,11 +359,7 @@ class LegalSystem:
         self._dynamic_law_cases = new_dynamic_cases
 
     def advance_step(self):
-        """Increment internal debate step counter.
-
-        Returns:
-            None.
-        """
+        """Increment internal debate step counter."""
         self.step_counter += 1
 
     def execute_action(

@@ -107,6 +107,11 @@ def _build_split_meta(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for gold claim extraction.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True)
     parser.add_argument("--dev-ids", required=True)
@@ -130,6 +135,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Extract rule-based gold claims and export uncertain review packets.
+
+    Returns:
+        Process exit code.
+    """
     args = parse_args()
 
     configure_hanlp_env(

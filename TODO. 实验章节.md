@@ -4,7 +4,7 @@
 
 本实验旨在通过端到端（End-to-End）系统评测与控制变量分析，验证以下核心主张：
 
-- **主张 1（Claim 1 正式比较实验）：** 在统一冻结协议下，比较不同系统在 Claim 1 任务上的正式表现，并据此分析复杂辩论链路、结构化裁决链路与外部朴素基线的相对收益。_(Primary evaluation: 以冻结协议与正式实验产物为准；具体指标细节见实验手册)_
+- **主张 1（Claim 1 正式比较实验）：** 在统一运行清单与正式产物口径下，比较不同系统在 Claim 1 任务上的正式表现，并据此分析复杂辩论链路、结构化裁决链路与外部朴素基线的相对收益。_(Primary evaluation: 以运行清单、正式实验产物与实验手册为准)_
     
 - **主张 2（一致性约束与防幻觉）：** 图机制能在拓扑结构层面提供一致性保障，降低输出冲突的发生率；同时，系统在多智能体辩论中能够保持对案卷事实的综合忠实度。_(Primary Metric: 输出冲突率、总体忠实度标量 Overall Faithfulness)_
     
@@ -43,7 +43,7 @@
 - **Step 10 任务定义拆分：内部对比 vs 外部对比**
 
   - **内部对比（当前 Step 10 主线）:** 当前 `B1/B2/B3/main_system` 只作为系统内变体/消融比较，回答“辩论、多阶段控制、recall 与 validate gate 是否带来增益”，不直接承担“对外标准基线”职责。
-  - **外部对比（当前已落地的第二轨）:** 当前已新增并独立冻结 `external_pure_one_shot_judge`、`external_naive_rag`、`external_naive_mad` 三条外部基线；它们承担“与朴素裁决器/朴素检索器/朴素辩论器的对照”职责。
+  - **外部对比（当前已落地的第二轨）:** 当前已新增并独立完成 `external_pure_one_shot_judge`、`external_naive_rag`、`external_naive_mad` 三条外部基线；它们承担“与朴素裁决器/朴素检索器/朴素辩论器的对照”职责。
 
 - **内部对比中的正式语义**
 
@@ -65,22 +65,22 @@
 
 - **工作量与当前状态说明**
 
-  - Step 10 已从“单轨实验”扩展为“内部消融 + 外部基线”双轨实验；这意味着除原有内部对比外，还需新增外部基线实现、独立冻结、pilot/full 执行与最终合表整理。
+  - Step 10 已从“单轨实验”扩展为“内部消融 + 外部基线”双轨实验；这意味着除原有内部对比外，还需新增外部基线实现、独立准备、pilot/full 执行与最终合表整理。
     
   - 本文件只记录该双轨任务结构与新增工作量；具体运行结果、排序与解释统一写入实验手册。
     
 
 ## 4. 主检验指标与评估定义 (Primary Metrics & Formal Definitions)
 
-### 4.1 主张 1：冻结主表与分步解释
+### 4.1 主张 1：正式主表与分步解释
 
-主张 1 的正式比较遵循冻结协议并输出主文结果与附录解释；本文件只记录“需要产出正式结果与解释分层”这一任务结构，不记录具体指标公式、匹配细节或当前结果数值。相关细节统一写入实验手册与正式产物。
+主张 1 的正式比较遵循统一运行清单与正式产物口径，并输出主文结果与附录解释；本文件只记录“需要产出正式结果与解释分层”这一任务结构，不记录具体指标公式、匹配细节或当前结果数值。相关细节统一写入实验手册与正式产物。
 
 - **统一聚合口径 (Case-level Macro-average):** 所有 Accuracy、Err 或 Flip 相关的聚合，遵循：先在 Case 内对所有 Root Claim 计算均值得到 Case Score，再跨 Case 求均值并基于 Paired Bootstrap 计算 95% CI。
     
 - **主表核心口径:**
     
-    - **产物优先:** 正式结果与附录解释的字段名、聚合规则与 Bootstrap 配置，一律由 Step 09A 冻结协议决定。
+    - **产物优先:** 正式结果与附录解释的字段名、聚合规则与 Bootstrap 配置，一律由 Step 09A 写盘的运行清单与正式产物决定。
         
     - **写作纪律:** 具体指标细节与正式结果只在实验手册和正式产物中展开；本文件只保留任务结构与输出层次。
         
@@ -136,7 +136,7 @@
     - **解释性附图:** $\Delta_{err}$ 与 $\Delta_{conflict}$ 作为补充视角置于附录。
         
 
-## 5. 统计呈现收敛与评测协议冻结 (Statistical Presentation & Protocol Freeze)
+## 5. 统计呈现收敛与附录收口 (Statistical Presentation & Appendix Closure)
 
 为防范“显著性检验泛滥”及潜藏的实验偏置，确立以下保障策略：
 
@@ -146,4 +146,4 @@
     
 - **预注册比较点声明:** 针对主张 4 的显著性检验，预注册范围限定于“主系统 vs 各基线”的配对比较。预算网格选取 3 个分位阈值点（如 Token 上限的 25%、50%、75%），回合选取 $t \in \{1, 3, 5\}$，通过预定检验族规模控制假阳性率。
     
-- **评测管线全局冻结声明 (Global Freeze Commitment):** 实验承诺：所有评测组件在启动测试集 (Test Set) 评估前冻结，并在代码库中执行 Tag 归档。可审计的归档条目采用运行态快照与协议文件：`runtime_config_snapshot.json`、`method_registry_snapshot.json`、`matching_protocol_snapshot.json`、`metric_contract_snapshot.json`、`split_refs.json`、`gold_refs.json`、对称预算网格 (`budget_grid.json`)、预注册检验点列表 (`prereg_points.json`)，以及 preflight/live dry-run 摘要文件，以支持评测方法学的透明度与独立审计。
+- **运行清单与附录收口声明:** 实验承诺：所有正式结果均基于预先写盘的运行清单、快照文件与正式产物解释；若后续仅修改底层 `gold status` 标签，则统一通过 Step 14 快速重建附录与总表，而不是额外引入独立的最终冻结步骤。可审计条目包括：`runtime_config_snapshot.json`、`method_registry_snapshot.json`、`matching_protocol_snapshot.json`、`metric_contract_snapshot.json`、`split_refs.json`、`gold_refs.json`、`budget_grid.json`、`prereg_points.json`，以及 preflight/live dry-run 摘要文件与 Step 14 的重建索引。

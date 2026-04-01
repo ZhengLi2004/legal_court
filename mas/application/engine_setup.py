@@ -38,9 +38,6 @@ async def run_engine_setup(
         case_data: Optional in-memory case payload.
         verbose: Whether team workers/controllers should emit verbose transcripts.
 
-    Returns:
-        None.
-
     Raises:
         ValueError: If both `case_data` and `case_data_path` are missing.
         Assumption/Unverified: Other setup-time failures are not transformed here

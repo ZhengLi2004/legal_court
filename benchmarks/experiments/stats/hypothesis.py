@@ -12,6 +12,15 @@ from scipy.stats import binomtest, chi2
 
 @dataclass(frozen=True)
 class HolmBonferroniItem:
+    """One adjusted decision in a Holm-Bonferroni family.
+
+    Attributes:
+        label: Hypothesis label.
+        p_value: Raw p-value before correction.
+        threshold: Sequential Holm-Bonferroni rejection threshold.
+        rejected: Whether the null hypothesis is rejected after correction.
+    """
+
     label: str
     p_value: float
     threshold: float
@@ -20,10 +29,18 @@ class HolmBonferroniItem:
 
 @dataclass(frozen=True)
 class HolmBonferroniResult:
+    """Holm-Bonferroni family result for many hypothesis tests.
+
+    Attributes:
+        alpha: Family-wise significance level.
+        items: Ordered item-level Holm-Bonferroni decisions.
+    """
+
     alpha: float
     items: tuple[HolmBonferroniItem, ...]
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the family result into a JSON-serializable payload."""
         return {
             "alpha": self.alpha,
             "items": [asdict(item) for item in self.items],
@@ -33,6 +50,19 @@ class HolmBonferroniResult:
 
 @dataclass(frozen=True)
 class McNemarResult:
+    """Structured result for one McNemar test.
+
+    Attributes:
+        statistic: Asymptotic test statistic when available.
+        p_value: Exact or asymptotic p-value.
+        n: Number of paired observations.
+        valid: Whether the test is informative for the given inputs.
+        reason_if_invalid: Failure reason when ``valid`` is false.
+        b: Count where predictor A is correct and B is wrong.
+        c: Count where predictor B is correct and A is wrong.
+        exact: Whether the exact binomial variant was used.
+    """
+
     statistic: float | None
     p_value: float
     n: int
@@ -43,11 +73,25 @@ class McNemarResult:
     exact: bool
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the result into a JSON-serializable payload."""
         return asdict(self)
 
 
 @dataclass(frozen=True)
 class StuartMaxwellResult:
+    """Structured result for one Stuart-Maxwell marginal-homogeneity test.
+
+    Attributes:
+        statistic: Stuart-Maxwell test statistic when available.
+        p_value: Chi-squared p-value.
+        n: Number of paired observations.
+        valid: Whether the test is informative for the given inputs.
+        reason_if_invalid: Failure reason when ``valid`` is false.
+        degrees_of_freedom: Effective degrees of freedom after reduction.
+        classes: Explicit class ordering used to build the contingency table.
+        contingency: Full paired contingency table in ``classes`` order.
+    """
+
     statistic: float | None
     p_value: float
     n: int
@@ -58,6 +102,7 @@ class StuartMaxwellResult:
     contingency: tuple[tuple[int, ...], ...]
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the result into a JSON-serializable payload."""
         return asdict(self)
 
 
@@ -66,6 +111,16 @@ def holm_bonferroni(
     *,
     alpha: float = 0.05,
 ) -> HolmBonferroniResult:
+    """Apply Holm-Bonferroni correction to a named set of p-values.
+
+    Args:
+        p_values: Mapping from hypothesis label to raw p-value.
+        alpha: Family-wise significance level.
+
+    Returns:
+        Sequential Holm-Bonferroni decisions for the whole family.
+    """
+
     ordered = sorted(
         ((str(label), float(p_value)) for label, p_value in p_values.items()),
         key=lambda item: (item[1], item[0]),
@@ -98,6 +153,21 @@ def mcnemar_test(
     *,
     exact: bool | None = None,
 ) -> McNemarResult:
+    """Run McNemar's test on two paired prediction sequences.
+
+    Args:
+        y_true: Gold labels.
+        pred_a: First prediction sequence.
+        pred_b: Second prediction sequence.
+        exact: Optional override for exact versus asymptotic testing.
+
+    Returns:
+        Structured McNemar test result.
+
+    Raises:
+        ValueError: If the sequences are not aligned in length.
+    """
+
     if not (len(y_true) == len(pred_a) == len(pred_b)):
         raise ValueError("y_true, pred_a, and pred_b must have the same length")
 
@@ -159,6 +229,20 @@ def stuart_maxwell_test(
     *,
     classes: Sequence[str],
 ) -> StuartMaxwellResult:
+    """Run the Stuart-Maxwell test on paired multiclass label sequences.
+
+    Args:
+        labels_a: First aligned label sequence.
+        labels_b: Second aligned label sequence.
+        classes: Explicit class ordering for the contingency table.
+
+    Returns:
+        Structured Stuart-Maxwell test result.
+
+    Raises:
+        ValueError: If the sequences differ in length or contain unknown labels.
+    """
+
     if len(labels_a) != len(labels_b):
         raise ValueError("labels_a and labels_b must have the same length")
 

@@ -18,7 +18,13 @@ from networkx.readwrite import json_graph
 
 
 class BaseMetadata(TypedDict, total=False):
-    """Base metadata for graph nodes."""
+    """Base metadata for graph nodes.
+
+    Attributes:
+        created_at: Creation timestamp.
+        source_doc_id: Source document identifier.
+        last_modified_step: Debate step index of the most recent modification.
+    """
 
     created_at: float
     source_doc_id: str
@@ -26,7 +32,13 @@ class BaseMetadata(TypedDict, total=False):
 
 
 class ClaimMetadata(BaseMetadata, total=False):
-    """Metadata specific to CLAIM nodes."""
+    """Metadata specific to CLAIM nodes.
+
+    Attributes:
+        is_root_claim: Whether the claim is a root debate claim.
+        claim_index: Claim order in the originating case.
+        verdict_status: Final verdict status attached during adjudication.
+    """
 
     is_root_claim: bool
     claim_index: int
@@ -37,7 +49,13 @@ NodeMetadata = Union[BaseMetadata, ClaimMetadata]
 
 
 class NodeType(str, Enum):
-    """Enumeration for the types of nodes in the debate graph."""
+    """Enumeration for the types of nodes in the debate graph.
+
+    Attributes:
+        FACT: Evidence or factual proposition node.
+        LAW: Legal rule or statute node.
+        CLAIM: Debate claim or argument node.
+    """
 
     FACT = "FACT"
     LAW = "LAW"
@@ -45,7 +63,13 @@ class NodeType(str, Enum):
 
 
 class NodeStatus(str, Enum):
-    """Enumeration for the status of a node, updated during adjudication."""
+    """Enumeration for the status of a node, updated during adjudication.
+
+    Attributes:
+        HYPOTHETICAL: Node has not yet been accepted or defeated.
+        VALIDATED: Node is accepted by the adjudication stage.
+        DEFEATED: Node is rejected by the adjudication stage.
+    """
 
     HYPOTHETICAL = "HYPOTHETICAL"
     VALIDATED = "VALIDATED"
@@ -53,14 +77,26 @@ class NodeStatus(str, Enum):
 
 
 class EdgeType(str, Enum):
-    """Enumeration for the types of edges (relationships) in the debate graph."""
+    """Enumeration for the types of edges (relationships) in the debate graph.
+
+    Attributes:
+        SUPPORT: Source supports the target node.
+        CONFLICT: Source rebuts or conflicts with the target node.
+    """
 
     SUPPORT = "SUPPORT"
     CONFLICT = "CONFLICT"
 
 
 class EdgeAddResult(Enum):
-    """Enumeration for the result of an attempt to add an edge to the graph."""
+    """Enumeration for the result of an attempt to add an edge to the graph.
+
+    Attributes:
+        CREATED: Edge was inserted successfully.
+        DUPLICATE: Same edge already existed.
+        TYPE_CLASH: Opposite edge type already existed.
+        SELF_LOOP: Attempted self-loop was rejected.
+    """
 
     CREATED = auto()
     DUPLICATE = auto()
@@ -70,7 +106,16 @@ class EdgeAddResult(Enum):
 
 @dataclass
 class ShadowNode:
-    """Represents a single node within the ShadowGraph."""
+    """Represents a single node within the ShadowGraph.
+
+    Attributes:
+        id: Stable node identifier.
+        content: Node content text.
+        type: Node type.
+        agent_id: Agent that created the node.
+        status: Current adjudication status.
+        metadata: Additional graph metadata for the node.
+    """
 
     id: str
     content: str
@@ -140,11 +185,7 @@ class ShadowGraph:
     latest_context: str = field(default="")
 
     def __post_init__(self):
-        """Ensure graph-level attribute storage exists.
-
-        Returns:
-            None.
-        """
+        """Ensure graph-level attribute storage exists."""
         if not hasattr(self.graph, "graph"):
             self.graph.graph = {}
 
@@ -186,10 +227,7 @@ class ShadowGraph:
 
         Args:
             current_step: The current step index of the debate engine.
-
-        Returns:
-            None.
-    """
+        """
         focus_nodes = self._calculate_focus_nodes(current_step)
 
         if focus_nodes:
@@ -207,10 +245,7 @@ class ShadowGraph:
         Args:
             node_ids: A list of node IDs to update.
             step_index: The current step index to set as the last modified time.
-
-        Returns:
-            None.
-    """
+        """
         for nid in node_ids:
             if self.graph.has_node(nid):
                 current_step = (

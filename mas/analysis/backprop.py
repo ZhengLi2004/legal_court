@@ -6,7 +6,11 @@ from ..core.graph import EdgeType, NodeStatus, NodeType, ShadowGraph
 
 
 class BackPropagator:
-    """Propagates final claim statuses through the argument graph."""
+    """Propagates final claim statuses through the argument graph.
+
+    Attributes:
+        None. Propagation is performed entirely through helper methods.
+    """
 
     def _edge_type_name(self, edge_type: object) -> str:
         """Normalize edge type payload to uppercase enum name text.

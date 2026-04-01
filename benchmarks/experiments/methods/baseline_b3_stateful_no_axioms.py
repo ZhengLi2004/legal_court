@@ -18,7 +18,20 @@ def run_baseline_b3_stateful_no_axioms(
     verbose: bool = False,
     test_mode_no_learning: bool = False,
 ) -> dict[str, Any]:
-    """Run the stateful baseline with validate-step gating disabled."""
+    """Run the stateful baseline with validate-step gating disabled.
+
+    Args:
+        case: Canonical case payload.
+        storage_root_dir: Optional runtime storage root override.
+        budget: Optional budget overrides.
+        seed: Optional deterministic seed.
+        retrieval_config: Optional retrieval overrides.
+        verbose: Whether to enable verbose runtime logging.
+        test_mode_no_learning: Disable learning side effects when ``True``.
+
+    Returns:
+        Canonical method result payload.
+    """
     return execute_method(
         method_name="baseline_b3_stateful_no_axioms",
         case=case,

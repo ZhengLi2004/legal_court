@@ -16,7 +16,18 @@ from typing import Any, Dict, List, Sequence
 
 @dataclass(frozen=True)
 class ClaimProfile:
-    """Structured slots for claim-style legal argument generation."""
+    """Structured slots for claim-style legal argument generation.
+
+    Attributes:
+        cutoff_date: Reference cutoff date rendered into the argument.
+        clause_no: Contract clause number cited by the claim.
+        clause_text: Clause content paraphrased into the claim.
+        cure_days: Grace-period length used in the scenario.
+        fee_term: Occupancy-fee label used in the generated text.
+        plaintiff_done_notice: Whether plaintiff served notice.
+        plaintiff_done_cure: Whether plaintiff granted a cure period.
+        plaintiff_done_direct_terminate: Whether plaintiff terminated directly.
+    """
 
     cutoff_date: str
     clause_no: str
@@ -367,7 +378,17 @@ def generate_claim_dedup_dataset(
     valid_ratio: float = 0.2,
     positive_ratio: float = 0.45,
 ) -> Dict[str, Any]:
-    """Build one synthetic CLAIM dedup dataset payload."""
+    """Build one synthetic CLAIM dedup dataset payload.
+
+    Args:
+        seed: Random seed for deterministic sampling.
+        size: Number of examples to generate.
+        valid_ratio: Fraction of rows placed into the validation split.
+        positive_ratio: Fraction of semantic-duplicate pairs.
+
+    Returns:
+        Dataset payload with rows and generation metadata.
+    """
     rng = random.Random(seed)
     claim_types = list(RENDERERS.keys())
     rows: List[Dict[str, Any]] = []
@@ -429,6 +450,11 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for claim deduplication dataset generation.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=72)
     parser.add_argument("--size", type=int, default=600)
@@ -450,6 +476,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate the synthetic claim-deduplication training dataset."""
     args = parse_args()
 
     payload = generate_claim_dedup_dataset(

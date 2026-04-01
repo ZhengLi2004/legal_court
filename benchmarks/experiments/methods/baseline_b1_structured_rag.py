@@ -18,7 +18,20 @@ def run_baseline_b1_structured_rag(
     verbose: bool = False,
     test_mode_no_learning: bool = False,
 ) -> dict[str, Any]:
-    """Run one structured single-pass baseline without debate turns."""
+    """Run one structured single-pass baseline without debate turns.
+
+    Args:
+        case: Canonical case payload.
+        storage_root_dir: Optional runtime storage root override.
+        budget: Optional budget overrides.
+        seed: Optional deterministic seed.
+        retrieval_config: Optional retrieval overrides.
+        verbose: Whether to enable verbose runtime logging.
+        test_mode_no_learning: Disable learning side effects when ``True``.
+
+    Returns:
+        Canonical method result payload.
+    """
     return execute_method(
         method_name="baseline_b1_structured_rag",
         case=case,

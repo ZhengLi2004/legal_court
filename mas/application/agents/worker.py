@@ -49,11 +49,14 @@ def truncate_text(text: str, max_len: int = 768) -> str:
 
 
 class BaseWorker(Role):
-    """An abstract base class for all worker roles.
+    """Abstract base class for all worker roles.
 
     This class provides common functionality for workers, most importantly the
-    `_parse_instruction` method, which safely extracts and validates the
-    instruction received from the controller.
+    instruction parsing and validation path shared by all specialized workers.
+
+    Attributes:
+        name: Worker role name.
+        profile: Short profile string shown to MetaGPT.
     """
 
     name: str = "Worker"
@@ -116,12 +119,16 @@ class BaseWorker(Role):
 
 
 class FactWorker(BaseWorker):
-    """A worker specialized in searching for relevant factual evidence from past cases.
+    """Search for relevant factual evidence from past cases.
 
     This worker takes a high-level intent, breaks it into multiple search
     queries, executes them in parallel against an Elasticsearch case database,
     deduplicates and reranks the results, and finally analyzes the top results
     to provide a concise summary.
+
+    Attributes:
+        name: Worker role name.
+        threshold: Minimum similarity score for successful retrieval.
     """
 
     def __init__(
@@ -238,11 +245,15 @@ class FactWorker(BaseWorker):
 
 
 class LawWorker(BaseWorker):
-    """A worker specialized in searching for and injecting legal statutes.
+    """Search for and inject legal statutes.
 
     This worker's key distinction is that after finding relevant laws in the
-    Elasticsearch database, it uses the `GraphTool` to directly inject these
-    laws as `LAW` nodes into the main debate graph for all agents to see.
+    Elasticsearch database, it uses the ``GraphTool`` to directly inject these
+    laws as ``LAW`` nodes into the main debate graph for all agents to see.
+
+    Attributes:
+        name: Worker role name.
+        threshold: Minimum similarity score for successful retrieval.
     """
 
     def __init__(
@@ -385,10 +396,15 @@ class LawWorker(BaseWorker):
 
 
 class RecallWorker(BaseWorker):
-    """A worker specialized in recalling and analyzing strategies from past cases.
+    """Recall and analyze strategies from past cases.
 
-    This worker uses the `ProjectAndAnalyze` action to find analogous argument
-    structures in historical cases and generates strategic advice based on them.
+    This worker uses the ``ProjectAndAnalyze`` action to find analogous
+    argument structures in historical cases and generates strategic advice
+    based on them.
+
+    Attributes:
+        name: Worker role name.
+        threshold: Minimum similarity score for successful retrieval.
     """
 
     def __init__(

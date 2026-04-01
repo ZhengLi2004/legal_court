@@ -23,7 +23,22 @@ SIDE_C = "COMMON"
 
 @dataclass(frozen=True)
 class InsightScenario:
-    """One dispute scenario used to synthesize strategy insights."""
+    """One dispute scenario used to synthesize strategy insights.
+
+    Attributes:
+        issue_id: Stable scenario identifier.
+        domain: High-level dispute domain label.
+        context_facts: Background facts shared by both sides.
+        plaintiff_trigger: Plaintiff-side trigger phrases.
+        plaintiff_action: Plaintiff-side tactical actions.
+        plaintiff_goal: Plaintiff-side goals.
+        defendant_trigger: Defendant-side trigger phrases.
+        defendant_action: Defendant-side tactical actions.
+        defendant_goal: Defendant-side goals.
+        common_trigger: Neutral trigger phrases usable by both sides.
+        common_action: Neutral tactical actions usable by both sides.
+        common_goal: Neutral goals usable by both sides.
+    """
 
     issue_id: str
     domain: str
@@ -362,7 +377,15 @@ def _sample(rng: random.Random, values: List[str]) -> str:
 
 
 def detect_style(text: str) -> str:
-    """Detect style pattern of one insight sentence."""
+    """Detect style pattern of one insight sentence.
+
+    Args:
+        text: Candidate insight sentence.
+
+    Returns:
+        Style code ``A``/``B``/``C`` when the sentence matches one of the
+        curated templates, otherwise ``UNKNOWN``.
+    """
     normalized = " ".join(text.strip().split())
 
     if re.match(r"^在.+时，应.+，以.+。$", normalized):
@@ -378,7 +401,15 @@ def detect_style(text: str) -> str:
 
 
 def assess_insight_quality(text: str) -> Dict[str, Any]:
-    """Assess whether one insight is actionable and style-compliant."""
+    """Assess whether one insight is actionable and style-compliant.
+
+    Args:
+        text: Candidate insight sentence.
+
+    Returns:
+        Quality flags and lightweight diagnostics used by downstream dataset
+        filtering and reporting.
+    """
     normalized = " ".join(str(text or "").strip().split())
     style = detect_style(normalized)
     length_ok = 30 <= len(normalized) <= 120
@@ -999,7 +1030,21 @@ def generate_insight_dataset(
     dedup_size: int = 480,
     valid_ratio: float = 0.2,
 ) -> Dict[str, Any]:
-    """Generate synthetic retrieval+dedup datasets for insight-threshold tuning."""
+    """Generate synthetic retrieval+dedup datasets for insight-threshold tuning.
+
+    Args:
+        seed: Random seed controlling scenario sampling.
+        retrieval_size: Number of retrieval pairs to synthesize.
+        dedup_size: Number of deduplication pairs to synthesize.
+        valid_ratio: Validation split ratio shared by both datasets.
+
+    Returns:
+        Payload containing retrieval pairs, dedup pairs, key cases, and
+        dataset summary statistics.
+
+    Raises:
+        ValueError: If the requested dataset sizes or split ratio are invalid.
+    """
     if retrieval_size < 200:
         raise ValueError("retrieval_size must be >= 200")
 
@@ -1045,6 +1090,11 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for insight dataset generation.
+
+    Returns:
+        Parsed command-line namespace for dataset sizes and output paths.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=52, help="Random seed.")
 
@@ -1080,6 +1130,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate the synthetic plaintiff/defendant insight dataset.
+
+    Raises:
+        ValueError: If the requested dataset sizes or split ratio are invalid.
+    """
     args = parse_args()
 
     payload = generate_insight_dataset(

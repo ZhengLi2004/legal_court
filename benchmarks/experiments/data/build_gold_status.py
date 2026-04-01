@@ -128,6 +128,11 @@ def _sample_smoke_claims(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for automatic gold status construction.
+
+    Returns:
+        Parsed command-line namespace.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True)
     parser.add_argument("--claims-path", required=True)
@@ -144,6 +149,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Infer claim statuses and export automatic plus uncertain gold artifacts.
+
+    Returns:
+        Process exit code.
+
+    Raises:
+        ValueError: If required encoder or reranker model paths are missing.
+    """
     args = parse_args()
     input_path = Path(args.input)
     claims_path = Path(args.claims_path)

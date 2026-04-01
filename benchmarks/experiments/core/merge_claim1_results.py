@@ -202,6 +202,17 @@ def merge_claim1_results(
     external_claim_root: str | Path,
     output_dir: str | Path,
 ) -> dict[str, Any]:
+    """Merge already-computed internal and external Claim 1 result bundles.
+
+    Args:
+        internal_claim_root: Internal Claim 1 result directory.
+        external_claim_root: External Claim 1 result directory.
+        output_dir: Directory for merged artifacts.
+
+    Returns:
+        Merge summary payload describing generated artifacts.
+    """
+
     internal = _load_internal_bundle(internal_claim_root)
     external = _load_external_bundle(external_claim_root)
     _validate_same_protocol(internal, external)
@@ -359,6 +370,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
+    """CLI entrypoint for offline Claim 1 table merging.
+
+    Args:
+        argv: Optional command-line argument override.
+
+    Returns:
+        Merge summary payload written by the CLI.
+    """
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 
