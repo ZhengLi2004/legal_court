@@ -26,6 +26,18 @@ from benchmarks.experiments.core.claim3_runner import (
 from benchmarks.experiments.core.claim3_runner import (
     summarize_claim3_experiment as _summarize_claim3_experiment,
 )
+from benchmarks.experiments.core.claim4_runner import (
+    audit_claim4_stage as _audit_claim4_stage,
+)
+from benchmarks.experiments.core.claim4_runner import (
+    prepare_claim4_experiment as _prepare_claim4_experiment,
+)
+from benchmarks.experiments.core.claim4_runner import (
+    run_claim4_slice as _run_claim4_slice,
+)
+from benchmarks.experiments.core.claim4_runner import (
+    summarize_claim4_experiment as _summarize_claim4_experiment,
+)
 from benchmarks.experiments.core.step09a import (
     DEFAULT_INPUT_PATH,
     DEFAULT_REPORTS_ROOT,
@@ -1816,11 +1828,70 @@ def run_claim3_experiment(
 
 def run_claim4_experiment(
     *,
-    cases: list[dict[str, Any]] | None = None,
-    registry: dict[str, Any] | None = None,
+    command: str,
+    freeze_run_id: str | None = None,
+    source_claim1_run_id: str | None = None,
+    run_id: str,
+    reports_root: str | Path = DEFAULT_REPORTS_ROOT,
+    input_path: str | Path = DEFAULT_INPUT_PATH,
+    stage: str | None = None,
+    policy: str | None = None,
+    point: str | None = None,
+    repeat: int | None = None,
+    resume: bool = False,
+    verbose: bool = False,
+    show_progress: bool = True,
 ) -> dict[str, Any]:
-    """Run Claim 4 experiment skeleton and return structured result."""
-    return _build_skeleton_result(claim_id=4, cases=cases, registry=registry)
+    """Run Claim 4 prepare/run/audit/summarize orchestration."""
+    action = str(command).strip().lower()
+
+    if action == "prepare":
+        if not freeze_run_id or not source_claim1_run_id:
+            raise ValueError(
+                "Claim 4 prepare requires freeze_run_id and source_claim1_run_id."
+            )
+
+        return _prepare_claim4_experiment(
+            freeze_run_id=freeze_run_id,
+            source_claim1_run_id=source_claim1_run_id,
+            run_id=run_id,
+            reports_root=reports_root,
+            input_path=input_path,
+        )
+
+    if action == "run":
+        if not stage or not policy or not point or repeat is None:
+            raise ValueError("Claim 4 run requires stage, policy, point, and repeat.")
+
+        return _run_claim4_slice(
+            run_id=run_id,
+            reports_root=reports_root,
+            stage=stage,
+            policy=policy,
+            point=point,
+            repeat=int(repeat),
+            resume=resume,
+            verbose=verbose,
+            show_progress=show_progress,
+        )
+
+    if action == "audit":
+        if not stage:
+            raise ValueError("Claim 4 audit requires one stage.")
+
+        return _audit_claim4_stage(
+            run_id=run_id,
+            reports_root=reports_root,
+            stage=stage,
+        )
+
+    if action == "summarize":
+        return _summarize_claim4_experiment(
+            run_id=run_id,
+            reports_root=reports_root,
+        )
+
+    raise ValueError(f"Unknown Claim 4 command: {command}")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1887,6 +1958,51 @@ def _build_parser() -> argparse.ArgumentParser:
     claim3_summarize_parser.add_argument("--run-id", required=True)
 
     claim3_summarize_parser.add_argument(
+        "--reports-root", default=str(DEFAULT_REPORTS_ROOT)
+    )
+
+    claim4_prepare_parser = subparsers.add_parser("claim4-prepare")
+    claim4_prepare_parser.add_argument("--freeze-run-id", required=True)
+    claim4_prepare_parser.add_argument("--source-claim1-run-id", required=True)
+    claim4_prepare_parser.add_argument("--run-id", required=True)
+
+    claim4_prepare_parser.add_argument(
+        "--reports-root", default=str(DEFAULT_REPORTS_ROOT)
+    )
+
+    claim4_prepare_parser.add_argument("--input-path", default=str(DEFAULT_INPUT_PATH))
+    claim4_run_parser = subparsers.add_parser("claim4-run")
+    claim4_run_parser.add_argument("--run-id", required=True)
+    claim4_run_parser.add_argument("--reports-root", default=str(DEFAULT_REPORTS_ROOT))
+    claim4_run_parser.add_argument("--stage", required=True, choices=("dev", "test"))
+
+    claim4_run_parser.add_argument(
+        "--policy", required=True, choices=("fixed", "adaptive")
+    )
+
+    claim4_run_parser.add_argument(
+        "--point", required=True, choices=("q25", "q75", "full")
+    )
+
+    claim4_run_parser.add_argument(
+        "--repeat", required=True, type=int, choices=(1, 2, 3)
+    )
+
+    claim4_run_parser.add_argument("--resume", action="store_true")
+    claim4_run_parser.add_argument("--verbose", action="store_true")
+    claim4_run_parser.add_argument("--no-progress", action="store_true")
+    claim4_audit_parser = subparsers.add_parser("claim4-audit")
+    claim4_audit_parser.add_argument("--run-id", required=True)
+
+    claim4_audit_parser.add_argument(
+        "--reports-root", default=str(DEFAULT_REPORTS_ROOT)
+    )
+
+    claim4_audit_parser.add_argument("--stage", required=True, choices=("dev", "test"))
+    claim4_summarize_parser = subparsers.add_parser("claim4-summarize")
+    claim4_summarize_parser.add_argument("--run-id", required=True)
+
+    claim4_summarize_parser.add_argument(
         "--reports-root", default=str(DEFAULT_REPORTS_ROOT)
     )
 
@@ -1971,12 +2087,54 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             show_progress=not bool(args.no_progress),
         )
 
-    else:
+    elif args.command == "claim3-summarize":
         payload = run_claim3_experiment(
             command="summarize",
             run_id=args.run_id,
             reports_root=args.reports_root,
         )
+
+    elif args.command == "claim4-prepare":
+        payload = run_claim4_experiment(
+            command="prepare",
+            freeze_run_id=args.freeze_run_id,
+            source_claim1_run_id=args.source_claim1_run_id,
+            run_id=args.run_id,
+            reports_root=args.reports_root,
+            input_path=args.input_path,
+        )
+
+    elif args.command == "claim4-run":
+        payload = run_claim4_experiment(
+            command="run",
+            run_id=args.run_id,
+            reports_root=args.reports_root,
+            stage=args.stage,
+            policy=args.policy,
+            point=args.point,
+            repeat=int(args.repeat),
+            resume=bool(args.resume),
+            verbose=bool(args.verbose),
+            show_progress=not bool(args.no_progress),
+        )
+
+    elif args.command == "claim4-audit":
+        payload = run_claim4_experiment(
+            command="audit",
+            run_id=args.run_id,
+            reports_root=args.reports_root,
+            stage=args.stage,
+        )
+
+    elif args.command == "claim4-summarize":
+        payload = run_claim4_experiment(
+            command="summarize",
+            run_id=args.run_id,
+            reports_root=args.reports_root,
+        )
+
+    else:
+        raise ValueError(f"Unknown orchestrator command: {args.command}")
 
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return payload

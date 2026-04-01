@@ -24,11 +24,13 @@ from benchmarks.experiments.methods.main_system import run_main_system
 INTERNAL_DEFAULT_PROFILE = "internal_default"
 EXTERNAL_ONLY_PROFILE = "external_only"
 COMBINED_PROFILE = "combined"
+CLAIM4_MAD_ONLY_PROFILE = "claim4_mad_only"
 
 ALLOWED_REGISTRY_PROFILES = {
     INTERNAL_DEFAULT_PROFILE,
     EXTERNAL_ONLY_PROFILE,
     COMBINED_PROFILE,
+    CLAIM4_MAD_ONLY_PROFILE,
 }
 
 _INTERNAL_RUNNERS: dict[str, MethodRunner] = {
@@ -42,6 +44,12 @@ _EXTERNAL_RUNNERS: dict[str, MethodRunner] = {
     "external_naive_rag": run_external_naive_rag,
     "external_naive_mad": run_external_naive_mad,
     "external_pure_one_shot_judge": run_external_pure_one_shot_judge,
+}
+
+_CLAIM4_MAD_ONLY_RUNNERS: dict[str, MethodRunner] = {
+    "main_system": run_main_system,
+    "baseline_b2_vanilla_mad": run_baseline_b2_vanilla_mad,
+    "baseline_b3_stateful_no_axioms": run_baseline_b3_stateful_no_axioms,
 }
 
 _METHOD_SEMANTICS: dict[str, dict[str, Any]] = {
@@ -143,6 +151,9 @@ def build_method_registry(
 
     if resolved == EXTERNAL_ONLY_PROFILE:
         return dict(_EXTERNAL_RUNNERS)
+
+    if resolved == CLAIM4_MAD_ONLY_PROFILE:
+        return dict(_CLAIM4_MAD_ONLY_RUNNERS)
 
     combined = dict(_INTERNAL_RUNNERS)
     combined.update(_EXTERNAL_RUNNERS)

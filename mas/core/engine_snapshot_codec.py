@@ -291,10 +291,49 @@ def build_engine_turn_artifact(
     except (TypeError, ValueError):
         ts_ms = int(time.time() * 1000)
 
+    legal_sys = getattr(engine, "legal_sys", None)
+    static_history_case_ids = []
+    dynamic_law_case_ids = []
+    active_history_case_ids = []
+
+    if legal_sys is not None:
+        static_history_case_ids = [
+            str(getattr(item, "case_id", "") or "")
+            for item in list(getattr(legal_sys, "_static_history_cases", []) or [])
+            if str(getattr(item, "case_id", "") or "").strip()
+        ]
+        dynamic_law_case_ids = [
+            str(getattr(item, "case_id", "") or "")
+            for item in list(getattr(legal_sys, "_dynamic_law_cases", []) or [])
+            if str(getattr(item, "case_id", "") or "").strip()
+        ]
+        active_history_case_ids = [
+            str(getattr(item, "case_id", "") or "")
+            for item in list(getattr(legal_sys, "active_history_cases", []) or [])
+            if str(getattr(item, "case_id", "") or "").strip()
+        ]
+
+    convergence_payload = normalize_engine_convergence_payload(
+        engine,
+        getattr(engine, "last_step_log", {}).get("convergence", {}),
+        fallback_is_converged=bool(getattr(engine, "is_ready_for_adjudication", False)),
+    )
+
     artifact = {
         "turn_uid": turn_uid,
         "side": turn,
         "round_idx": engine.round_idx,
+        "convergence": {
+            "delta_phi": float(convergence_payload.get("delta_phi", 0.0)),
+            "sma": float(convergence_payload.get("sma", 0.0)),
+            "epsilon": float(convergence_payload.get("epsilon", 0.0)),
+            "is_converged": bool(convergence_payload.get("is_converged", False)),
+        },
+        "evidence_whitelist_capture": {
+            "static_history_case_ids": static_history_case_ids,
+            "dynamic_law_case_ids": dynamic_law_case_ids,
+            "active_history_case_ids": active_history_case_ids,
+        },
         "controller_assessment": turn_result.get("controller_assessment", {}),
         "batch_instructions": turn_result.get("batch_instructions", []),
         "worker_reports": turn_result.get("worker_reports_raw", []),

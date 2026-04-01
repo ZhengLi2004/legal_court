@@ -283,13 +283,28 @@ def build_method_config(
 
     if budget:
         unused_budget_keys: list[str] = []
+        disable_adaptive_termination = False
 
         for key, value in budget.items():
             if key == "max_turns":
                 cfg.convergence.max_turns = int(value)
 
+            elif key == "temperature":
+                cfg.llm.temperature = float(value)
+
+            elif key == "disable_adaptive_termination":
+                disable_adaptive_termination = bool(value)
+
             else:
                 unused_budget_keys.append(str(key))
+
+        if disable_adaptive_termination:
+            cfg.convergence.epsilon = -1.0
+
+            cfg.convergence.min_rounds = max(
+                int(cfg.convergence.min_rounds),
+                int(cfg.convergence.max_turns) + 1,
+            )
 
         if unused_budget_keys:
             warnings.append(
@@ -738,6 +753,44 @@ def execute_method(
                     if hasattr(engine, "turn_artifacts")
                     else []
                 ),
+                "evidence_whitelist_capture": {
+                    "static_history_case_ids": [
+                        str(getattr(item, "case_id", "") or "")
+                        for item in list(
+                            getattr(
+                                getattr(engine, "legal_sys", None),
+                                "_static_history_cases",
+                                [],
+                            )
+                            or []
+                        )
+                        if str(getattr(item, "case_id", "") or "").strip()
+                    ],
+                    "dynamic_law_case_ids": [
+                        str(getattr(item, "case_id", "") or "")
+                        for item in list(
+                            getattr(
+                                getattr(engine, "legal_sys", None),
+                                "_dynamic_law_cases",
+                                [],
+                            )
+                            or []
+                        )
+                        if str(getattr(item, "case_id", "") or "").strip()
+                    ],
+                    "active_history_case_ids": [
+                        str(getattr(item, "case_id", "") or "")
+                        for item in list(
+                            getattr(
+                                getattr(engine, "legal_sys", None),
+                                "active_history_cases",
+                                [],
+                            )
+                            or []
+                        )
+                        if str(getattr(item, "case_id", "") or "").strip()
+                    ],
+                },
                 "graph_stats": dict(serial_snapshot.get("graph_stats", {}) or {}),
                 "requested_budget": dict(budget or {}),
                 "requested_retrieval_config": dict(retrieval_config or {}),
