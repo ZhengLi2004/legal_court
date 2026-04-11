@@ -67,6 +67,7 @@ class Claim3Context:
         fixed_pack_path: Path to the serialized fixed evidence pack.
         reference_anchor_path: Path to reference Claim 1 anchor metrics.
         warmup_points: Warmup prefixes evaluated by the experiment.
+        fixed_pack_points: Warmup prefixes evaluated by the fixed-pack branch.
         eval_uids: Ordered evaluation case ids.
         warmup_pool_uids: Ordered pool of warmup case ids.
         gold_claim_rows: Gold claim rows restricted to the source task universe.
@@ -88,6 +89,7 @@ class Claim3Context:
     fixed_pack_path: Path
     reference_anchor_path: Path
     warmup_points: tuple[int, ...]
+    fixed_pack_points: tuple[int, ...]
     eval_uids: list[str]
     warmup_pool_uids: list[str]
     gold_claim_rows: list[dict[str, Any]]
@@ -346,6 +348,7 @@ def _build_claim3_context(
     reports_root: str | Path,
     input_path: str | Path,
     warmup_points: tuple[int, ...],
+    fixed_pack_points: tuple[int, ...] = CLAIM3_FIXED_PACK_POINTS,
 ) -> Claim3Context:
     manifest, split_refs, gold_refs, matching_protocol_snapshot = _load_freeze_bundle(
         freeze_run_id=freeze_run_id,
@@ -389,6 +392,16 @@ def _build_claim3_context(
             f"Warmup pool too small for max point {max(warmup_points)}: only {len(warmup_pool_uids)}"
         )
 
+    invalid_fixed_pack_points = [
+        point for point in fixed_pack_points if point not in set(warmup_points)
+    ]
+
+    if invalid_fixed_pack_points:
+        raise ValueError(
+            "Claim 3 fixed-pack points must be a subset of warmup points: "
+            f"{invalid_fixed_pack_points}"
+        )
+
     claim_root = Path(reports_root) / run_id / "claim3"
     claim_root.mkdir(parents=True, exist_ok=True)
 
@@ -404,6 +417,7 @@ def _build_claim3_context(
         fixed_pack_path=claim_root / "fixed_evidence_pack" / "warmup0_dev37.json",
         reference_anchor_path=claim_root / "reference_anchor_metrics.json",
         warmup_points=warmup_points,
+        fixed_pack_points=tuple(sorted(set(int(point) for point in fixed_pack_points))),
         eval_uids=list(eval_uids),
         warmup_pool_uids=list(warmup_pool_uids),
         gold_claim_rows=gold_claim_rows,
@@ -510,7 +524,7 @@ def _write_manifest_and_job_plan(ctx: Claim3Context) -> dict[str, Any]:
         "method_name": CLAIM3_MAIN_METHOD,
         "warmup_points": list(ctx.warmup_points),
         "fixed_pack_reference_point": CLAIM3_FIXED_PACK_REFERENCE_POINT,
-        "fixed_pack_points": list(CLAIM3_FIXED_PACK_POINTS),
+        "fixed_pack_points": list(ctx.fixed_pack_points),
         "eval_uids": list(ctx.eval_uids),
         "eval_case_count": len(ctx.eval_uids),
         "warmup_pool_uids": list(ctx.warmup_pool_uids),
@@ -536,11 +550,11 @@ def _write_manifest_and_job_plan(ctx: Claim3Context) -> dict[str, Any]:
         "run_id": ctx.run_id,
         "prepare_completed_at": _now_iso(),
         "normal_branch_points": list(ctx.warmup_points),
-        "fixed_pack_branch_points": list(CLAIM3_FIXED_PACK_POINTS),
+        "fixed_pack_branch_points": list(ctx.fixed_pack_points),
         "expected_task_count": {
             "warmup_cases": max(ctx.warmup_points),
             "normal_eval_cases": len(ctx.eval_uids) * len(ctx.warmup_points),
-            "fixed_pack_eval_cases": len(ctx.eval_uids) * len(CLAIM3_FIXED_PACK_POINTS),
+            "fixed_pack_eval_cases": len(ctx.eval_uids) * len(ctx.fixed_pack_points),
         },
         "artifacts": {
             "manifest": str(ctx.manifest_path),
@@ -561,6 +575,7 @@ def prepare_claim3_experiment(
     reports_root: str | Path = DEFAULT_REPORTS_ROOT,
     input_path: str | Path = DEFAULT_INPUT_PATH,
     warmup_points: tuple[int, ...] = CLAIM3_DEFAULT_WARMUP_POINTS,
+    fixed_pack_points: tuple[int, ...] = CLAIM3_FIXED_PACK_POINTS,
 ) -> dict[str, Any]:
     """Prepare manifests and fixed evidence packs for Claim 3.
 
@@ -587,6 +602,7 @@ def prepare_claim3_experiment(
         reports_root=reports_root,
         input_path=input_path,
         warmup_points=tuple(sorted(set(int(point) for point in warmup_points))),
+        fixed_pack_points=tuple(sorted(set(int(point) for point in fixed_pack_points))),
     )
 
     _write_reference_anchor_metrics(ctx)
@@ -611,7 +627,7 @@ def prepare_claim3_experiment(
         "source_claim1_run_id": source_claim1_run_id,
         "method_name": CLAIM3_MAIN_METHOD,
         "warmup_points": list(ctx.warmup_points),
-        "fixed_pack_points": list(CLAIM3_FIXED_PACK_POINTS),
+        "fixed_pack_points": list(ctx.fixed_pack_points),
         "eval_case_count": len(ctx.eval_uids),
         "warmup_pool_count": len(ctx.warmup_pool_uids),
         "artifacts": {
@@ -926,6 +942,10 @@ def run_claim3_branch(
         reports_root=reports_root,
         input_path=str(manifest["input_path"]),
         warmup_points=tuple(int(point) for point in manifest["warmup_points"]),
+        fixed_pack_points=tuple(
+            int(point)
+            for point in manifest.get("fixed_pack_points", CLAIM3_FIXED_PACK_POINTS)
+        ),
     )
 
     case_map, _ = _load_cases_by_uid(ctx.input_path)
@@ -940,10 +960,9 @@ def run_claim3_branch(
 
     if branch_name == "fixed-pack":
         points = [
-            point
-            for point in CLAIM3_FIXED_PACK_POINTS
-            if point in set(ctx.warmup_points)
+            point for point in ctx.fixed_pack_points if point in set(ctx.warmup_points)
         ]
+
         fixed_pack_map = read_fixed_evidence_pack_map(ctx.fixed_pack_path)
 
     branch_dir = _branch_dir(ctx, branch_name)
@@ -1022,6 +1041,10 @@ def summarize_claim3_experiment(
         reports_root=reports_root,
         input_path=str(manifest["input_path"]),
         warmup_points=tuple(int(item) for item in manifest["warmup_points"]),
+        fixed_pack_points=tuple(
+            int(point)
+            for point in manifest.get("fixed_pack_points", CLAIM3_FIXED_PACK_POINTS)
+        ),
     )
 
     normal_summary = _read_json(claim_root / "normal" / "summary.json")

@@ -1856,6 +1856,7 @@ def run_claim3_experiment(
     reports_root: str | Path = DEFAULT_REPORTS_ROOT,
     input_path: str | Path = DEFAULT_INPUT_PATH,
     warmup_points: tuple[int, ...] = (0, 25, 50, 100),
+    fixed_pack_points: tuple[int, ...] = (0, 100),
     branch: str | None = None,
     resume: bool = False,
     show_progress: bool = True,
@@ -1870,6 +1871,7 @@ def run_claim3_experiment(
         reports_root: Root directory that stores experiment outputs.
         input_path: Original case JSONL used by `prepare`.
         warmup_points: Warmup prefixes evaluated by Claim 3.
+        fixed_pack_points: Fixed-pack branch prefixes evaluated by Claim 3.
         branch: Branch name required by `run`.
         resume: Whether to reuse existing branch outputs.
         show_progress: Whether to render progress bars for long-running work.
@@ -1895,6 +1897,7 @@ def run_claim3_experiment(
             reports_root=reports_root,
             input_path=input_path,
             warmup_points=warmup_points,
+            fixed_pack_points=fixed_pack_points,
         )
 
     if action == "run":
@@ -2113,6 +2116,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     claim3_prepare_parser.add_argument("--input-path", default=str(DEFAULT_INPUT_PATH))
     claim3_prepare_parser.add_argument("--warmup-points", default="0,25,50,100")
+    claim3_prepare_parser.add_argument("--fixed-pack-points", default="0,100")
     claim3_run_parser = subparsers.add_parser("claim3-run")
     claim3_run_parser.add_argument("--run-id", required=True)
     claim3_run_parser.add_argument("--reports-root", default=str(DEFAULT_REPORTS_ROOT))
@@ -2302,6 +2306,11 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             for item in str(args.warmup_points).split(",")
             if item.strip()
         )
+        fixed_pack_points = tuple(
+            int(item.strip())
+            for item in str(args.fixed_pack_points).split(",")
+            if item.strip()
+        )
 
         payload = run_claim3_experiment(
             command="prepare",
@@ -2311,6 +2320,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             reports_root=args.reports_root,
             input_path=args.input_path,
             warmup_points=warmup_points,
+            fixed_pack_points=fixed_pack_points,
         )
 
     elif args.command == "claim3-run":

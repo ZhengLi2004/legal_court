@@ -44,6 +44,28 @@ Evidence Window:
 """
 
 
+def _claim2_chat_completion_kwargs(spec: "EvaluatorSpec") -> dict[str, Any]:
+    """Return provider-specific chat completion kwargs for Claim 2 evaluators.
+
+    The current OpenAI-compatible gateway exposes `Qwen3.5-35B-A3B` as a
+    reasoning-style model that may emit only `reasoning_content` unless
+    thinking is disabled via `chat_template_kwargs.enable_thinking=False`.
+    Claim 2 requires a single E/N/C label in `message.content`, so we force
+    no-thinking mode for this model family here.
+    """
+
+    if spec.backend == "openai_chat" and spec.model_name == "Qwen3.5-35B-A3B":
+        return {
+            "extra_body": {
+                "chat_template_kwargs": {
+                    "enable_thinking": False,
+                }
+            }
+        }
+
+    return {}
+
+
 @dataclass(frozen=True)
 class EvaluatorSpec:
     """One evaluator endpoint or local model used by the Claim 2 pipeline.
@@ -361,6 +383,7 @@ def probe_evaluator(spec: EvaluatorSpec) -> dict[str, Any]:
             ],
             max_tokens=CLAIM2_NLI_MAX_OUTPUT_TOKENS,
             temperature=0.0,
+            **_claim2_chat_completion_kwargs(spec),
         )
 
         content = str(response.choices[0].message.content or "").strip()
@@ -517,6 +540,7 @@ class OpenAINliLabeler(NliLabeler):
                     messages=messages,
                     max_tokens=CLAIM2_NLI_MAX_OUTPUT_TOKENS,
                     temperature=0.0,
+                    **_claim2_chat_completion_kwargs(self.spec),
                 )
 
                 content = str(response.choices[0].message.content or "").strip()
