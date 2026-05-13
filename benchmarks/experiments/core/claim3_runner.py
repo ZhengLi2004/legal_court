@@ -698,6 +698,87 @@ def _rebuild_runtime_to_completed_prefix(
         )
 
 
+def _materialize_missing_snapshots_within_completed_prefix(
+    *,
+    ctx: Claim3Context,
+    case_map: dict[str, dict[str, Any]],
+    completed_prefix: int,
+    show_progress: bool,
+) -> list[dict[str, Any]]:
+    """Rebuild newly requested intermediate snapshots without changing history order."""
+
+    missing_points = [
+        point
+        for point in ctx.warmup_points
+        if 0 < point <= completed_prefix and not _snapshot_path(ctx, point).exists()
+    ]
+
+    if not missing_points:
+        return []
+
+    rebuild_dir = (
+        ctx.claim_root / "runtime_learning" / CLAIM3_MAIN_METHOD / "snapshot_rebuild"
+    )
+
+    materialized = []
+
+    try:
+        for target_point in missing_points:
+            source_point = max(
+                point
+                for point in (0, *ctx.warmup_points)
+                if point < target_point and _snapshot_path(ctx, point).exists()
+            )
+
+            if source_point > 0:
+                _copy_tree(_snapshot_path(ctx, source_point), rebuild_dir)
+
+            else:
+                _clear_dir(rebuild_dir)
+                rebuild_dir.mkdir(parents=True, exist_ok=True)
+
+            progress = tqdm(
+                total=target_point - source_point,
+                desc=f"Claim3 rebuild warmup_{target_point}",
+                unit="case",
+                dynamic_ncols=True,
+                disable=not show_progress,
+            )
+
+            try:
+                for idx in range(source_point, target_point):
+                    uid = ctx.warmup_pool_uids[idx]
+
+                    _run_main_system_once(
+                        case_payload=dict(case_map[uid]),
+                        storage_root_dir=str(rebuild_dir),
+                        budget=ctx.budget,
+                        seed=ctx.seed,
+                        retrieval_config=ctx.retrieval_config,
+                        test_mode_no_learning=False,
+                    )
+
+                    progress.update(1)
+
+            finally:
+                progress.close()
+
+            _copy_tree(rebuild_dir, _snapshot_path(ctx, target_point))
+
+            materialized.append(
+                {
+                    "warmup_point": target_point,
+                    "rebuilt_from_snapshot": source_point,
+                    "snapshot_path": str(_snapshot_path(ctx, target_point)),
+                }
+            )
+
+    finally:
+        _clear_dir(rebuild_dir)
+
+    return materialized
+
+
 def _ensure_warmup_snapshots(
     *,
     ctx: Claim3Context,
@@ -716,9 +797,29 @@ def _ensure_warmup_snapshots(
 
         completed_prefix += 1
 
-    if completed_prefix > 0 and (
+    materialized_snapshots = _materialize_missing_snapshots_within_completed_prefix(
+        ctx=ctx,
+        case_map=case_map,
+        completed_prefix=completed_prefix,
+        show_progress=show_progress,
+    )
+
+    needs_runtime_rebuild = completed_prefix > 0 and (
         not runtime_dir.exists() or not any(runtime_dir.iterdir())
+    )
+
+    if (
+        completed_prefix > 0
+        and completed_prefix in ctx.warmup_points
+        and _snapshot_path(ctx, completed_prefix).exists()
+        and runtime_dir.exists()
+        and any(runtime_dir.iterdir())
+        and _hash_directory(runtime_dir)
+        != _hash_directory(_snapshot_path(ctx, completed_prefix))
     ):
+        needs_runtime_rebuild = True
+
+    if needs_runtime_rebuild:
         _rebuild_runtime_to_completed_prefix(
             ctx=ctx,
             case_map=case_map,
@@ -777,6 +878,7 @@ def _ensure_warmup_snapshots(
             f"warmup_{point}": str(_snapshot_path(ctx, point))
             for point in ctx.warmup_points
         },
+        "materialized_snapshots": materialized_snapshots,
         "raw_dir": str(raw_dir),
     }
 

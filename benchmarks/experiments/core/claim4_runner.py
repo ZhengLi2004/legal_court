@@ -47,7 +47,7 @@ CLAIM4_FIXED_POLICY = "fixed"
 CLAIM4_ADAPTIVE_POLICY = "adaptive"
 CLAIM4_FIXED_METHOD_NAMES = CLAIM4_METHOD_NAMES
 CLAIM4_ADAPTIVE_METHOD_NAMES = ("main_system",)
-CLAIM4_FIXED_BUDGET_POINTS = ("q25", "q75", "full")
+CLAIM4_FIXED_BUDGET_POINTS = ("q25", "q50", "q75", "full")
 CLAIM4_ADAPTIVE_POINTS = ("full",)
 CLAIM4_DEV_REPEATS = (1, 2, 3)
 CLAIM4_TEST_REPEATS = (1,)
@@ -308,6 +308,7 @@ def _build_claim4_context(
 
     budget_points = {
         "q25": dict(freeze_budget_grid.get("budget_points", {}).get("q25", {}) or {}),
+        "q50": dict(freeze_budget_grid.get("budget_points", {}).get("q50", {}) or {}),
         "q75": dict(freeze_budget_grid.get("budget_points", {}).get("q75", {}) or {}),
         "full": dict(freeze_budget_grid.get("full_budget", {}) or {}),
     }
@@ -1233,7 +1234,7 @@ def run_claim4_slice(
         reports_root: Root directory that stores experiment outputs.
         stage: Split name to evaluate, such as `dev` or `test`.
         policy: Budget policy, either fixed or adaptive.
-        point: Named budget point such as `q25`, `q75`, or `full`.
+        point: Named budget point such as `q25`, `q50`, `q75`, or `full`.
         repeat: Repeat index within the selected stage.
         resume: Whether to reuse already-written case outputs.
         verbose: Whether to enable verbose method execution logs.

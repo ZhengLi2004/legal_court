@@ -2154,7 +2154,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     claim4_run_parser.add_argument(
-        "--point", required=True, choices=("q25", "q75", "full")
+        "--point", required=True, choices=("q25", "q50", "q75", "full")
     )
 
     claim4_run_parser.add_argument(

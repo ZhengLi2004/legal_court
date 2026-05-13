@@ -13,6 +13,7 @@ tests
 sampling
 context.txt
 README.md
+!/README.md
 AGENTS.md
 *.pdf
 docs/
