@@ -14,11 +14,6 @@ from benchmarks.experiments.methods.baseline_b2_vanilla_mad import (
 from benchmarks.experiments.methods.baseline_b3_stateful_no_axioms import (
     run_baseline_b3_stateful_no_axioms,
 )
-from benchmarks.experiments.methods.external_naive_mad import run_external_naive_mad
-from benchmarks.experiments.methods.external_naive_rag import run_external_naive_rag
-from benchmarks.experiments.methods.external_pure_one_shot_judge import (
-    run_external_pure_one_shot_judge,
-)
 from benchmarks.experiments.methods.main_system import run_main_system
 
 INTERNAL_DEFAULT_PROFILE = "internal_default"
@@ -40,11 +35,7 @@ _INTERNAL_RUNNERS: dict[str, MethodRunner] = {
     "baseline_b3_stateful_no_axioms": run_baseline_b3_stateful_no_axioms,
 }
 
-_EXTERNAL_RUNNERS: dict[str, MethodRunner] = {
-    "external_naive_rag": run_external_naive_rag,
-    "external_naive_mad": run_external_naive_mad,
-    "external_pure_one_shot_judge": run_external_pure_one_shot_judge,
-}
+_EXTERNAL_RUNNERS: dict[str, MethodRunner] = {}
 
 _CLAIM4_MAD_ONLY_RUNNERS: dict[str, MethodRunner] = {
     "main_system": run_main_system,
@@ -79,47 +70,6 @@ _METHOD_SEMANTICS: dict[str, dict[str, Any]] = {
         "mode": "debate_without_validate_step",
         "cohort": "internal",
         "skip_validate_step": True,
-        "root_claim_source": "gold_package_seeded",
-        "adjudication_mode": "direct_status_json",
-    },
-    "external_naive_rag": {
-        "mode": "external_naive_rag_single_shot",
-        "cohort": "external",
-        "retrieval": "explicit_es_top3",
-        "debate": False,
-        "uses_legal_system": False,
-        "uses_debate_engine": False,
-        "uses_long_term_memory": False,
-        "uses_recall_worker": False,
-        "uses_initial_insights": False,
-        "root_claim_source": "gold_package_seeded",
-        "adjudication_mode": "direct_status_json",
-    },
-    "external_naive_mad": {
-        "mode": "external_naive_mad_debate",
-        "cohort": "external",
-        "retrieval": "none",
-        "debate": True,
-        "uses_legal_system": False,
-        "uses_debate_engine": False,
-        "uses_long_term_memory": False,
-        "uses_recall_worker": False,
-        "uses_initial_insights": False,
-        "uses_validate_gate": False,
-        "root_claim_source": "gold_package_seeded",
-        "adjudication_mode": "direct_status_json",
-    },
-    "external_pure_one_shot_judge": {
-        "mode": "external_pure_one_shot_direct_judge",
-        "cohort": "external",
-        "retrieval": "none",
-        "debate": False,
-        "uses_legal_system": False,
-        "uses_debate_engine": False,
-        "uses_long_term_memory": False,
-        "uses_recall_worker": False,
-        "uses_initial_insights": False,
-        "uses_validate_gate": False,
         "root_claim_source": "gold_package_seeded",
         "adjudication_mode": "direct_status_json",
     },

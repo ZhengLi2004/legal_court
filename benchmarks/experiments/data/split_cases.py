@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from benchmarks.experiments.data.loader import load_cases_from_jsonl
@@ -895,60 +894,6 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(curve_rows)
 
-    x = [row["n_resamples"] for row in curve_rows]
-    score_mean = [row["score_mean"] for row in curve_rows]
-    score_low = [row["score_ci_low"] for row in curve_rows]
-    score_high = [row["score_ci_high"] for row in curve_rows]
-    plt.figure(figsize=(10, 8))
-    ax1 = plt.subplot(2, 1, 1)
-    ax1.plot(x, score_mean, marker="o", label="Feature Preservation Score")
-    ax1.fill_between(x, score_low, score_high, alpha=0.2, label="95% CI")
-    ax1.set_title("Step 05 Resample Stability")
-    ax1.set_ylabel("Score")
-    ax1.set_xticks(x)
-    ax1.set_ylim(0.0, 1.05)
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(loc="lower right")
-    ax2 = plt.subplot(2, 1, 2)
-
-    ax2.plot(
-        x,
-        [row["claim_q75_width"] for row in curve_rows],
-        marker="o",
-        label="claim_q75_width",
-    )
-
-    ax2.plot(
-        x,
-        [row["text_q75_width"] for row in curve_rows],
-        marker="o",
-        label="text_q75_width",
-    )
-
-    ax2.plot(
-        x,
-        [row["law_q75_width"] for row in curve_rows],
-        marker="o",
-        label="law_q75_width",
-    )
-
-    ax2.plot(
-        x,
-        [row["person_q75_width"] for row in curve_rows],
-        marker="o",
-        label="person_q75_width",
-    )
-
-    ax2.set_xlabel("Number of Resamples Included")
-    ax2.set_ylabel("P80 - P20")
-    ax2.set_xticks(x)
-    ax2.grid(True, alpha=0.3)
-    ax2.legend(loc="upper right", ncol=2)
-    plt.tight_layout()
-    plot_path = report_dir / "resample_stability.png"
-    plt.savefig(plot_path, dpi=300)
-    plt.close()
-
     summary = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "protocol_version": "step05_v3_strict_joint_resample",
@@ -1000,7 +945,6 @@ def main() -> None:
     print(f"saved: {output_dir / 'dev_ids.json'}")
     print(f"saved: {output_dir / 'test_ids.json'}")
     print(f"saved: {curve_path}")
-    print(f"saved: {plot_path}")
     print(f"saved: {output_dir / 'split_manifest.json'}")
 
     if cause_hash_mod_selected is not None:
