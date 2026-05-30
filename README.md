@@ -255,7 +255,7 @@ python -m benchmarks.experiments.core.orchestrator claim4-prepare \
   --input-path <your_cases.jsonl>
 ```
 
-Run budget slices. Repeat for the required stage, policy, point, and repeat.
+Run fixed-budget slices. Repeat for the required stage, budget point, and repeat.
 
 ```bash
 python -m benchmarks.experiments.core.orchestrator claim4-run \
@@ -267,8 +267,8 @@ python -m benchmarks.experiments.core.orchestrator claim4-run \
   --resume
 ```
 
-Valid policies are `fixed` and `adaptive`. Valid budget points are `q25`, `q50`,
-`q75`, and `full`. Valid repeats are `1`, `2`, and `3`.
+For Claim 4, use `--policy fixed`. Valid budget points are `q25`, `q50`,
+`q75`, and `full`; valid repeats are `1`, `2`, and `3`.
 
 Audit and summarize:
 
